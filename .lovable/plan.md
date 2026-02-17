@@ -1,76 +1,83 @@
 
 
-# MacroLite — Mobile-First Macro Tracking App
+# Replace Nutritionix with USDA FoodData Central
 
-## Overview
-A mobile-first macro tracking web app that ingests foods on-demand from Nutritionix, caches them in Supabase, and lets users build recipes, log daily meals, and manage a grocery list.
+## Summary
+Replace the Nutritionix integration with USDA FoodData Central (FDC) across the entire app. Since there is no existing food data in the database, we can safely rename the column.
 
 ---
 
-## 1. Authentication
-- Supabase Auth with **email/password** and **magic link** sign-in
-- Landing page (`/`) is public with sign-in/sign-up CTA
-- All other routes require authentication (protected route wrapper)
+## 1. Database Migration
 
-## 2. Database Setup (Supabase)
-Create all tables with RLS policies so users can only access their own data:
-- **foods** — cached Nutritionix foods with macros per serving and per 100g
-- **recipes** — user recipes with serving count
-- **recipe_items** — ingredients linking to foods with computed macros
-- **daily_logs** — one row per user per date
-- **daily_log_items** — individual meal entries (food or recipe) with computed macros
-- **groceries** — food items with need/have/low status
+Rename `nutritionix_id` to `fdc_id` in the `foods` table and update the unique constraint:
 
-## 3. Edge Functions (Server-Side Logic)
-Two Supabase Edge Functions to keep API keys secure:
+- Drop the existing unique index on `(user_id, nutritionix_id)`
+- Rename column `nutritionix_id` to `fdc_id`
+- Create new unique index on `(user_id, fdc_id)`
+- Change the default for `source` from `'nutritionix'` to `'usda_fdc'`
 
-- **`nutritionix-search`** — Proxies typeahead search to Nutritionix instant endpoint, returns display names and IDs
-- **`nutritionix-ingest`** — Fetches full nutrition data, normalizes macros per 100g, upserts into the foods table. Includes unit conversion utility and cache-first logic
+## 2. Add FDC_API_KEY Secret
 
-## 4. Pages & Navigation
+Request the `FDC_API_KEY` secret. Users can get a free API key from [https://fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup).
 
-**Bottom tab bar** (Today · Foods · Recipes · Groceries) — always visible on mobile.
+## 3. Replace Edge Functions
 
-### Landing Page (`/`)
-- Simple CTA to sign in or create account
+### `fdc-search` (replaces `nutritionix-search`)
+- Calls `POST https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${FDC_API_KEY}`
+- Body: `{ query, pageSize: 25, dataType: ["Foundation","SR Legacy","Survey (FNDDS)","Branded"] }`
+- Returns: `{ results: [{ fdcId, description, brandOwner, dataType }] }`
 
-### Today (`/today`)
-- Date selector to browse days
-- List of logged entries for selected date with calories, protein, carbs, fat
-- Running daily totals displayed prominently
-- Add entry: choose a recipe (with servings) or a single food (with quantity + unit)
-- Auto-creates daily_log row if none exists for that date
+### `fdc-ingest` (replaces `nutritionix-ingest`)
+- Auth required, reads user from token
+- Dedupe check: look for existing `(user_id, fdc_id)` match
+- Fetches `GET https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${FDC_API_KEY}`
+- Parses macros from `foodNutrients` by nutrient number: 208 (calories), 203 (protein), 204 (fat), 205 (carbs)
+- Handles kJ-to-kcal conversion if needed
+- All macros stored as per-100g; serving fields set to null for v1
+- Source set to `"usda_fdc"`
 
-### Foods (`/foods`)
-- Search bar with Nutritionix typeahead results
-- Selecting a result ingests & caches the food
-- Table/card list of "My Foods" showing macros per 100g
-- Tap a food to see detail view (per-serving, per-100g, brand, source)
+### Delete old functions
+- Remove `nutritionix-search` and `nutritionix-ingest` edge functions and their deployed instances
 
-### Recipes (`/recipes`)
-- List of recipes with total and per-serving macros
-- Create new recipe: name, servings, add ingredient rows (search from cached foods)
-- Recipe detail/edit: modify ingredients and servings, see computed totals and per-serving breakdown
+## 4. Update Frontend
 
-### Groceries (`/groceries`)
-- Add foods from cache or via Nutritionix search → ingest
-- Toggle status: Need / Have / Low
-- Simple list grouped or filterable by status
+### `FoodsPage.tsx`
+- Change search to invoke `fdc-search` instead of `nutritionix-search`
+- Change ingest to invoke `fdc-ingest` with `{ fdcId }` instead of `{ queryText, nutritionixId }`
+- Display results showing `description` and `brandOwner` instead of `displayName` and `brandName`
+- Update any "Nutritionix" labels to "USDA FoodData Central"
 
-## 5. Core Logic
-- **Unit conversion**: g, ml, tbsp, tsp, cup, oz, lb → grams (with v1 density assumptions)
-- **Macro calculation**: All macros computed from per-100g values × grams equivalent
-- **Recipe totals**: Sum of ingredient macros, divided by servings for per-serving view
-- **Daily totals**: Sum of all daily_log_items for a given date
+### `FoodsPage.tsx` detail dialog
+- Label source as "USDA FDC" where applicable
 
-## 6. UX Details
-- Mobile-first, data-dense design (compact cards/tables)
-- Empty states for all lists
-- Error messages for failed searches, unsupported units, missing serving grams
-- Fast and responsive — minimal loading states
+### Other pages (RecipesPage, GroceriesPage, TodayPage)
+- No changes needed -- they reference foods by `id`, not by source-specific fields
 
-## 7. Security
-- Edge functions verify Supabase auth session; user_id read from token, never from client
-- Nutritionix API keys stored as Supabase secrets only
-- RLS on all tables: SELECT/INSERT/UPDATE/DELETE scoped to `user_id = auth.uid()`
+## 5. Files Changed
 
+| File | Action |
+|------|--------|
+| `supabase/migrations/` (new) | Rename column, update index and default |
+| `supabase/functions/fdc-search/index.ts` | New edge function |
+| `supabase/functions/fdc-ingest/index.ts` | New edge function |
+| `supabase/functions/nutritionix-search/index.ts` | Delete |
+| `supabase/functions/nutritionix-ingest/index.ts` | Delete |
+| `src/pages/FoodsPage.tsx` | Update to use FDC functions |
+
+## Technical Details
+
+### FDC Nutrient Parsing Logic
+```text
+for each nutrient in foodNutrients:
+  if nutrient.nutrient.number == "208" -> calories (check unitName; if "kJ" divide by 4.184)
+  if nutrient.nutrient.number == "203" -> protein
+  if nutrient.nutrient.number == "204" -> fat  
+  if nutrient.nutrient.number == "205" -> carbs
+  value = nutrient.amount (already per 100g in FDC)
+```
+
+### No changes to
+- Unit conversion (`src/lib/units.ts`)
+- Recipe/daily log macro calculations
+- Groceries logic
+- Auth, navigation, or app shell
