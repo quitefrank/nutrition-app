@@ -1,73 +1,38 @@
-# Welcome to your Lovable project
+# MacroLite
 
-## Project info
+A single-user personal macro tracking app. No authentication — the app is usable immediately.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Features
 
-## How can I edit this code?
+- **Foods**: Search and cache foods from USDA FoodData Central (FDC)
+- **Recipes**: Combine cached foods into recipes with serving sizes
+- **Today**: Daily food/recipe log with macro rollups
+- **Groceries**: Track grocery status (need / low / have)
 
-There are several ways of editing your application.
+## Setup
 
-**Use Lovable**
+### 1. FDC API Key
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+Get a free API key from [https://fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup).
 
-Changes made via Lovable will be committed automatically to this repo.
+Add it as a backend secret named `FDC_API_KEY`.
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### 2. Run locally
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Architecture
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
+- **Backend**: Lovable Cloud (database + edge functions)
+- **Nutrition data**: USDA FoodData Central API
+- **No auth / no RLS**: Single-user personal app — all data is global
 
-**Use GitHub Codespaces**
+## Tech Stack
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- Vite, TypeScript, React, Tailwind CSS, shadcn/ui
+- Lovable Cloud for database and backend functions
+- USDA FoodData Central for nutrition data

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -18,7 +17,6 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function GroceriesPage() {
-  const { user } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [foodId, setFoodId] = useState('');
@@ -42,8 +40,8 @@ export default function GroceriesPage() {
 
   const addGrocery = useMutation({
     mutationFn: async () => {
-      if (!user || !foodId) return;
-      const { error } = await supabase.from('groceries').insert({ user_id: user.id, food_id: foodId });
+      if (!foodId) return;
+      const { error } = await supabase.from('groceries').insert({ food_id: foodId });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -93,7 +91,6 @@ export default function GroceriesPage() {
         </Dialog>
       </div>
 
-      {/* Filter */}
       <div className="flex gap-2">
         {['all', 'need', 'low', 'have'].map(s => (
           <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className="capitalize text-xs">

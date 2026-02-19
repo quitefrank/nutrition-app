@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -13,7 +12,6 @@ import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function TodayPage() {
-  const { user } = useAuth();
   const qc = useQueryClient();
   const [date, setDate] = useState(new Date());
   const dateStr = format(date, 'yyyy-MM-dd');
@@ -63,13 +61,11 @@ export default function TodayPage() {
 
   const addEntry = useMutation({
     mutationFn: async () => {
-      if (!user) return;
-      // ensure daily_log exists
       let logId = dailyLog?.id;
       if (!logId) {
         const { data, error } = await supabase
           .from('daily_logs')
-          .upsert({ user_id: user.id, log_date: dateStr }, { onConflict: 'user_id,log_date' })
+          .upsert({ log_date: dateStr }, { onConflict: 'log_date' })
           .select('id')
           .single();
         if (error) throw error;
@@ -89,7 +85,6 @@ export default function TodayPage() {
         const grams = quantityNum * factor;
 
         await supabase.from('daily_log_items').insert({
-          user_id: user.id,
           daily_log_id: logId,
           food_id: selectedId,
           quantity: quantityNum,
@@ -103,7 +98,6 @@ export default function TodayPage() {
       } else {
         const recipe = recipes.find(r => r.id === selectedId);
         if (!recipe) throw new Error('Select a recipe');
-        // sum recipe_items macros
         const { data: recipeItems } = await supabase.from('recipe_items').select('*').eq('recipe_id', selectedId);
         const totals = (recipeItems ?? []).reduce(
           (acc, i) => ({ cal: acc.cal + Number(i.calories), p: acc.p + Number(i.protein), c: acc.c + Number(i.carbs), f: acc.f + Number(i.fat) }),
@@ -118,7 +112,6 @@ export default function TodayPage() {
         };
 
         await supabase.from('daily_log_items').insert({
-          user_id: user.id,
           daily_log_id: logId,
           recipe_id: selectedId,
           servings: srvInput,
