@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -12,14 +11,11 @@ import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function RecipesPage() {
-  const { user } = useAuth();
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [servings, setServings] = useState('1');
   const [detailId, setDetailId] = useState<string | null>(null);
-
-  // add ingredient state
   const [addIngOpen, setAddIngOpen] = useState(false);
   const [ingFoodId, setIngFoodId] = useState('');
   const [ingQty, setIngQty] = useState('100');
@@ -50,9 +46,7 @@ export default function RecipesPage() {
 
   const createRecipe = useMutation({
     mutationFn: async () => {
-      if (!user) return;
       const { error } = await supabase.from('recipes').insert({
-        user_id: user.id,
         name,
         servings: parseFloat(servings) || 1,
       });
@@ -70,7 +64,7 @@ export default function RecipesPage() {
 
   const addIngredient = useMutation({
     mutationFn: async () => {
-      if (!user || !detailId) return;
+      if (!detailId) return;
       const food = foods.find(f => f.id === ingFoodId);
       if (!food) throw new Error('Select a food');
       const q = parseFloat(ingQty);
@@ -80,7 +74,6 @@ export default function RecipesPage() {
       const grams = q * factor;
 
       await supabase.from('recipe_items').insert({
-        user_id: user.id,
         recipe_id: detailId,
         food_id: ingFoodId,
         quantity: q,
@@ -146,7 +139,6 @@ export default function RecipesPage() {
         );
       })}
 
-      {/* Recipe detail */}
       <Dialog open={!!detailId} onOpenChange={() => setDetailId(null)}>
         <DialogContent className="max-h-[80vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{detailRecipe?.name}</DialogTitle></DialogHeader>
@@ -177,7 +169,6 @@ export default function RecipesPage() {
                 </div>
               ))}
 
-              {/* Add ingredient */}
               {!addIngOpen ? (
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setAddIngOpen(true)}>
                   <Plus className="h-3 w-3 mr-1" /> Add Ingredient
