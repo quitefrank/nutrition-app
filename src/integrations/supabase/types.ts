@@ -29,7 +29,6 @@ export type Database = {
           recipe_id: string | null
           servings: number | null
           unit: string | null
-          user_id: string
         }
         Insert: {
           calories: number
@@ -45,7 +44,6 @@ export type Database = {
           recipe_id?: string | null
           servings?: number | null
           unit?: string | null
-          user_id: string
         }
         Update: {
           calories?: number
@@ -61,7 +59,6 @@ export type Database = {
           recipe_id?: string | null
           servings?: number | null
           unit?: string | null
-          user_id?: string
         }
         Relationships: [
           {
@@ -92,19 +89,16 @@ export type Database = {
           created_at: string | null
           id: string
           log_date: string
-          user_id: string
         }
         Insert: {
           created_at?: string | null
           id?: string
           log_date: string
-          user_id: string
         }
         Update: {
           created_at?: string | null
           id?: string
           log_date?: string
-          user_id?: string
         }
         Relationships: []
       }
@@ -118,14 +112,13 @@ export type Database = {
           created_at: string | null
           fat_per_100g: number
           fat_per_serving: number | null
+          fdc_id: string
           id: string
           name: string
-          nutritionix_id: string
           protein_per_100g: number
           protein_per_serving: number | null
           serving_grams: number | null
           source: string
-          user_id: string
         }
         Insert: {
           brand?: string | null
@@ -136,14 +129,13 @@ export type Database = {
           created_at?: string | null
           fat_per_100g: number
           fat_per_serving?: number | null
+          fdc_id: string
           id?: string
           name: string
-          nutritionix_id: string
           protein_per_100g: number
           protein_per_serving?: number | null
           serving_grams?: number | null
           source?: string
-          user_id: string
         }
         Update: {
           brand?: string | null
@@ -154,14 +146,13 @@ export type Database = {
           created_at?: string | null
           fat_per_100g?: number
           fat_per_serving?: number | null
+          fdc_id?: string
           id?: string
           name?: string
-          nutritionix_id?: string
           protein_per_100g?: number
           protein_per_serving?: number | null
           serving_grams?: number | null
           source?: string
-          user_id?: string
         }
         Relationships: []
       }
@@ -171,21 +162,18 @@ export type Database = {
           food_id: string
           id: string
           status: string
-          user_id: string
         }
         Insert: {
           created_at?: string | null
           food_id: string
           id?: string
           status?: string
-          user_id: string
         }
         Update: {
           created_at?: string | null
           food_id?: string
           id?: string
           status?: string
-          user_id?: string
         }
         Relationships: [
           {
@@ -210,7 +198,6 @@ export type Database = {
           quantity: number
           recipe_id: string
           unit: string
-          user_id: string
         }
         Insert: {
           calories: number
@@ -224,7 +211,6 @@ export type Database = {
           quantity: number
           recipe_id: string
           unit: string
-          user_id: string
         }
         Update: {
           calories?: number
@@ -238,7 +224,6 @@ export type Database = {
           quantity?: number
           recipe_id?: string
           unit?: string
-          user_id?: string
         }
         Relationships: [
           {
@@ -263,21 +248,18 @@ export type Database = {
           id: string
           name: string
           servings: number
-          user_id: string
         }
         Insert: {
           created_at?: string | null
           id?: string
           name: string
           servings?: number
-          user_id: string
         }
         Update: {
           created_at?: string | null
           id?: string
           name?: string
           servings?: number
-          user_id?: string
         }
         Relationships: []
       }
