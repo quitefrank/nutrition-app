@@ -1,83 +1,111 @@
 
+# MacroLite Feature Update Plan
 
-# Replace Nutritionix with USDA FoodData Central
-
-## Summary
-Replace the Nutritionix integration with USDA FoodData Central (FDC) across the entire app. Since there is no existing food data in the database, we can safely rename the column.
+## Overview
+Five changes: black preview background, food delete/replace, recipe edit/delete, groceries UX overhaul, and smarter USDA search sorting.
 
 ---
 
-## 1. Database Migration
+## 1. Preview Background Black
 
-Rename `nutritionix_id` to `fdc_id` in the `foods` table and update the unique constraint:
+**File: `src/components/AppShell.tsx`**
 
-- Drop the existing unique index on `(user_id, nutritionix_id)`
-- Rename column `nutritionix_id` to `fdc_id`
-- Create new unique index on `(user_id, fdc_id)`
-- Change the default for `source` from `'nutritionix'` to `'usda_fdc'`
+Wrap the existing container in an outer `div` with `bg-black min-h-screen flex justify-center`. The inner container gets `bg-background` explicitly.
 
-## 2. Add FDC_API_KEY Secret
+**File: `src/components/BottomNav.tsx`**
 
-Request the `FDC_API_KEY` secret. Users can get a free API key from [https://fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup).
+Constrain the nav bar to the phone container width instead of full-screen `left-0 right-0`. Use a centered approach matching the `max-w-lg` container.
 
-## 3. Replace Edge Functions
+---
 
-### `fdc-search` (replaces `nutritionix-search`)
-- Calls `POST https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${FDC_API_KEY}`
-- Body: `{ query, pageSize: 25, dataType: ["Foundation","SR Legacy","Survey (FNDDS)","Branded"] }`
-- Returns: `{ results: [{ fdcId, description, brandOwner, dataType }] }`
+## 2. Foods Page: Delete + Replace Food
 
-### `fdc-ingest` (replaces `nutritionix-ingest`)
-- Auth required, reads user from token
-- Dedupe check: look for existing `(user_id, fdc_id)` match
-- Fetches `GET https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${FDC_API_KEY}`
-- Parses macros from `foodNutrients` by nutrient number: 208 (calories), 203 (protein), 204 (fat), 205 (carbs)
-- Handles kJ-to-kcal conversion if needed
-- All macros stored as per-100g; serving fields set to null for v1
-- Source set to `"usda_fdc"`
+**File: `src/pages/FoodsPage.tsx`**
 
-### Delete old functions
-- Remove `nutritionix-search` and `nutritionix-ingest` edge functions and their deployed instances
+Add two buttons to the existing food detail dialog:
 
-## 4. Update Frontend
+### A) Delete Food
+- Mutation checks `recipe_items`, `daily_log_items`, `groceries` for rows referencing `selectedFood.id`
+- If references found: show an AlertDialog with counts and "Delete and remove references" option
+- Cascade: delete dependent rows first, then the food
+- Invalidate queries: `my_foods`, `recipes`, `groceries`, `daily_log_items`
 
-### `FoodsPage.tsx`
-- Change search to invoke `fdc-search` instead of `nutritionix-search`
-- Change ingest to invoke `fdc-ingest` with `{ fdcId }` instead of `{ queryText, nutritionixId }`
-- Display results showing `description` and `brandOwner` instead of `displayName` and `brandName`
-- Update any "Nutritionix" labels to "USDA FoodData Central"
+### B) Replace Food
+- New dialog state for replacement flow with two modes:
+  1. Pick from existing cached foods (Select dropdown)
+  2. Search USDA and ingest a new food (reuse existing `fdc-search` / `fdc-ingest` flow)
+- Once replacement food is selected, call a new edge function `food-replace`
 
-### `FoodsPage.tsx` detail dialog
-- Label source as "USDA FDC" where applicable
+**New file: `supabase/functions/food-replace/index.ts`**
 
-### Other pages (RecipesPage, GroceriesPage, TodayPage)
-- No changes needed -- they reference foods by `id`, not by source-specific fields
+Edge function that:
+- Accepts `{ oldFoodId, newFoodId }`
+- Fetches new food's per-100g macros
+- Updates `recipe_items` where `food_id = oldFoodId`: sets `food_id = newFoodId`, recomputes `calories`, `protein`, `carbs`, `fat` using each row's `grams_equivalent` and new macros
+- Updates `daily_log_items` where `food_id = oldFoodId`: same recomputation
+- Updates `groceries` where `food_id = oldFoodId`: sets `food_id = newFoodId`
+- Returns `{ recipeItems, logItems, groceryItems }` counts
 
-## 5. Files Changed
+---
+
+## 3. Recipes Page: Edit + Delete Recipe
+
+**File: `src/pages/RecipesPage.tsx`**
+
+### A) Edit Recipe
+- Add edit mode toggle in the detail dialog
+- Editable fields: `name` and `servings`
+- Save mutation updates the `recipes` row, invalidates queries, shows toast
+
+### B) Delete Recipe
+- AlertDialog confirmation
+- Cascade delete: `recipe_items` then `daily_log_items` (where `recipe_id` matches), then the recipe itself
+- Close dialog, invalidate queries, toast
+
+---
+
+## 4. Groceries Page: Filter Dropdown + Status Dropdown + Checkbox
+
+**File: `src/pages/GroceriesPage.tsx`**
+
+### A) Filter dropdown
+- Replace the four filter buttons with a single `Select` component (options: all, need, low, have)
+
+### B) Status dropdown per item
+- Replace the clickable Badge with a `Select` per row (options: need, low, have)
+- `onValueChange` updates the row's status in Supabase
+
+### C) Checkbox for shopping flow
+- When an item's status is `need`, render a Checkbox on the left
+- Checking it sets status to `have` immediately
+- Item disappears from view if filter is `need`
+
+---
+
+## 5. USDA Search: Sort by Closest Match
+
+**File: `supabase/functions/fdc-search/index.ts`**
+
+Add a scoring function after receiving FDC results:
+- Normalize query and descriptions (lowercase, trim, collapse whitespace, remove punctuation)
+- Score each result:
+  - +100 for exact match
+  - +50 if description starts with query
+  - +10 per query token found in description
+  - +5 bonus for Foundation / SR Legacy data types
+  - Subtract a fraction of Levenshtein distance (simple implementation) between query and beginning of description
+- Sort descending by score before returning
+
+---
+
+## Files Summary
 
 | File | Action |
 |------|--------|
-| `supabase/migrations/` (new) | Rename column, update index and default |
-| `supabase/functions/fdc-search/index.ts` | New edge function |
-| `supabase/functions/fdc-ingest/index.ts` | New edge function |
-| `supabase/functions/nutritionix-search/index.ts` | Delete |
-| `supabase/functions/nutritionix-ingest/index.ts` | Delete |
-| `src/pages/FoodsPage.tsx` | Update to use FDC functions |
-
-## Technical Details
-
-### FDC Nutrient Parsing Logic
-```text
-for each nutrient in foodNutrients:
-  if nutrient.nutrient.number == "208" -> calories (check unitName; if "kJ" divide by 4.184)
-  if nutrient.nutrient.number == "203" -> protein
-  if nutrient.nutrient.number == "204" -> fat  
-  if nutrient.nutrient.number == "205" -> carbs
-  value = nutrient.amount (already per 100g in FDC)
-```
-
-### No changes to
-- Unit conversion (`src/lib/units.ts`)
-- Recipe/daily log macro calculations
-- Groceries logic
-- Auth, navigation, or app shell
+| `src/components/AppShell.tsx` | Edit -- black outer wrapper |
+| `src/components/BottomNav.tsx` | Edit -- constrain to phone container |
+| `src/pages/FoodsPage.tsx` | Edit -- add delete/replace to detail dialog |
+| `src/pages/RecipesPage.tsx` | Edit -- add edit/delete to detail dialog |
+| `src/pages/GroceriesPage.tsx` | Edit -- dropdown filter, status select, checkbox |
+| `supabase/functions/fdc-search/index.ts` | Edit -- add scoring + sorting |
+| `supabase/functions/food-replace/index.ts` | New -- server-side food replacement |
