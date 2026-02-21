@@ -4,10 +4,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SUPPORTED_UNITS } from '@/lib/units';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function RecipesPage() {
@@ -20,6 +21,14 @@ export default function RecipesPage() {
   const [ingFoodId, setIngFoodId] = useState('');
   const [ingQty, setIngQty] = useState('100');
   const [ingUnit, setIngUnit] = useState('g');
+
+  // Edit state
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editServings, setEditServings] = useState('');
+
+  // Delete state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const { data: recipes = [] } = useQuery({
     queryKey: ['recipes'],
@@ -46,10 +55,7 @@ export default function RecipesPage() {
 
   const createRecipe = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('recipes').insert({
-        name,
-        servings: parseFloat(servings) || 1,
-      });
+      const { error } = await supabase.from('recipes').insert({ name, servings: parseFloat(servings) || 1 });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -72,7 +78,6 @@ export default function RecipesPage() {
       const factor = conversions[ingUnit.toLowerCase()];
       if (!factor) throw new Error(`Unsupported unit: ${ingUnit}`);
       const grams = q * factor;
-
       await supabase.from('recipe_items').insert({
         recipe_id: detailId,
         food_id: ingFoodId,
@@ -97,11 +102,53 @@ export default function RecipesPage() {
   });
 
   const deleteIngredient = useMutation({
-    mutationFn: async (id: string) => {
-      await supabase.from('recipe_items').delete().eq('id', id);
-    },
+    mutationFn: async (id: string) => { await supabase.from('recipe_items').delete().eq('id', id); },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recipes'] }),
   });
+
+  // Edit recipe
+  const startEdit = () => {
+    if (!detailRecipe) return;
+    setEditName(detailRecipe.name);
+    setEditServings(String(detailRecipe.servings));
+    setEditing(true);
+  };
+
+  const saveEdit = useMutation({
+    mutationFn: async () => {
+      if (!detailId) return;
+      const { error } = await supabase.from('recipes').update({
+        name: editName,
+        servings: parseFloat(editServings) || 1,
+      }).eq('id', detailId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recipes'] });
+      setEditing(false);
+      toast.success('Recipe updated');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Delete recipe
+  const deleteRecipe = async () => {
+    if (!deleteConfirmId) return;
+    await supabase.from('recipe_items').delete().eq('recipe_id', deleteConfirmId);
+    await supabase.from('daily_log_items').delete().eq('recipe_id', deleteConfirmId);
+    await supabase.from('recipes').delete().eq('id', deleteConfirmId);
+    qc.invalidateQueries({ queryKey: ['recipes'] });
+    qc.invalidateQueries({ queryKey: ['daily_log'] });
+    setDeleteConfirmId(null);
+    setDetailId(null);
+    toast.success('Recipe deleted');
+  };
+
+  const openDetail = (id: string) => {
+    setDetailId(id);
+    setEditing(false);
+    setAddIngOpen(false);
+  };
 
   return (
     <div className="p-4 space-y-4">
@@ -128,7 +175,7 @@ export default function RecipesPage() {
         );
         const srv = Number(r.servings) || 1;
         return (
-          <Card key={r.id} className="cursor-pointer" onClick={() => setDetailId(r.id)}>
+          <Card key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
             <CardContent className="p-3">
               <div className="font-medium text-sm">{r.name} <span className="text-muted-foreground">({srv} srv)</span></div>
               <div className="text-xs text-muted-foreground">
@@ -139,11 +186,31 @@ export default function RecipesPage() {
         );
       })}
 
+      {/* Recipe Detail Dialog */}
       <Dialog open={!!detailId} onOpenChange={() => setDetailId(null)}>
         <DialogContent className="max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{detailRecipe?.name}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              {editing ? (
+                <Input value={editName} onChange={e => setEditName(e.target.value)} className="text-lg font-bold" />
+              ) : (
+                detailRecipe?.name
+              )}
+            </DialogTitle>
+          </DialogHeader>
           {detailRecipe && (
             <div className="space-y-3">
+              {editing && (
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Servings</label>
+                  <Input type="number" value={editServings} onChange={e => setEditServings(e.target.value)} />
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1" onClick={() => saveEdit.mutate()} disabled={saveEdit.isPending}>Save</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="font-medium">Total</p>
@@ -196,10 +263,38 @@ export default function RecipesPage() {
                   </div>
                 </div>
               )}
+
+              {/* Edit + Delete actions */}
+              <div className="flex gap-2 pt-2 border-t">
+                {!editing && (
+                  <Button variant="outline" size="sm" className="flex-1" onClick={startEdit}>
+                    <Pencil className="h-3 w-3 mr-1" /> Edit
+                  </Button>
+                )}
+                <Button variant="destructive" size="sm" className="flex-1" onClick={() => setDeleteConfirmId(detailId)}>
+                  <Trash2 className="h-3 w-3 mr-1" /> Delete Recipe
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Recipe Confirmation */}
+      <AlertDialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this recipe?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will also remove all ingredients and any daily log entries referencing this recipe.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteRecipe}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

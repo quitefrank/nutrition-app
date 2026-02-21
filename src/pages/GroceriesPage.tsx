@@ -5,16 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-
-const STATUS_COLORS: Record<string, string> = {
-  need: 'bg-destructive/10 text-destructive',
-  low: 'bg-accent text-accent-foreground',
-  have: 'bg-primary/10 text-primary',
-};
 
 export default function GroceriesPage() {
   const qc = useQueryClient();
@@ -53,10 +46,9 @@ export default function GroceriesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const toggleStatus = useMutation({
-    mutationFn: async ({ id, current }: { id: string; current: string }) => {
-      const next = current === 'need' ? 'have' : current === 'have' ? 'low' : 'need';
-      await supabase.from('groceries').update({ status: next }).eq('id', id);
+  const updateStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      await supabase.from('groceries').update({ status }).eq('id', id);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groceries'] }),
   });
@@ -91,27 +83,39 @@ export default function GroceriesPage() {
         </Dialog>
       </div>
 
-      <div className="flex gap-2">
-        {['all', 'need', 'low', 'have'].map(s => (
-          <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className="capitalize text-xs">
-            {s}
-          </Button>
-        ))}
-      </div>
+      {/* Filter dropdown */}
+      <Select value={filter} onValueChange={setFilter}>
+        <SelectTrigger className="w-32">
+          <SelectValue placeholder="Filter" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="need">Need</SelectItem>
+          <SelectItem value="low">Low</SelectItem>
+          <SelectItem value="have">Have</SelectItem>
+        </SelectContent>
+      </Select>
 
       {filtered.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No items. Add foods to your grocery list.</p>}
       {filtered.map((g: any) => (
         <Card key={g.id}>
-          <CardContent className="flex items-center justify-between p-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">{g.foods?.name}</span>
-              <Badge
-                className={cn('cursor-pointer text-xs', STATUS_COLORS[g.status])}
-                onClick={() => toggleStatus.mutate({ id: g.id, current: g.status })}
-              >
-                {g.status}
-              </Badge>
-            </div>
+          <CardContent className="flex items-center gap-2 p-3">
+            {g.status === 'need' && (
+              <Checkbox
+                onCheckedChange={() => updateStatus.mutate({ id: g.id, status: 'have' })}
+              />
+            )}
+            <span className="text-sm font-medium flex-1">{g.foods?.name}</span>
+            <Select value={g.status} onValueChange={(val) => updateStatus.mutate({ id: g.id, status: val })}>
+              <SelectTrigger className="w-20 h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="need">need</SelectItem>
+                <SelectItem value="low">low</SelectItem>
+                <SelectItem value="have">have</SelectItem>
+              </SelectContent>
+            </Select>
             <Button variant="ghost" size="icon" onClick={() => deleteGrocery.mutate(g.id)}>
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
