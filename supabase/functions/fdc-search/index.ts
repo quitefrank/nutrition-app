@@ -5,6 +5,52 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function normalize(s: string): string {
+  return s.toLowerCase().trim().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ');
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  // Use two rows for efficiency
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      curr[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1]
+        : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+function scoreResult(query: string, description: string, dataType: string): number {
+  const nq = normalize(query);
+  const nd = normalize(description);
+  let score = 0;
+
+  if (nd === nq) score += 100;
+  else if (nd.startsWith(nq)) score += 50;
+
+  const tokens = nq.split(' ').filter(Boolean);
+  const matched = tokens.filter(t => nd.includes(t)).length;
+  score += matched * 10;
+
+  // Levenshtein on prefix
+  const prefix = nd.substring(0, Math.min(nq.length + 5, nd.length));
+  const dist = levenshtein(nq, prefix);
+  score -= dist * 0.5;
+
+  // Prefer non-branded types
+  if (dataType === 'Foundation' || dataType === 'SR Legacy') score += 5;
+
+  return score;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -29,12 +75,16 @@ serve(async (req) => {
     if (!res.ok) throw new Error('FDC search failed');
     const data = await res.json();
 
-    const results = (data.foods ?? []).map((item: any) => ({
-      fdcId: item.fdcId,
-      description: item.description,
-      brandOwner: item.brandOwner ?? null,
-      dataType: item.dataType,
-    }));
+    const results = (data.foods ?? [])
+      .map((item: any) => ({
+        fdcId: item.fdcId,
+        description: item.description,
+        brandOwner: item.brandOwner ?? null,
+        dataType: item.dataType,
+        _score: scoreResult(query, item.description, item.dataType),
+      }))
+      .sort((a: any, b: any) => b._score - a._score)
+      .map(({ _score, ...rest }: any) => rest);
 
     return new Response(JSON.stringify({ results }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1,1 +1,4 @@
 project_id = "tdluttkhwxvspzwgfdki"
+
+[functions.food-replace]
+verify_jwt = false
