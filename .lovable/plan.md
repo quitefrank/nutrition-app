@@ -1,111 +1,214 @@
 
-# MacroLite Feature Update Plan
+
+# AI Photo Recipe Import
 
 ## Overview
-Five changes: black preview background, food delete/replace, recipe edit/delete, groceries UX overhaul, and smarter USDA search sorting.
+Add a new `/ai` route with a multi-stage pipeline: photograph a recipe, AI decomposes it into structured ingredients, auto-match against USDA, let the user review/edit, then create the recipe with accurate macros.
 
 ---
 
-## 1. Preview Background Black
+## Architecture
 
-**File: `src/components/AppShell.tsx`**
+The pipeline has 5 stages, managed as React state on a single page component:
 
-Wrap the existing container in an outer `div` with `bg-black min-h-screen flex justify-center`. The inner container gets `bg-background` explicitly.
+```text
+[Upload Photo] --> [AI Decompose] --> [USDA Match] --> [User Review/Edit] --> [Create Recipe]
+     Stage 0          Stage 1            Stage 2            Stage 3              Stage 4
+```
+
+---
+
+## 1. New Edge Function: `ai-decompose`
+
+**File: `supabase/functions/ai-decompose/index.ts`**
+
+- Accepts `{ imageBase64: string, userContext?: string }`
+- Calls Lovable AI Gateway (`https://ai.gateway.lovable.dev/v1/chat/completions`) with model `google/gemini-2.5-flash` (multimodal, cost-effective)
+- Uses tool calling to extract structured output (not raw JSON in prompt)
+- Tool definition:
+  - Function name: `extract_recipe`
+  - Parameters schema:
+    - `title`: string or null
+    - `servings`: number or null
+    - `ingredients`: array of `{ rawLine, normalizedName, quantity (number|null), unit (string|null), confidence (0-1) }`
+- System prompt instructs the model to:
+  - Extract recipe title if present
+  - Extract servings if visible
+  - List every ingredient line
+  - Normalize names to plain English food terms
+  - Prefer metric units
+  - Never invent quantities -- set to null if unclear
+  - Set confidence 0-1 per ingredient
+- Uses `LOVABLE_API_KEY` (already provisioned)
+- Image sent as a data URL in the user message content array (multimodal format)
+- Returns the parsed tool call arguments directly
+- Handles 429/402 errors and surfaces them
+
+**Config: `supabase/config.toml`** -- add `[functions.ai-decompose]` with `verify_jwt = false`
+
+---
+
+## 2. New Edge Function: `ai-create-recipe`
+
+**File: `supabase/functions/ai-create-recipe/index.ts`**
+
+- Accepts:
+  ```
+  {
+    title: string,
+    servings: number,
+    ingredients: [{ fdcId: string, quantity: number, unit: string }]
+  }
+  ```
+- For each ingredient:
+  - Call `fdc-ingest` logic inline (or query foods table for cached entry): ensure food exists in DB
+  - Convert unit to grams using the same conversion map from `src/lib/units.ts`
+  - Compute macros: `calories = grams * calories_per_100g / 100` (same for protein, carbs, fat)
+- Create `recipes` row with title and servings
+- Batch insert `recipe_items` rows
+- Return `{ recipeId, itemCount }`
+
+**Config: `supabase/config.toml`** -- add `[functions.ai-create-recipe]` with `verify_jwt = false`
+
+---
+
+## 3. New Page: `src/pages/AIPage.tsx`
+
+Multi-stage wizard managed by a `stage` state variable (0-4).
+
+### Stage 0: Upload
+- Toggle between "Photo" and "Photo and Text" modes (using existing Toggle/Button components)
+- File input accepting image/* with camera capture (`capture="environment"`)
+- Optional text input for user context (visible in "Photo and Text" mode)
+- "Analyze" button -- converts image to base64, calls `ai-decompose`
+- Loading state with spinner
+
+### Stage 1-2: Processing (automatic)
+- After decompose returns, automatically run USDA matching:
+  - For each ingredient, call existing `fdc-search` edge function with `normalizedName`
+  - Take the top result as auto-selected match
+  - Store `matchConfidence` based on search ranking position
+- Advance to Stage 3 (review)
+
+### Stage 3: Review and Edit
+- Display recipe title (editable Input)
+- Display servings (editable Input)
+- Editable table with columns:
+  - Ingredient name (editable Input, pre-filled with `normalizedName`)
+  - Quantity (editable number Input -- empty/highlighted if null)
+  - Unit (Select dropdown with SUPPORTED_UNITS)
+  - USDA Match (Select dropdown showing top 5 search results per ingredient, auto-selected to best match)
+  - Confidence badge: green if >= 0.6, yellow/orange if < 0.6
+- Issues summary panel at top:
+  - Count of missing quantities
+  - Count of low-confidence matches (< 0.6)
+  - Piece-based units warning (if unit is "piece", "whole", etc.)
+- "Add Row" button to manually add ingredient rows
+- "Refine with AI" button (calls ai-decompose again with current structured data as context to improve clarity)
+- Live macro preview:
+  - For each row where quantity, unit, and USDA match are all set: compute grams_equivalent and macros from the matched food's per-100g values
+  - Show running total and per-serving breakdown at the bottom
+  - Recomputes on every field change (Step 5 requirement)
+- "Create Recipe" button -- calls `ai-create-recipe`
+
+### Stage 4: Done
+- Success message with link to the new recipe on `/recipes`
+- "Import Another" button to reset
+
+### UI Components Used
+- Card, Input, Button, Select, Badge, Dialog (all existing shadcn/ui)
+- Table components for the review grid
+- Toast for feedback
+
+---
+
+## 4. Navigation Updates
+
+**File: `src/App.tsx`**
+- Add route: `<Route path="/ai" element={<AIPage />} />`
 
 **File: `src/components/BottomNav.tsx`**
-
-Constrain the nav bar to the phone container width instead of full-screen `left-0 right-0`. Use a centered approach matching the `max-w-lg` container.
-
----
-
-## 2. Foods Page: Delete + Replace Food
-
-**File: `src/pages/FoodsPage.tsx`**
-
-Add two buttons to the existing food detail dialog:
-
-### A) Delete Food
-- Mutation checks `recipe_items`, `daily_log_items`, `groceries` for rows referencing `selectedFood.id`
-- If references found: show an AlertDialog with counts and "Delete and remove references" option
-- Cascade: delete dependent rows first, then the food
-- Invalidate queries: `my_foods`, `recipes`, `groceries`, `daily_log_items`
-
-### B) Replace Food
-- New dialog state for replacement flow with two modes:
-  1. Pick from existing cached foods (Select dropdown)
-  2. Search USDA and ingest a new food (reuse existing `fdc-search` / `fdc-ingest` flow)
-- Once replacement food is selected, call a new edge function `food-replace`
-
-**New file: `supabase/functions/food-replace/index.ts`**
-
-Edge function that:
-- Accepts `{ oldFoodId, newFoodId }`
-- Fetches new food's per-100g macros
-- Updates `recipe_items` where `food_id = oldFoodId`: sets `food_id = newFoodId`, recomputes `calories`, `protein`, `carbs`, `fat` using each row's `grams_equivalent` and new macros
-- Updates `daily_log_items` where `food_id = oldFoodId`: same recomputation
-- Updates `groceries` where `food_id = oldFoodId`: sets `food_id = newFoodId`
-- Returns `{ recipeItems, logItems, groceryItems }` counts
+- Add fifth tab: `{ to: '/ai', icon: Camera, label: 'AI' }` using `Camera` from lucide-react
 
 ---
 
-## 3. Recipes Page: Edit + Delete Recipe
-
-**File: `src/pages/RecipesPage.tsx`**
-
-### A) Edit Recipe
-- Add edit mode toggle in the detail dialog
-- Editable fields: `name` and `servings`
-- Save mutation updates the `recipes` row, invalidates queries, shows toast
-
-### B) Delete Recipe
-- AlertDialog confirmation
-- Cascade delete: `recipe_items` then `daily_log_items` (where `recipe_id` matches), then the recipe itself
-- Close dialog, invalidate queries, toast
-
----
-
-## 4. Groceries Page: Filter Dropdown + Status Dropdown + Checkbox
-
-**File: `src/pages/GroceriesPage.tsx`**
-
-### A) Filter dropdown
-- Replace the four filter buttons with a single `Select` component (options: all, need, low, have)
-
-### B) Status dropdown per item
-- Replace the clickable Badge with a `Select` per row (options: need, low, have)
-- `onValueChange` updates the row's status in Supabase
-
-### C) Checkbox for shopping flow
-- When an item's status is `need`, render a Checkbox on the left
-- Checking it sets status to `have` immediately
-- Item disappears from view if filter is `need`
-
----
-
-## 5. USDA Search: Sort by Closest Match
-
-**File: `supabase/functions/fdc-search/index.ts`**
-
-Add a scoring function after receiving FDC results:
-- Normalize query and descriptions (lowercase, trim, collapse whitespace, remove punctuation)
-- Score each result:
-  - +100 for exact match
-  - +50 if description starts with query
-  - +10 per query token found in description
-  - +5 bonus for Foundation / SR Legacy data types
-  - Subtract a fraction of Levenshtein distance (simple implementation) between query and beginning of description
-- Sort descending by score before returning
-
----
-
-## Files Summary
+## 5. Files Summary
 
 | File | Action |
 |------|--------|
-| `src/components/AppShell.tsx` | Edit -- black outer wrapper |
-| `src/components/BottomNav.tsx` | Edit -- constrain to phone container |
-| `src/pages/FoodsPage.tsx` | Edit -- add delete/replace to detail dialog |
-| `src/pages/RecipesPage.tsx` | Edit -- add edit/delete to detail dialog |
-| `src/pages/GroceriesPage.tsx` | Edit -- dropdown filter, status select, checkbox |
-| `supabase/functions/fdc-search/index.ts` | Edit -- add scoring + sorting |
-| `supabase/functions/food-replace/index.ts` | New -- server-side food replacement |
+| `supabase/functions/ai-decompose/index.ts` | New -- vision decomposition via Lovable AI |
+| `supabase/functions/ai-create-recipe/index.ts` | New -- batch ingest + recipe creation |
+| `supabase/config.toml` | Edit -- add two new function configs |
+| `src/pages/AIPage.tsx` | New -- multi-stage wizard page |
+| `src/App.tsx` | Edit -- add /ai route |
+| `src/components/BottomNav.tsx` | Edit -- add AI tab |
+
+No database migrations needed -- uses existing `recipes`, `recipe_items`, and `foods` tables.
+
+---
+
+## Technical Details
+
+### Multimodal message format for Lovable AI
+```typescript
+messages: [
+  { role: "system", content: systemPrompt },
+  {
+    role: "user",
+    content: [
+      { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+      { type: "text", text: userContext || "Extract the recipe from this image." }
+    ]
+  }
+]
+```
+
+### Tool calling schema for structured extraction
+```typescript
+tools: [{
+  type: "function",
+  function: {
+    name: "extract_recipe",
+    description: "Extract structured recipe data from the image",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", nullable: true },
+        servings: { type: "number", nullable: true },
+        ingredients: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              rawLine: { type: "string" },
+              normalizedName: { type: "string" },
+              quantity: { type: "number", nullable: true },
+              unit: { type: "string", nullable: true },
+              confidence: { type: "number" }
+            },
+            required: ["rawLine", "normalizedName", "confidence"]
+          }
+        }
+      },
+      required: ["ingredients"]
+    }
+  }
+}]
+```
+
+### Unit conversion reuse
+The `ai-create-recipe` edge function will duplicate the conversion map from `src/lib/units.ts` (g, ml, tbsp, tsp, cup, oz, lb) since edge functions cannot import from `src/`.
+
+### Live macro recalculation (Stage 3)
+Client-side computation using the USDA food data already fetched during matching:
+```typescript
+const grams = quantity * conversionFactor[unit];
+const cal = (grams * food.calories_per_100g) / 100;
+// same for protein, carbs, fat
+```
+Runs on every state change to quantity, unit, or food selection fields.
+
+### Error handling
+- 429 (rate limit) and 402 (payment required) from Lovable AI are caught in the edge function and surfaced as toast messages on the frontend
+- Missing quantities flagged visually but do not block review -- user must fill them before "Create Recipe" is enabled
+
