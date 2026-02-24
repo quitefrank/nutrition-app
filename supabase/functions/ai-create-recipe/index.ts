@@ -6,17 +6,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const UNIT_MAP: Record<string, number> = {
+  g: 1, ml: 1, tbsp: 15, tsp: 5, cup: 240, oz: 28.3495, lb: 453.592,
+};
+const SUPPORTED_UNITS = Object.keys(UNIT_MAP);
+
 function convertToGrams(quantity: number, unit: string): number {
-  switch (unit.toLowerCase()) {
-    case 'g': return quantity;
-    case 'ml': return quantity;
-    case 'tbsp': return quantity * 15;
-    case 'tsp': return quantity * 5;
-    case 'cup': return quantity * 240;
-    case 'oz': return quantity * 28.3495;
-    case 'lb': return quantity * 453.592;
-    default: throw new Error(`Unsupported unit: ${unit}`);
+  const factor = UNIT_MAP[unit.toLowerCase()];
+  if (factor == null) {
+    throw new Error(`Unsupported unit: "${unit}". Must be one of: ${SUPPORTED_UNITS.join(', ')}`);
   }
+  return quantity * factor;
 }
 
 serve(async (req) => {
