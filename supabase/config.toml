@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.ai-create-recipe]
 verify_jwt = false
+
+[functions.ai-scan]
+verify_jwt = false
