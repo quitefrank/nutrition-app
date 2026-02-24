@@ -2,3 +2,9 @@ project_id = "tdluttkhwxvspzwgfdki"
 
 [functions.food-replace]
 verify_jwt = false
+
+[functions.ai-decompose]
+verify_jwt = false
+
+[functions.ai-create-recipe]
+verify_jwt = false
