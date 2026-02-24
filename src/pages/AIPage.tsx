@@ -140,8 +140,8 @@ export default function AIPage() {
   const issues = useMemo(() => {
     const missingQty = ingredients.filter(i => i.quantity == null).length;
     const lowConfidence = ingredients.filter(i => i.confidence < 0.6).length;
-    const pieceUnits = ingredients.filter(i => !i.unit || ['piece', 'whole', 'each'].includes(i.unit?.toLowerCase() || '')).length;
-    return { missingQty, lowConfidence, pieceUnits };
+    const invalidUnits = ingredients.filter(i => !i.unit || !SUPPORTED_UNITS.includes(i.unit as any)).length;
+    return { missingQty, lowConfidence, invalidUnits };
   }, [ingredients]);
 
   // Live macro computation
@@ -186,7 +186,7 @@ export default function AIPage() {
 
   const canCreate = useMemo(() => {
     return ingredients.length > 0 &&
-      ingredients.every(i => i.quantity != null && i.unit && i.selectedFdcId) &&
+      ingredients.every(i => i.quantity != null && i.unit && SUPPORTED_UNITS.includes(i.unit as any) && i.selectedFdcId) &&
       recipeTitle.trim() !== '';
   }, [ingredients, recipeTitle]);
 
@@ -361,7 +361,7 @@ export default function AIPage() {
       </div>
 
       {/* Issues summary */}
-      {(issues.missingQty > 0 || issues.lowConfidence > 0 || issues.pieceUnits > 0) && (
+      {(issues.missingQty > 0 || issues.lowConfidence > 0 || issues.invalidUnits > 0) && (
         <Card className="border-destructive/50 bg-destructive/5">
           <CardContent className="pt-4 pb-3 space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -373,8 +373,8 @@ export default function AIPage() {
             {issues.lowConfidence > 0 && (
               <p className="text-xs text-muted-foreground">{issues.lowConfidence} low-confidence match(es)</p>
             )}
-            {issues.pieceUnits > 0 && (
-              <p className="text-xs text-muted-foreground">{issues.pieceUnits} ingredient(s) need weight units (not pieces)</p>
+            {issues.invalidUnits > 0 && (
+              <p className="text-xs text-muted-foreground">{issues.invalidUnits} ingredient(s) need valid weight units (g, ml, tbsp, tsp, cup, oz, lb)</p>
             )}
           </CardContent>
         </Card>
