@@ -8,7 +8,7 @@ import TodayPage from "./pages/TodayPage";
 import FoodsPage from "./pages/FoodsPage";
 import RecipesPage from "./pages/RecipesPage";
 import GroceriesPage from "./pages/GroceriesPage";
-import AIPage from "./pages/AIPage";
+import ScanPage from "./pages/ScanPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,7 +26,7 @@ const App = () => (
             <Route path="/foods" element={<FoodsPage />} />
             <Route path="/recipes" element={<RecipesPage />} />
             <Route path="/groceries" element={<GroceriesPage />} />
-            <Route path="/ai" element={<AIPage />} />
+            <Route path="/scan" element={<ScanPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

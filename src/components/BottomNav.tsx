@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { CalendarDays, UtensilsCrossed, BookOpen, ShoppingCart, Camera } from 'lucide-react';
+import { CalendarDays, UtensilsCrossed, BookOpen, ShoppingCart, ScanLine } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const tabs = [
@@ -7,7 +7,7 @@ const tabs = [
   { to: '/foods', icon: UtensilsCrossed, label: 'Foods' },
   { to: '/recipes', icon: BookOpen, label: 'Recipes' },
   { to: '/groceries', icon: ShoppingCart, label: 'Groceries' },
-  { to: '/ai', icon: Camera, label: 'AI' },
+  { to: '/scan', icon: ScanLine, label: 'Scan' },
 ];
 
 export function BottomNav() {
