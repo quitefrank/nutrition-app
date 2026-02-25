@@ -1,10 +1,10 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Camera, Loader2, RotateCcw, X, ImagePlus } from "lucide-react";
+import { Camera, Loader2, RotateCcw } from "lucide-react";
 import { convertToGrams, SUPPORTED_UNITS, type SupportedUnit } from "@/lib/units";
 
 interface ScanItem {
@@ -83,53 +83,9 @@ export default function ScanPage() {
   const [undoData, setUndoData] = useState<UndoData | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [cameraActive, setCameraActive] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
 
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-      setCameraActive(true);
-      requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      });
-    } catch (err: any) {
-      const msg =
-        err?.name === "NotAllowedError"
-          ? "Camera permission denied. Please allow camera access and try again."
-          : err?.message ?? "Could not access camera.";
-      toast({ title: "Camera unavailable", description: msg, variant: "destructive" });
-    }
-  }, [toast]);
-
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-    };
-  }, []);
-
   const reset = useCallback(() => {
-    stopCamera();
     setStage("idle");
     setStatusMsg("");
     setScanResult(null);
@@ -137,7 +93,7 @@ export default function ScanPage() {
     setUndoData(null);
     setImagePreview(null);
     if (fileRef.current) fileRef.current.value = "";
-  }, [stopCamera]);
+  }, []);
 
   const handleUndo = useCallback(async () => {
     if (!undoData) return;
@@ -170,27 +126,21 @@ export default function ScanPage() {
     }
   }, [undoData, toast, reset]);
 
-  const handleScan = useCallback(async (prebuiltBase64?: string) => {
-    let imageBase64: string;
+  const handleScan = useCallback(async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) return;
 
-    if (prebuiltBase64) {
-      imageBase64 = prebuiltBase64;
-      setStage("scanning");
-      setStatusMsg("Preparing image...");
-    } else {
-      const file = fileRef.current?.files?.[0];
-      if (!file) return;
-      setStage("scanning");
+    setStage("scanning");
+
+    try {
+      // Convert to base64
       setStatusMsg("Preparing image...");
       const buf = await file.arrayBuffer();
       const bytes = new Uint8Array(buf);
       let binary = "";
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      imageBase64 = btoa(binary);
+      const imageBase64 = btoa(binary);
       setImagePreview(`data:${file.type};base64,${imageBase64}`);
-    }
-
-    try {
 
       // 1. AI scan
       setStatusMsg("Analyzing image...");
@@ -348,26 +298,7 @@ export default function ScanPage() {
       toast({ title: "Scan failed", description: e.message, variant: "destructive" });
       setStage("idle");
     }
-  }, [toast, handleUndo]);
-
-  const capturePhoto = useCallback(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    const base64 = dataUrl.split(",")[1];
-
-    stopCamera();
-    setImagePreview(dataUrl);
-    handleScan(base64);
-  }, [stopCamera, handleScan]);
+  }, [toast, handleUndo, reset]);
 
   const totals = processedItems.reduce(
     (a, i) => ({
@@ -389,64 +320,29 @@ export default function ScanPage() {
         <Card>
           <CardContent className="pt-6 space-y-4">
             <div className="flex flex-col items-center gap-3">
-              <canvas ref={canvasRef} className="hidden" />
-
-              {cameraActive ? (
-                <div className="relative w-full rounded-lg overflow-hidden bg-black">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full aspect-video object-cover"
-                  />
-                  <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-4 px-4">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="rounded-full bg-background/80 backdrop-blur-sm"
-                      onClick={stopCamera}
-                    >
-                      <X className="h-5 w-5" />
-                    </Button>
-                    <Button size="lg" className="rounded-full px-8" onClick={capturePhoto}>
-                      <Camera className="mr-2 h-5 w-5" /> Capture
-                    </Button>
-                  </div>
-                </div>
-              ) : imagePreview ? (
-                <>
-                  <img src={imagePreview} alt="Preview" className="w-full max-h-48 object-contain rounded-lg" />
-                  <Button className="w-full" size="lg" onClick={() => handleScan()}>
-                    <Camera className="mr-2 h-5 w-5" /> Scan
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button className="w-full" size="lg" onClick={startCamera}>
-                    <Camera className="mr-2 h-5 w-5" /> Open Camera
-                  </Button>
-                  <label className="w-full cursor-pointer">
-                    <Button variant="outline" className="w-full" size="lg" asChild>
-                      <span>
-                        <ImagePlus className="mr-2 h-5 w-5" /> Choose from Library
-                      </span>
-                    </Button>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={() => {
-                        if (fileRef.current?.files?.[0]) {
-                          const url = URL.createObjectURL(fileRef.current.files[0]);
-                          setImagePreview(url);
-                        }
-                      }}
-                    />
-                  </label>
-                </>
+              <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer border-muted-foreground/25 hover:border-primary/50 transition-colors">
+                <Camera className="h-10 w-10 text-muted-foreground mb-2" />
+                <span className="text-sm text-muted-foreground">Tap to take photo or choose file</span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={() => {
+                    if (fileRef.current?.files?.[0]) {
+                      const url = URL.createObjectURL(fileRef.current.files[0]);
+                      setImagePreview(url);
+                    }
+                  }}
+                />
+              </label>
+              {imagePreview && (
+                <img src={imagePreview} alt="Preview" className="w-full max-h-48 object-contain rounded-lg" />
               )}
+              <Button className="w-full" size="lg" disabled={!fileRef.current?.files?.length && !imagePreview} onClick={handleScan}>
+                <Camera className="mr-2 h-5 w-5" /> Scan
+              </Button>
             </div>
           </CardContent>
         </Card>
