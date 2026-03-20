@@ -1,0 +1,252 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens — Tailwind @theme utilities ─────────────────────────── */
+
+@theme {
+  /* Typography scale (pt → rem: divide by 16) */
+  --text-2xs: 0.6875rem;   /* 11pt — tab bar labels, badges */
+  --text-xs: 0.8125rem;    /* 13pt — captions, section labels */
+  --text-sm: 0.9375rem;    /* 15pt — secondary body, descriptions */
+  --text-base: 1.0625rem;  /* 17pt — list labels, primary body */
+  --text-lg: 1.375rem;     /* 22pt — section headings, card titles */
+  --text-xl: 1.75rem;      /* 28pt — page titles */
+  --text-2xl: 2.125rem;    /* 34pt — large titles */
+  --text-hero: 2.5rem;     /* 40pt — featured dish names */
+
+  /* Spacing scale */
+  --spacing-1: 0.25rem;    /* 4pt */
+  --spacing-2: 0.5rem;     /* 8pt */
+  --spacing-3: 0.75rem;    /* 12pt */
+  --spacing-4: 1rem;       /* 16pt — standard screen margin */
+  --spacing-5: 1.25rem;    /* 20pt */
+  --spacing-6: 1.5rem;     /* 24pt — standard section gap */
+  --spacing-8: 2rem;       /* 32pt */
+  --spacing-12: 3rem;      /* 48pt */
+
+  /* Corner radius */
+  --radius-xs: 0.5rem;     /* 8pt — thumbnails, chips */
+  --radius-sm: 0.75rem;    /* 12pt — compact cards */
+  --radius-md: 1rem;       /* 16pt — glass cards (default) */
+  --radius-lg: 1.5rem;     /* 24pt — bottom sheet top corners */
+  --radius-xl: 1.75rem;    /* 28pt — primary CTA buttons */
+  --radius-full: 999px;    /* pills, FAB, tab bar indicator */
+}
+
+/* ─── Theme Variables — Dark mode (default) ─────────────────────────────── */
+
+:root,
+[data-theme="dark"] {
+  /* Text colours */
+  --text-primary: rgba(255, 255, 255, 1.0);
+  --text-secondary: rgba(255, 255, 255, 0.60);
+  --text-tertiary: rgba(255, 255, 255, 0.35);
+  --text-on-button: rgba(0, 0, 0, 0.90);
+
+  /* Base background */
+  --bg-base: #0a0a0a;
+
+  /* Glass — Card (blur 20px) */
+  --glass-card-bg: rgba(255, 255, 255, 0.09);
+  --glass-card-border: rgba(255, 255, 255, 0.13);
+  --glass-card-blur: 20px;
+
+  /* Glass — Bottom Sheet (blur 30px) */
+  --glass-sheet-bg: rgba(255, 255, 255, 0.10);
+  --glass-sheet-blur: 30px;
+
+  /* Glass — Tab Bar (blur 24px) */
+  --glass-tab-bg: rgba(255, 255, 255, 0.08);
+  --glass-tab-border: rgba(255, 255, 255, 0.12);
+  --glass-tab-blur: 24px;
+
+  /* Glass — Processing Strip (blur 24px) */
+  --glass-strip-bg: rgba(255, 255, 255, 0.12);
+  --glass-strip-blur: 24px;
+
+  /* Glass — Filter Pill (blur 16px) */
+  --glass-pill-bg: rgba(255, 255, 255, 0.10);
+  --glass-pill-border: rgba(255, 255, 255, 0.15);
+  --glass-pill-blur: 16px;
+
+  /* Glass — FAB (blur 20px) */
+  --glass-fab-bg: rgba(255, 255, 255, 0.16);
+  --glass-fab-border: rgba(255, 255, 255, 0.20);
+  --glass-fab-blur: 20px;
+
+  /* Drag handle */
+  --drag-handle-color: rgba(255, 255, 255, 0.30);
+
+  /* Overlay */
+  --overlay-bg: rgba(0, 0, 0, 0.40);
+}
+
+/* ─── Theme Variables — System light mode (prefers-color-scheme: light) ─── */
+/* data-theme="dark" always overrides; data-theme="light" handled below      */
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    /* Text colours */
+    --text-primary: rgba(0, 0, 0, 0.90);
+    --text-secondary: rgba(0, 0, 0, 0.55);
+    --text-tertiary: rgba(0, 0, 0, 0.30);
+    --text-on-button: rgba(0, 0, 0, 0.90);
+
+    /* Base background */
+    --bg-base: #f5f5f5;
+
+    /* Glass — Card */
+    --glass-card-bg: rgba(255, 255, 255, 0.65);
+    --glass-card-border: rgba(255, 255, 255, 0.80);
+    --glass-card-blur: 20px;
+
+    /* Glass — Bottom Sheet */
+    --glass-sheet-bg: rgba(255, 255, 255, 0.70);
+    --glass-sheet-blur: 30px;
+
+    /* Glass — Tab Bar */
+    --glass-tab-bg: rgba(255, 255, 255, 0.72);
+    --glass-tab-border: rgba(255, 255, 255, 0.85);
+    --glass-tab-blur: 24px;
+
+    /* Glass — Processing Strip */
+    --glass-strip-bg: rgba(255, 255, 255, 0.75);
+    --glass-strip-blur: 24px;
+
+    /* Glass — Filter Pill */
+    --glass-pill-bg: rgba(255, 255, 255, 0.65);
+    --glass-pill-border: rgba(255, 255, 255, 0.80);
+    --glass-pill-blur: 16px;
+
+    /* Glass — FAB */
+    --glass-fab-bg: rgba(255, 255, 255, 0.80);
+    --glass-fab-border: rgba(255, 255, 255, 0.90);
+    --glass-fab-blur: 20px;
+
+    /* Drag handle */
+    --drag-handle-color: rgba(0, 0, 0, 0.20);
+
+    /* Overlay */
+    --overlay-bg: rgba(0, 0, 0, 0.30);
+  }
+}
+
+/* ─── Theme Variables — Light mode (explicit override) ──────────────────── */
+
+[data-theme="light"] {
+  /* Text colours */
+  --text-primary: rgba(0, 0, 0, 0.90);
+  --text-secondary: rgba(0, 0, 0, 0.55);
+  --text-tertiary: rgba(0, 0, 0, 0.30);
+  --text-on-button: rgba(0, 0, 0, 0.90);
+
+  /* Base background */
+  --bg-base: #f5f5f5;
+
+  /* Glass — Card */
+  --glass-card-bg: rgba(255, 255, 255, 0.65);
+  --glass-card-border: rgba(255, 255, 255, 0.80);
+  --glass-card-blur: 20px;
+
+  /* Glass — Bottom Sheet */
+  --glass-sheet-bg: rgba(255, 255, 255, 0.70);
+  --glass-sheet-blur: 30px;
+
+  /* Glass — Tab Bar */
+  --glass-tab-bg: rgba(255, 255, 255, 0.72);
+  --glass-tab-border: rgba(255, 255, 255, 0.85);
+  --glass-tab-blur: 24px;
+
+  /* Glass — Processing Strip */
+  --glass-strip-bg: rgba(255, 255, 255, 0.75);
+  --glass-strip-blur: 24px;
+
+  /* Glass — Filter Pill */
+  --glass-pill-bg: rgba(255, 255, 255, 0.65);
+  --glass-pill-border: rgba(255, 255, 255, 0.80);
+  --glass-pill-blur: 16px;
+
+  /* Glass — FAB */
+  --glass-fab-bg: rgba(255, 255, 255, 0.80);
+  --glass-fab-border: rgba(255, 255, 255, 0.90);
+  --glass-fab-blur: 20px;
+
+  /* Drag handle */
+  --drag-handle-color: rgba(0, 0, 0, 0.20);
+
+  /* Overlay */
+  --overlay-bg: rgba(0, 0, 0, 0.30);
+}
+
+/* ─── Base Styles ────────────────────────────────────────────────────────── */
+
+@layer base {
+  html {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  /* Background scale when BottomSheet is open (P-4).
+     NOTE: Do NOT render position:fixed elements (e.g. Sonner <Toaster>) inside
+     #main-content — CSS transform creates a new stacking context which breaks
+     fixed positioning. Place portals/toasts as direct children of <body>. */
+  #main-content {
+    transform-origin: top center;
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  body[data-sheet-open] #main-content {
+    transform: scale(0.95);
+  }
+}
+
+/* ─── Glass Component Base Styles ───────────────────────────────────────── */
+
+@layer components {
+  .glass-card {
+    background: var(--glass-card-bg);
+    border: 0.5px solid var(--glass-card-border);
+    backdrop-filter: blur(var(--glass-card-blur)) saturate(1.8);
+    -webkit-backdrop-filter: blur(var(--glass-card-blur)) saturate(1.8);
+  }
+
+  .glass-sheet {
+    background: var(--glass-sheet-bg);
+    backdrop-filter: blur(var(--glass-sheet-blur)) saturate(1.6);
+    -webkit-backdrop-filter: blur(var(--glass-sheet-blur)) saturate(1.6);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  /* Visible focus ring when sheet dialog receives programmatic focus (F2) */
+  .glass-sheet:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.30);
+    outline-offset: -2px;
+  }
+
+  .glass-tab {
+    background: var(--glass-tab-bg);
+    border-top: 0.5px solid var(--glass-tab-border);
+    backdrop-filter: blur(var(--glass-tab-blur)) saturate(1.6);
+    -webkit-backdrop-filter: blur(var(--glass-tab-blur)) saturate(1.6);
+  }
+
+  .glass-pill {
+    background: var(--glass-pill-bg);
+    border: 0.5px solid var(--glass-pill-border);
+    backdrop-filter: blur(var(--glass-pill-blur)) saturate(1.6);
+    -webkit-backdrop-filter: blur(var(--glass-pill-blur)) saturate(1.6);
+  }
+
+  .glass-fab {
+    background: var(--glass-fab-bg);
+    border: 1px solid var(--glass-fab-border);
+    backdrop-filter: blur(var(--glass-fab-blur)) saturate(1.8);
+    -webkit-backdrop-filter: blur(var(--glass-fab-blur)) saturate(1.8);
+  }
+}
