@@ -6,6 +6,7 @@ import { GlassTabBar, type TabId } from './glass-tab-bar'
 import { CameraFab } from './camera-fab'
 import { CameraModal } from '@/components/scan/camera-modal'
 import { ProcessingStrip } from '@/components/scan/processing-strip'
+import { ErrorState } from '@/components/ui/error-state'
 import { useScan } from '@/hooks/use-scan'
 
 function getActiveTab(pathname: string | null): TabId {
@@ -30,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false)
   const [showStrip, setShowStrip] = useState(false)
   const stripTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { status, scanId, thumbnailUrl, submitScan, cancelScan } = useScan()
+  const { status, scanId, thumbnailUrl, submitScan, cancelScan, retry } = useScan()
 
   const activeTab = getActiveTab(pathname)
 
@@ -57,6 +58,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (stripTimerRef.current) clearTimeout(stripTimerRef.current)
     cancelScan()
     setShowStrip(false)
+  }
+
+  const handleUploadInstead = () => {
+    cancelScan()
+    setShowStrip(false)
+    setIsCameraModalOpen(true)
   }
 
   // Clean up timer on unmount
@@ -90,6 +97,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onTap={handleStripTap}
           onCancel={handleStripCancel}
         />
+      )}
+      {showStrip && status === 'error' && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 'calc(49px + env(safe-area-inset-bottom, 0px) + 8px)',
+            left: '16px',
+            right: '16px',
+            zIndex: 40,
+          }}
+        >
+          <ErrorState
+            message="Scan service is temporarily unavailable"
+            onRetry={retry}
+            onUploadInstead={handleUploadInstead}
+          />
+        </div>
       )}
       {isCameraModalOpen && (
         <CameraModal

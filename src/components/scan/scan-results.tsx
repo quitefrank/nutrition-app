@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { GlassCard } from '@/components/ui/glass-card'
 import { DishDetailSheet } from './dish-detail-sheet'
 import type { ScanResult, DishResult } from '@/types/api'
@@ -10,28 +10,47 @@ import type { ScanResult, DishResult } from '@/types/api'
 interface ScanResultsProps {
   result: ScanResult
   scanId: string
+  onRetake?: () => void
 }
 
-export function ScanResults({ result, scanId }: ScanResultsProps) {
+export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResultsProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [selectedDishIndex, setSelectedDishIndex] = useState<number | null>(null)
 
-  const handleRetake = () => {
+  // Subscribe to TQ cache so enrichment updates are reflected reactively
+  const { data: liveResult } = useQuery<ScanResult>({
+    queryKey: ['scan-result', scanId],
+    queryFn: () => queryClient.getQueryData<ScanResult>(['scan-result', scanId]) ?? result,
+    enabled: false,       // never auto-fetch — data arrives via setQueryData
+    initialData: result,  // seed from the prop passed in by the page
+    staleTime: Infinity,  // treat as always fresh; we control updates via setQueryData
+  })
+
+  // Use liveResult throughout — falls back to prop if query hasn't updated yet
+  const activeResult = liveResult ?? result
+
+  const handleRetake = onRetakeProp ?? (() => {
     queryClient.removeQueries({ queryKey: ['scan-result', scanId] })
+    queryClient.removeQueries({ queryKey: ['scan-thumbnail', scanId] })
     router.push('/')
     // Signal AppShell to open camera after navigation settles
     setTimeout(() => window.dispatchEvent(new CustomEvent('plately:openCamera')), 300)
-  }
+  })
 
-  const selectedDish = selectedDishIndex !== null ? result.dishes[selectedDishIndex] : null
+  const selectedDish = selectedDishIndex !== null ? (activeResult.dishes[selectedDishIndex] ?? null) : null
+
+  // Empty scan result — differentiated copy based on emptyReason
+  if (activeResult.dishes.length === 0) {
+    return <EmptyScanState emptyReason={activeResult.emptyReason ?? null} onRetake={handleRetake} />
+  }
 
   return (
     <div style={{ padding: '0 var(--spacing-4)', paddingBottom: '80px' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--spacing-4) 0' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-xs)' }}>
-          {result.dishes.length} dish{result.dishes.length !== 1 ? 'es' : ''} found
+          {activeResult.dishes.length} dish{activeResult.dishes.length !== 1 ? 'es' : ''} found
         </span>
         <button
           onClick={handleRetake}
@@ -42,10 +61,39 @@ export function ScanResults({ result, scanId }: ScanResultsProps) {
         </button>
       </div>
 
+      {/* Partial results banner — only shown when fewer dishes identified than present */}
+      {activeResult.totalDishCount && activeResult.dishes.length < activeResult.totalDishCount && (
+        <div
+          style={{
+            background: 'rgba(255,255,255,0.10)',
+            borderRadius: 'var(--radius-md)',
+            padding: 'var(--spacing-4)',
+            marginBottom: 'var(--spacing-3)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 'var(--spacing-3)',
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0, flex: 1 }}>
+            We identified {activeResult.dishes.length} of {activeResult.totalDishCount} dishes — lighting may be affecting accuracy. Retake or continue with what we found?
+          </p>
+          <button
+            onClick={handleRetake}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 'var(--text-xs)', padding: '0', flexShrink: 0, minHeight: '44px', minWidth: '44px' }}
+            aria-label="Retake scan to improve results"
+          >
+            ↺ Retake
+          </button>
+        </div>
+      )}
+
       {/* Dish list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-        {result.dishes.map((dish, i) => (
-          <DishCard key={dish.name} dish={dish} onClick={() => setSelectedDishIndex(i)} />
+        {activeResult.dishes.map((dish, i) => (
+          <DishCard key={`${dish.name}-${i}`} dish={dish} onClick={() => setSelectedDishIndex(i)} />
         ))}
       </div>
 
@@ -57,6 +105,36 @@ export function ScanResults({ result, scanId }: ScanResultsProps) {
         scanId={scanId}
         dishIndex={selectedDishIndex ?? 0}
       />
+    </div>
+  )
+}
+
+const EMPTY_REASON_COPY: Record<'image_quality' | 'not_menu' | 'no_dishes_found', string> = {
+  image_quality: "The photo was a bit blurry — try again with better lighting or a steadier shot",
+  not_menu: "That doesn't look like a menu — try scanning a restaurant menu or food photo",
+  no_dishes_found: "We couldn't spot any dishes — try a different angle or better lighting",
+}
+
+function EmptyScanState({ emptyReason, onRetake }: { emptyReason: 'image_quality' | 'not_menu' | 'no_dishes_found' | null; onRetake: () => void }) {
+  const message = emptyReason && emptyReason in EMPTY_REASON_COPY
+    ? EMPTY_REASON_COPY[emptyReason]
+    : EMPTY_REASON_COPY.no_dishes_found
+
+  return (
+    <div
+      role="status"
+      style={{ padding: '0 var(--spacing-4)', paddingTop: 'var(--spacing-8)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--spacing-4)' }}
+    >
+      <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-secondary)', textAlign: 'center', margin: 0 }}>
+        {message}
+      </p>
+      <button
+        onClick={onRetake}
+        style={{ color: 'var(--text-primary)', fontSize: 'var(--text-sm)', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 12px', minHeight: '44px' }}
+        aria-label="Retake scan"
+      >
+        ↺ Retake
+      </button>
     </div>
   )
 }

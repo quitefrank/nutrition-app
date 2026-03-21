@@ -21,6 +21,8 @@ const MENU_SCAN_PROMPT = `You are a restaurant menu analyser. Analyse this menu 
 
 Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 {
+  "totalDishesOnMenu": number,
+  "emptyReason": null,
   "dishes": [
     {
       "name": "string — dish name as written on menu",
@@ -31,16 +33,24 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 }
 
 Rules:
-- Include every dish visible on the menu
+- totalDishesOnMenu: the total count of dishes you can see on this menu (including those you couldn't fully identify)
+- Include every dish you CAN fully identify in the "dishes" array
 - calorieEstimate: extract if shown on menu, otherwise null
 - description: use text from menu; if none, use an empty string ""
-- If the image is not a menu, return { "dishes": [] }
+- emptyReason: only set this when dishes is empty — use one of these exact values:
+  - "image_quality" — image is too dark, blurry, or obscured to read
+  - "not_menu" — image does not appear to be a menu or food photo
+  - "no_dishes_found" — image appears to be a menu but no dishes could be extracted
+  - null — dishes array is not empty, or reason is unclear
+- If the image is not a menu, return { "totalDishesOnMenu": 0, "emptyReason": "not_menu", "dishes": [] }
 - Return valid JSON only — no prose, no markdown fences`
 
-function parseGeminiMenuResponse(text: string): DishResult[] | null {
+const VALID_EMPTY_REASONS = new Set(['image_quality', 'not_menu', 'no_dishes_found'])
+
+function parseGeminiMenuResponse(text: string): { dishes: DishResult[]; totalDishesOnMenu: number | null; emptyReason: 'image_quality' | 'not_menu' | 'no_dishes_found' | null } | null {
   const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
 
-  let parsed: { dishes: unknown[] }
+  let parsed: { dishes: unknown[]; totalDishesOnMenu?: unknown; emptyReason?: unknown }
   try {
     parsed = JSON.parse(clean)
   } catch {
@@ -49,7 +59,7 @@ function parseGeminiMenuResponse(text: string): DishResult[] | null {
 
   if (!Array.isArray(parsed?.dishes)) return null
 
-  return parsed.dishes
+  const dishes = parsed.dishes
     .filter((d): d is Record<string, unknown> => typeof d === 'object' && d !== null)
     .map((d) => ({
       name: typeof d.name === 'string' ? d.name : 'Unknown dish',
@@ -61,6 +71,16 @@ function parseGeminiMenuResponse(text: string): DishResult[] | null {
       ingredients: [] as IngredientResult[],
       imageUrl: null,
     }))
+
+  const totalDishesOnMenu = Number.isFinite(parsed?.totalDishesOnMenu) && (parsed.totalDishesOnMenu as number) > 0
+    ? (parsed.totalDishesOnMenu as number)
+    : null
+
+  const emptyReason = typeof parsed?.emptyReason === 'string' && VALID_EMPTY_REASONS.has(parsed.emptyReason)
+    ? (parsed.emptyReason as 'image_quality' | 'not_menu' | 'no_dishes_found')
+    : null
+
+  return { dishes, totalDishesOnMenu, emptyReason }
 }
 
 export async function POST(request: Request) {
@@ -125,9 +145,9 @@ export async function POST(request: Request) {
       )
     }
 
-    const dishes = parseGeminiMenuResponse(text)
+    const parsed = parseGeminiMenuResponse(text)
 
-    if (dishes === null) {
+    if (parsed === null) {
       console.error('[scan/menu] Failed to parse Gemini response as JSON')
       return NextResponse.json(
         { error: 'Gemini returned an unparseable response', code: 'GEMINI_RESPONSE_UNPARSEABLE' },
@@ -138,8 +158,14 @@ export async function POST(request: Request) {
     const scanResult: ScanResult = {
       scanId: crypto.randomUUID(),
       type: 'menu',
-      dishes,
+      dishes: parsed.dishes,
       confidenceSource: 'gemini-only',
+      ...(parsed.totalDishesOnMenu && parsed.totalDishesOnMenu > parsed.dishes.length
+        ? { totalDishCount: parsed.totalDishesOnMenu }
+        : {}),
+      ...(parsed.dishes.length === 0 && parsed.emptyReason !== null
+        ? { emptyReason: parsed.emptyReason }
+        : {}),
     }
 
     return NextResponse.json({ data: scanResult })

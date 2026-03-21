@@ -201,4 +201,93 @@ describe('POST /api/scan/dish', () => {
     const body = await res.json()
     expect(JSON.stringify(body)).not.toContain('test-key')
   })
+
+  it('sets confidenceSource to "inference" when >60% of ingredients are low confidence', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          dishes: [{
+            name: 'Mystery Dish',
+            description: 'Hard to identify',
+            calorieEstimate: null,
+            ingredients: [
+              { name: 'Ingredient 1', quantity: null, unit: null, confidenceLevel: 'low' },
+              { name: 'Ingredient 2', quantity: null, unit: null, confidenceLevel: 'low' },
+              { name: 'Ingredient 3', quantity: null, unit: null, confidenceLevel: 'low' },
+              { name: 'Ingredient 4', quantity: null, unit: null, confidenceLevel: 'high' },
+            ]
+          }]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // 3 of 4 ingredients are low (75%) — above 60% threshold
+    expect(body.data.confidenceSource).toBe('inference')
+  })
+
+  it('keeps confidenceSource as "gemini-only" when <=60% of ingredients are low confidence', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          dishes: [{
+            name: 'Grilled Chicken',
+            description: 'Well-lit dish',
+            calorieEstimate: 350,
+            ingredients: [
+              { name: 'Chicken', quantity: '200', unit: 'g', confidenceLevel: 'high' },
+              { name: 'Olive oil', quantity: '1', unit: 'tbsp', confidenceLevel: 'high' },
+              { name: 'Herbs', quantity: null, unit: null, confidenceLevel: 'low' },
+            ]
+          }]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // 1 of 3 ingredients are low (33%) — below 60% threshold
+    expect(body.data.confidenceSource).toBe('gemini-only')
+  })
+
+  it('keeps confidenceSource as "gemini-only" when there are no ingredients', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          dishes: [{ name: 'Empty dish', description: '', calorieEstimate: null, ingredients: [] }]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.confidenceSource).toBe('gemini-only')
+  })
+
+  it('keeps confidenceSource as "gemini-only" at exactly 60% low (strictly >60% required)', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          dishes: [{
+            name: 'Boundary Dish',
+            description: '',
+            calorieEstimate: null,
+            ingredients: [
+              { name: 'Ingredient 1', quantity: null, unit: null, confidenceLevel: 'low' },
+              { name: 'Ingredient 2', quantity: null, unit: null, confidenceLevel: 'low' },
+              { name: 'Ingredient 3', quantity: null, unit: null, confidenceLevel: 'low' },
+              { name: 'Ingredient 4', quantity: null, unit: null, confidenceLevel: 'high' },
+              { name: 'Ingredient 5', quantity: null, unit: null, confidenceLevel: 'high' },
+            ]
+          }]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // 3 of 5 ingredients are low (60%) — NOT strictly >60%, stays gemini-only
+    expect(body.data.confidenceSource).toBe('gemini-only')
+  })
 })

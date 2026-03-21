@@ -53,7 +53,7 @@ describe('POST /api/scan/menu', () => {
 
   it('returns 503 when Gemini key is not configured', async () => {
     const { getApiKeys } = await import('@/lib/api-keys')
-    vi.mocked(getApiKeys).mockReturnValueOnce({ gemini: undefined, places: null, usda: null })
+    vi.mocked(getApiKeys).mockReturnValueOnce({ gemini: undefined, places: undefined, usda: undefined })
     const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
     expect(res.status).toBe(503)
     expect((await res.json()).code).toBe('SCAN_SERVICE_UNAVAILABLE')
@@ -164,5 +164,108 @@ describe('POST /api/scan/menu', () => {
     const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
     const body = await res.json()
     expect(JSON.stringify(body)).not.toContain('test-key')
+  })
+
+  it('sets totalDishCount when Gemini returns totalDishesOnMenu > dishes identified', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          totalDishesOnMenu: 5,
+          dishes: [
+            { name: 'Duck Confit', description: 'Crispy duck leg', calorieEstimate: 650 },
+            { name: 'Risotto', description: 'Creamy risotto', calorieEstimate: 500 },
+          ]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.totalDishCount).toBe(5)
+    expect(body.data.dishes).toHaveLength(2)
+  })
+
+  it('omits totalDishCount when totalDishesOnMenu equals dishes identified', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          totalDishesOnMenu: 2,
+          dishes: [
+            { name: 'Duck Confit', description: '', calorieEstimate: null },
+            { name: 'Risotto', description: '', calorieEstimate: null },
+          ]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.totalDishCount).toBeUndefined()
+  })
+
+  it('includes emptyReason in response when dishes is empty and emptyReason is not_menu', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({ totalDishesOnMenu: 0, emptyReason: 'not_menu', dishes: [] })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.dishes).toHaveLength(0)
+    expect(body.data.emptyReason).toBe('not_menu')
+  })
+
+  it('includes emptyReason image_quality in response when dishes is empty', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({ totalDishesOnMenu: 0, emptyReason: 'image_quality', dishes: [] })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.emptyReason).toBe('image_quality')
+  })
+
+  it('omits emptyReason from response when dishes array is non-empty', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          emptyReason: 'not_menu',
+          dishes: [{ name: 'Tacos', description: '', calorieEstimate: null }]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.emptyReason).toBeUndefined()
+  })
+
+  it('omits emptyReason from response when dishes is empty but emptyReason value is unrecognised', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({ totalDishesOnMenu: 0, emptyReason: 'UNKNOWN_REASON', dishes: [] })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.emptyReason).toBeUndefined()
+  })
+
+  it('omits totalDishCount when Gemini response missing totalDishesOnMenu', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      response: {
+        text: () => JSON.stringify({
+          dishes: [{ name: 'Salad', description: '', calorieEstimate: null }]
+        })
+      }
+    })
+    const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.totalDishCount).toBeUndefined()
   })
 })

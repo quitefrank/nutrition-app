@@ -10,6 +10,7 @@ interface ScanState {
   status: ScanStatus
   scanId: string | null
   thumbnailUrl: string | null
+  lastScanParams: { imageBase64: string; mimeType: string; thumbnailUrl: string } | null
 }
 
 export interface UseScanReturn {
@@ -19,6 +20,7 @@ export interface UseScanReturn {
   submitScan: (imageBase64: string, mimeType: string, thumbnailUrl: string) => void
   cancelScan: () => void
   reset: () => void
+  retry: () => void
 }
 
 export function useScan(): UseScanReturn {
@@ -29,6 +31,7 @@ export function useScan(): UseScanReturn {
     status: 'idle',
     scanId: null,
     thumbnailUrl: null,
+    lastScanParams: null,
   })
 
   // Revoke blob URL when thumbnailUrl clears to prevent memory leaks
@@ -40,6 +43,53 @@ export function useScan(): UseScanReturn {
       URL.revokeObjectURL(prev)
     }
   }, [state.thumbnailUrl])
+
+  const fireEnrichment = async (initialResult: ScanResult) => {
+    try {
+      const res = await fetch('/api/scan/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scanId: initialResult.scanId,
+          dishes: initialResult.dishes.map((d) => ({
+            name: d.name,
+            ingredients: d.ingredients,
+          })),
+        }),
+      })
+      if (!res.ok) return // 503 or other error — keep Gemini-only result
+
+      const json = await res.json()
+      if (!json?.data?.scanId) return // unexpected shape — silently abort
+
+      const enriched = json.data as ScanResult
+
+      // Merge enriched data over the existing cached result (preserve description, calorieEstimate)
+      queryClient.setQueryData<ScanResult>(['scan-result', initialResult.scanId], (cached) => {
+        if (!cached) return cached // cache was cleared (user navigated and retook) — discard
+        // Match by position (server preserves dish/ingredient order) with name guard for safety
+        return {
+          ...cached,
+          confidenceSource: 'multi-source',
+          dishes: cached.dishes.map((dish, i) => {
+            const enrichedDish = enriched.dishes[i]
+            if (!enrichedDish || enrichedDish.name !== dish.name) return dish
+            return {
+              ...dish,
+              imageUrl: enrichedDish.imageUrl ?? dish.imageUrl, // prefer enriched; fallback to existing
+              ingredients: dish.ingredients.map((ing, j) => {
+                const enrichedIng = enrichedDish.ingredients[j]
+                if (!enrichedIng || enrichedIng.name !== ing.name) return ing
+                return { ...ing, confidenceLevel: enrichedIng.confidenceLevel }
+              }),
+            }
+          }),
+        }
+      })
+    } catch {
+      // Network failure or JSON parse error — silently fail; Gemini-only result persists
+    }
+  }
 
   const { mutate } = useMutation({
     mutationFn: async ({
@@ -71,12 +121,14 @@ export function useScan(): UseScanReturn {
     const controller = new AbortController()
     abortRef.current = controller
     const gen = ++mutationGenRef.current
-    setState({ status: 'processing', scanId: null, thumbnailUrl })
+    setState({ status: 'processing', scanId: null, thumbnailUrl, lastScanParams: { imageBase64, mimeType, thumbnailUrl } })
     mutate({ imageBase64, mimeType, signal: controller.signal }, {
       onSuccess: (result) => {
         if (mutationGenRef.current !== gen) return // superseded — discard
         queryClient.setQueryData(['scan-result', result.scanId], result)
+        queryClient.setQueryData(['scan-thumbnail', result.scanId], thumbnailUrl)
         setState((prev) => ({ ...prev, status: 'ready', scanId: result.scanId }))
+        void fireEnrichment(result) // fire-and-forget enrichment — do NOT await
       },
       onError: (err) => {
         if (mutationGenRef.current !== gen) return // superseded — discard
@@ -90,11 +142,19 @@ export function useScan(): UseScanReturn {
 
   const cancelScan = () => {
     abortRef.current?.abort()
-    setState({ status: 'idle', scanId: null, thumbnailUrl: null })
+    if (state.scanId) queryClient.removeQueries({ queryKey: ['scan-thumbnail', state.scanId] })
+    setState({ status: 'idle', scanId: null, thumbnailUrl: null, lastScanParams: null })
   }
 
   const reset = () => {
-    setState({ status: 'idle', scanId: null, thumbnailUrl: null })
+    setState((prev) => ({ status: 'idle', scanId: null, thumbnailUrl: null, lastScanParams: prev.lastScanParams }))
+  }
+
+  const retry = () => {
+    if (state.lastScanParams) {
+      const { imageBase64, mimeType, thumbnailUrl } = state.lastScanParams
+      submitScan(imageBase64, mimeType, thumbnailUrl)
+    }
   }
 
   return {
@@ -104,5 +164,6 @@ export function useScan(): UseScanReturn {
     submitScan,
     cancelScan,
     reset,
+    retry,
   }
 }

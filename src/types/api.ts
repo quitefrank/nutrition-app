@@ -22,7 +22,12 @@ export interface ScanResult {
   scanId: string
   type: 'menu' | 'dish'
   dishes: DishResult[]
-  confidenceSource: 'gemini-only' | 'multi-source' | 'user-confirmed'
+  confidenceSource: 'gemini-only' | 'multi-source' | 'user-confirmed' | 'inference'
+  /** Total dishes visible on the menu (for partial results banner). Only present when
+   *  fewer dishes were identified than are visible. Always >= dishes.length when present. */
+  totalDishCount?: number
+  /** Why the dishes array is empty. Only present when dishes.length === 0. */
+  emptyReason?: 'image_quality' | 'not_menu' | 'no_dishes_found' | null
 }
 
 // ─── Response envelopes ───────────────────────────────────────────────────────
@@ -38,6 +43,16 @@ export interface ApiError {
 }
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiError
+
+// ─── Enrichment API ───────────────────────────────────────────────────────────
+
+export interface EnrichRequest {
+  scanId: string
+  dishes: Array<{
+    name: string
+    ingredients: IngredientResult[]
+  }>
+}
 
 // ─── Scan API ─────────────────────────────────────────────────────────────────
 

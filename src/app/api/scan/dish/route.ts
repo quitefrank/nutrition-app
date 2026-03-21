@@ -87,6 +87,14 @@ function parseGeminiDishResponse(text: string): DishResult[] | null {
     }))
 }
 
+/** Returns true if >60% of ingredients across all dishes are 'low' confidence. */
+function requiresInference(dishes: DishResult[]): boolean {
+  const allIngredients = dishes.flatMap((d) => d.ingredients)
+  if (allIngredients.length === 0) return false
+  const lowCount = allIngredients.filter((i) => i.confidenceLevel === 'low').length
+  return lowCount / allIngredients.length > 0.6
+}
+
 export async function POST(request: Request) {
   try {
     const { gemini: apiKey } = getApiKeys()
@@ -163,7 +171,7 @@ export async function POST(request: Request) {
       scanId: crypto.randomUUID(),
       type: 'dish',
       dishes,
-      confidenceSource: 'gemini-only',
+      confidenceSource: requiresInference(dishes) ? 'inference' : 'gemini-only',
     }
 
     return NextResponse.json({ data: scanResult })
