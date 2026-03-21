@@ -1,0 +1,94 @@
+# generated: 2026-03-19
+# last_updated: 2026-03-20
+# project: Plately
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-03-19
+last_updated: 2026-03-20
+project: Plately
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: App Foundation & Visual Identity
+  1-1-project-scaffold-environment-setup: done
+  1-2-design-token-system-glass-component-library: done
+  1-3-atmospheric-background-system: done
+  1-4-app-shell-home-empty-state: done
+  epic-1: done
+  epic-1-retrospective: done
+
+  # Epic 2: Scan & AI Identification
+  epic-2: in-progress
+  2-1-gemini-scan-api-routes: done
+  2-2-camera-modal-capture-flow: done
+  2-3-menu-scan-results-dish-detail-bottom-sheet: done
+  2-4-async-confidence-enrichment-pipeline: backlog
+  2-5-partial-results-retake-inference-state: backlog
+  2-6-scan-error-states-graceful-degradation: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Recipe Save & Collection
+  epic-3: backlog
+  3-1-recipe-save-flow-undo: backlog
+  3-2-recipe-collection-populated-home-screen: backlog
+  3-3-recipe-detail-page: backlog
+  3-4-recipe-edit-portion-adjustment: backlog
+  3-5-recipe-delete-restaurant-association-return-visit-banner: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Grocery List
+  epic-4: backlog
+  4-1-add-recipe-to-grocery-list: backlog
+  4-2-grocery-list-ingredient-view: backlog
+  4-3-grocery-list-recipe-view-bulk-remove: backlog
+  4-4-offline-read-access: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Manual Search & Discovery
+  epic-5: backlog
+  5-1-restaurant-dish-search-api-routes: backlog
+  5-2-search-screen-ui-restaurant-results: backlog
+  5-3-recipe-generation-from-search: backlog
+  5-4-restaurant-profile-complete-return-visit-recognition: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Accessibility, PWA & Production Readiness
+  epic-6: backlog
+  6-1-accessibility-audit-screen-reader-support: backlog
+  6-2-pwa-install-experience: backlog
+  6-3-complete-error-states-notification-permission: backlog
+  6-4-performance-security-validation: backlog
+  epic-6-retrospective: optional

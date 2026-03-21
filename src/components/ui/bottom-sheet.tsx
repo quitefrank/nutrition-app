@@ -51,7 +51,7 @@ export function BottomSheet({ open, onClose, children, label = 'Sheet', classNam
         },
     exit: shouldReduceMotion
       ? { opacity: 0, transition: { duration: 0.15 } }
-      : { opacity: 0, y: '100%', transition: { duration: 0.2, ease: 'easeIn' } },
+      : { opacity: 0, y: '100%', transition: { duration: 0.2, ease: 'easeIn' as const } },
   }
 
   return (
