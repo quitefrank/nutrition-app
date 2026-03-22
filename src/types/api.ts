@@ -106,3 +106,24 @@ export interface GroceryAddResponse {
   added: number
   merged: number
 }
+
+// ─── Grocery List / Check / Delete ────────────────────────────────────────────
+
+export interface GroceryListItem {
+  id: string
+  recipeId: string | null
+  ingredientName: string
+  quantity: string | null
+  unit: string | null
+  checked: boolean
+  createdAt: string
+}
+
+export interface GroceryCheckRequest {
+  checked: boolean
+}
+
+export interface GroceryCheckResponse {
+  id: string
+  checked: boolean
+}

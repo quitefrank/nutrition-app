@@ -1,6 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import type { GroceryAddRequest, GroceryAddResponse } from '@/types/api'
+import type { GroceryAddRequest, GroceryAddResponse, GroceryListItem } from '@/types/api'
+
+export async function GET() {
+  const { data, error } = await supabase
+    .from('grocery_items')
+    .select('id, recipe_id, ingredient_name, quantity, unit, checked, created_at')
+    .order('checked', { ascending: true })      // false before true
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    return NextResponse.json({ error: 'Failed to fetch grocery list', code: 'DB_ERROR' }, { status: 500 })
+  }
+
+  const mapped: GroceryListItem[] = (data ?? []).map(row => ({
+    id: row.id,
+    recipeId: row.recipe_id,
+    ingredientName: row.ingredient_name,
+    quantity: row.quantity,
+    unit: row.unit,
+    checked: row.checked,
+    createdAt: row.created_at,
+  }))
+
+  return NextResponse.json({ data: mapped })
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { POST } from './route'
+import { GET, POST } from './route'
 
 vi.mock('server-only', () => ({}))
 
@@ -17,6 +17,62 @@ function makeRequest(body: object) {
 }
 
 const RECIPE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+
+describe('GET /api/grocery', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns items mapped to camelCase ordered by checked then created_at', async () => {
+    const fakeRows = [
+      { id: 'g1', recipe_id: null, ingredient_name: 'Eggs', quantity: '2', unit: null, checked: false, created_at: '2026-01-01T00:00:00Z' },
+      { id: 'g2', recipe_id: 'r1', ingredient_name: 'Butter', quantity: '100', unit: 'g', checked: true, created_at: '2026-01-01T00:01:00Z' },
+    ]
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnValue({
+        order: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data: fakeRows, error: null }),
+        }),
+      }),
+    })
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data).toEqual([
+      { id: 'g1', recipeId: null, ingredientName: 'Eggs', quantity: '2', unit: null, checked: false, createdAt: '2026-01-01T00:00:00Z' },
+      { id: 'g2', recipeId: 'r1', ingredientName: 'Butter', quantity: '100', unit: 'g', checked: true, createdAt: '2026-01-01T00:01:00Z' },
+    ])
+  })
+
+  it('returns empty array when no items exist', async () => {
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnValue({
+        order: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data: [], error: null }),
+        }),
+      }),
+    })
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data).toEqual([])
+  })
+
+  it('DB error → 500 DB_ERROR', async () => {
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnValue({
+        order: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data: null, error: new Error('DB') }),
+        }),
+      }),
+    })
+
+    const res = await GET()
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('DB_ERROR')
+  })
+})
 
 describe('POST /api/grocery', () => {
   beforeEach(() => vi.clearAllMocks())
