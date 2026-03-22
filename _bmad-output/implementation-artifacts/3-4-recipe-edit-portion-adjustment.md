@@ -1,6 +1,6 @@
 # Story 3.4: Recipe Edit & Portion Adjustment
 
-**Status:** review
+**Status:** done
 **Story ID:** 3.4
 **Epic:** 3 — Recipe Save & Collection
 

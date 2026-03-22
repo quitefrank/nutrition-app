@@ -68,7 +68,8 @@ development_status:
   3-3-recipe-detail-page: done
   3-4-recipe-edit-portion-adjustment: done
   3-5-recipe-delete-restaurant-association-return-visit-banner: done
-  epic-3-retrospective: optional
+  3-6-usda-nutritional-data-at-save-time: backlog
+  epic-3-retrospective: done
 
   # Epic 4: Grocery List
   epic-4: in-progress

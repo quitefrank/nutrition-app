@@ -1,6 +1,6 @@
 # Story 3.3: Recipe Detail Page
 
-**Status:** review
+**Status:** done
 **Story ID:** 3.3
 **Epic:** 3 — Recipe Save & Collection
 
