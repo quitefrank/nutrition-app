@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { useRecipes, useDeleteRecipe } from '@/hooks/use-recipes'
 import { useSetAtmospheric } from '@/contexts/atmospheric-context'
@@ -13,6 +14,7 @@ export default function Home() {
   const { data: recipes = [] } = useRecipes()
   const deleteMutation = useDeleteRecipe()
   const setAtmospheric = useSetAtmospheric()
+  const router = useRouter()
 
   // Atmospheric background: use most recent recipe's dish image
   useEffect(() => {
@@ -42,12 +44,42 @@ export default function Home() {
   // Populated state
   if (recipes.length > 0) {
     const [featured, ...rest] = recipes
+
+    // Return-visit banner: show when latest recipe has a restaurant and other recipes share it
+    const latestRestaurantId = recipes[0]?.restaurantId ?? null
+    const sameRestaurantRecipes = latestRestaurantId
+      ? recipes.filter(r => r.restaurantId === latestRestaurantId)
+      : []
+    const showReturnVisitBanner = sameRestaurantRecipes.length > 1 && latestRestaurantId
+
     return (
       <div className="flex flex-col flex-1 gap-[var(--spacing-6)] px-[var(--spacing-4)] py-[var(--spacing-4)]">
         {/* Featured recipe — first/most recent */}
         <SwipeToDelete onDelete={() => handleDelete(featured.id)}>
           <FeaturedRecipeCard recipe={featured} />
         </SwipeToDelete>
+
+        {/* Return-visit banner — shown between featured card and collection */}
+        {showReturnVisitBanner && (
+          <button
+            onClick={() => router.push(`/restaurants/${latestRestaurantId}`)}
+            style={{
+              width: '100%',
+              background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 'var(--radius-md)',
+              padding: 'var(--spacing-3) var(--spacing-4)',
+              color: 'var(--text-primary)',
+              fontSize: 'var(--text-sm)',
+              textAlign: 'left',
+              cursor: 'pointer',
+              minHeight: '44px',
+            }}
+            aria-label="Return visit banner"
+          >
+            You&apos;ve been here before — {sameRestaurantRecipes.length} saved recipes
+          </button>
+        )}
 
         {/* Collection grid — all remaining recipes */}
         {rest.length > 0 && (

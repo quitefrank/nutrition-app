@@ -9,9 +9,16 @@ const VALID_CONFIDENCE = ['high', 'medium', 'low'] as const
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
+  if (!id || !UUID_RE.test(id)) {
+    return NextResponse.json({ error: 'Invalid recipe id', code: 'BAD_REQUEST' }, { status: 400 })
+  }
+
   // Step 1: delete grocery_items for this recipe (ON DELETE SET NULL won't remove them)
   // Best-effort — continue regardless of error
-  await supabase.from('grocery_items').delete().eq('recipe_id', id)
+  const { error: groceryError } = await supabase.from('grocery_items').delete().eq('recipe_id', id)
+  if (groceryError) {
+    console.warn('Failed to delete grocery_items for recipe:', id, groceryError.message)
+  }
 
   // Step 2: delete recipe (cascades to recipe_ingredients via ON DELETE CASCADE)
   const { error, count } = await supabase
@@ -127,30 +134,36 @@ export async function PUT(
   }
 
   // Update recipe row
-  const { error: recipeError } = await supabase
+  const { error: recipeError, count: recipeCount } = await supabase
     .from('recipes')
-    .update({ name: body.name.trim(), serving_size: body.servingSize })
+    .update({ name: body.name.trim(), serving_size: body.servingSize }, { count: 'exact' })
     .eq('id', id)
 
   if (recipeError) {
     return NextResponse.json({ error: 'Failed to update recipe', code: 'DB_ERROR' }, { status: 500 })
   }
+  if (recipeCount === 0) {
+    return NextResponse.json({ error: 'Recipe not found', code: 'NOT_FOUND' }, { status: 404 })
+  }
 
   // Update each ingredient row individually (preserves macro columns untouched)
   for (const ing of body.ingredients) {
-    const { error: ingError } = await supabase
+    const { error: ingError, count: ingCount } = await supabase
       .from('recipe_ingredients')
       .update({
         name: ing.name.trim(),
         quantity: ing.quantity,
         unit: ing.unit,
         confidence_level: ing.confidenceLevel,
-      })
+      }, { count: 'exact' })
       .eq('id', ing.id)
       .eq('recipe_id', id)   // safety: prevent cross-recipe writes
 
     if (ingError) {
       return NextResponse.json({ error: 'Failed to update ingredients', code: 'DB_ERROR' }, { status: 500 })
+    }
+    if (ingCount === 0) {
+      return NextResponse.json({ error: `Ingredient ${ing.id} not found on this recipe`, code: 'VALIDATION_ERROR' }, { status: 422 })
     }
   }
 

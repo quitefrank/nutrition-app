@@ -43,6 +43,11 @@ vi.mock('next/link', () => ({
     React.createElement('a', { href, ...props }, children),
 }))
 
+const mockRouterPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockRouterPush, back: vi.fn(), replace: vi.fn() }),
+}))
+
 vi.mock('sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn() }),
 }))
@@ -188,6 +193,64 @@ describe('Home page', () => {
       await waitFor(() => {
         expect((toast as unknown as { error: ReturnType<typeof vi.fn> }).error).toHaveBeenCalledWith('Failed to delete recipe')
       })
+    })
+  })
+
+  describe('return-visit banner', () => {
+    const recipeRest1a: Recipe = {
+      id: 'ra1',
+      name: 'Ramen',
+      restaurantId: 'rest-1',
+      dishImageUrl: null,
+      confidenceMetadataJson: null,
+      servingSize: 1,
+      createdAt: '2026-03-22T00:00:00Z',
+    }
+    const recipeRest1b: Recipe = {
+      id: 'ra2',
+      name: 'Gyoza',
+      restaurantId: 'rest-1',
+      dishImageUrl: null,
+      confidenceMetadataJson: null,
+      servingSize: 1,
+      createdAt: '2026-03-21T00:00:00Z',
+    }
+    const recipeNoRest: Recipe = {
+      id: 'rn1',
+      name: 'Mystery Dish',
+      restaurantId: null,
+      dishImageUrl: null,
+      confidenceMetadataJson: null,
+      servingSize: 1,
+      createdAt: '2026-03-20T00:00:00Z',
+    }
+
+    it('shows return-visit banner when latest recipe has a restaurant with multiple saved recipes', async () => {
+      mockUseRecipes.mockReturnValue({ data: [recipeRest1a, recipeRest1b] })
+      await renderHome()
+      expect(screen.getByRole('button', { name: /return visit banner/i })).toBeTruthy()
+      expect(screen.getByText(/you've been here before/i)).toBeTruthy()
+      expect(screen.getByText(/2 saved recipes/i)).toBeTruthy()
+    })
+
+    it('does not show banner when latest recipe has only 1 saved recipe at that restaurant', async () => {
+      mockUseRecipes.mockReturnValue({ data: [recipeRest1a, recipeNoRest] })
+      await renderHome()
+      expect(screen.queryByRole('button', { name: /return visit banner/i })).toBeNull()
+    })
+
+    it('does not show banner when latest recipe has no restaurant', async () => {
+      mockUseRecipes.mockReturnValue({ data: [recipeNoRest, recipeRest1a] })
+      await renderHome()
+      expect(screen.queryByRole('button', { name: /return visit banner/i })).toBeNull()
+    })
+
+    it('tapping banner navigates to /restaurants/[restaurantId]', async () => {
+      mockUseRecipes.mockReturnValue({ data: [recipeRest1a, recipeRest1b] })
+      await renderHome()
+      const banner = screen.getByRole('button', { name: /return visit banner/i })
+      fireEvent.click(banner)
+      expect(mockRouterPush).toHaveBeenCalledWith('/restaurants/rest-1')
     })
   })
 })

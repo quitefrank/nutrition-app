@@ -17,8 +17,18 @@ function makeGetRequest(id: string) {
 }
 
 describe('DELETE /api/recipes/[id]', () => {
+  const DELETE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  const MISSING_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('invalid UUID → 400 BAD_REQUEST', async () => {
+    const res = await DELETE(makeDeleteRequest('not-a-uuid'), { params: Promise.resolve({ id: 'not-a-uuid' }) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.code).toBe('BAD_REQUEST')
   })
 
   it('success: returns 200 with deleted: true when recipe exists', async () => {
@@ -27,7 +37,7 @@ describe('DELETE /api/recipes/[id]', () => {
       eq: vi.fn().mockResolvedValue({ error: null, count: 1 }),
     })
 
-    const res = await DELETE(makeDeleteRequest('recipe-uuid-1'), { params: Promise.resolve({ id: 'recipe-uuid-1' }) })
+    const res = await DELETE(makeDeleteRequest(DELETE_ID), { params: Promise.resolve({ id: DELETE_ID }) })
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.data.deleted).toBe(true)
@@ -39,7 +49,7 @@ describe('DELETE /api/recipes/[id]', () => {
       eq: vi.fn().mockResolvedValue({ error: null, count: 0 }),
     })
 
-    const res = await DELETE(makeDeleteRequest('nonexistent-id'), { params: Promise.resolve({ id: 'nonexistent-id' }) })
+    const res = await DELETE(makeDeleteRequest(MISSING_ID), { params: Promise.resolve({ id: MISSING_ID }) })
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.code).toBe('NOT_FOUND')
@@ -51,7 +61,7 @@ describe('DELETE /api/recipes/[id]', () => {
       eq: vi.fn().mockResolvedValue({ error: new Error('DB error'), count: null }),
     })
 
-    const res = await DELETE(makeDeleteRequest('recipe-uuid-1'), { params: Promise.resolve({ id: 'recipe-uuid-1' }) })
+    const res = await DELETE(makeDeleteRequest(DELETE_ID), { params: Promise.resolve({ id: DELETE_ID }) })
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.code).toBe('DB_ERROR')
@@ -285,6 +295,34 @@ describe('PUT /api/recipes/[id]', () => {
     const body = await res.json()
     expect(body.code).toBe('DB_ERROR')
   })
+
+  it('recipe not found: returns 404 NOT_FOUND when update matches zero rows', async () => {
+    mockFrom.mockReturnValueOnce({
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null, count: 0 }),
+    })
+    const res = await PUT(makePutRequest(RECIPE_ID, validPayload), { params: Promise.resolve({ id: RECIPE_ID }) })
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.code).toBe('NOT_FOUND')
+  })
+
+  it('ingredient not found: returns 422 when ingredient ID matches zero rows', async () => {
+    // Call 1: UPDATE recipes — 1 row updated (recipe exists)
+    mockFrom.mockReturnValueOnce({
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null, count: 1 }),
+    })
+    // Call 2: UPDATE recipe_ingredients — 0 rows (ingredient not found / wrong recipe)
+    const ingUpdateMock = { update: vi.fn().mockReturnThis(), eq: vi.fn() }
+    ingUpdateMock.eq.mockReturnValueOnce(ingUpdateMock).mockResolvedValueOnce({ error: null, count: 0 })
+    mockFrom.mockReturnValueOnce(ingUpdateMock)
+
+    const res = await PUT(makePutRequest(RECIPE_ID, validPayload), { params: Promise.resolve({ id: RECIPE_ID }) })
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
 })
 
 describe('DELETE /api/recipes/[id] — grocery_items cleanup', () => {
@@ -293,6 +331,7 @@ describe('DELETE /api/recipes/[id] — grocery_items cleanup', () => {
   })
 
   it('success: deletes grocery_items before recipe', async () => {
+    const RECIPE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
     const groceryEqSpy = vi.fn().mockResolvedValue({ error: null })
     const groceryDeleteMock = { delete: vi.fn().mockReturnThis(), eq: groceryEqSpy }
     const recipeDeleteMock = {
@@ -303,14 +342,15 @@ describe('DELETE /api/recipes/[id] — grocery_items cleanup', () => {
       .mockReturnValueOnce(groceryDeleteMock)
       .mockReturnValueOnce(recipeDeleteMock)
 
-    const res = await DELETE(makeDeleteRequest('recipe-uuid-1'), { params: Promise.resolve({ id: 'recipe-uuid-1' }) })
+    const res = await DELETE(makeDeleteRequest(RECIPE_ID), { params: Promise.resolve({ id: RECIPE_ID }) })
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.data.deleted).toBe(true)
-    expect(groceryEqSpy).toHaveBeenCalledWith('recipe_id', 'recipe-uuid-1')
+    expect(groceryEqSpy).toHaveBeenCalledWith('recipe_id', RECIPE_ID)
   })
 
   it('grocery_items error is best-effort: recipe still deleted successfully', async () => {
+    const RECIPE_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
     const groceryDeleteMock = {
       delete: vi.fn().mockReturnThis(),
       eq: vi.fn().mockResolvedValue({ error: new Error('grocery_items DB error') }),
@@ -323,7 +363,7 @@ describe('DELETE /api/recipes/[id] — grocery_items cleanup', () => {
       .mockReturnValueOnce(groceryDeleteMock)
       .mockReturnValueOnce(recipeDeleteMock)
 
-    const res = await DELETE(makeDeleteRequest('recipe-uuid-1'), { params: Promise.resolve({ id: 'recipe-uuid-1' }) })
+    const res = await DELETE(makeDeleteRequest(RECIPE_ID), { params: Promise.resolve({ id: RECIPE_ID }) })
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.data.deleted).toBe(true)
@@ -336,13 +376,14 @@ describe('DELETE /api/recipes/[id] — param contract', () => {
   })
 
   it('extracts id from Promise params (Next.js 15 async params)', async () => {
+    const PARAM_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
     const eqSpy = vi.fn().mockResolvedValue({ error: null, count: 1 })
     mockFrom.mockReturnValue({
       delete: vi.fn().mockReturnThis(),
       eq: eqSpy,
     })
-    await DELETE(makeDeleteRequest('recipe-uuid-1'), { params: Promise.resolve({ id: 'recipe-uuid-1' }) })
-    expect(eqSpy).toHaveBeenCalledWith('id', 'recipe-uuid-1')
+    await DELETE(makeDeleteRequest(PARAM_ID), { params: Promise.resolve({ id: PARAM_ID }) })
+    expect(eqSpy).toHaveBeenCalledWith('id', PARAM_ID)
   })
 })
 

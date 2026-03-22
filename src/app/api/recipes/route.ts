@@ -18,6 +18,62 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ingredients must be an array', code: 'VALIDATION_ERROR' }, { status: 422 })
   }
 
+  // Resolve restaurant — non-fatal if lookup/creation fails
+  let resolvedRestaurantId: string | null = null
+
+  if (body.restaurantGooglePlacesId || body.restaurantName) {
+    let existingId: string | null = null
+    let skipRestaurant = false
+
+    if (body.restaurantGooglePlacesId) {
+      const { data, error: placesLookupError } = await supabase
+        .from('restaurants')
+        .select('id')
+        .eq('google_places_id', body.restaurantGooglePlacesId)
+        .maybeSingle()
+      if (placesLookupError) {
+        // Lookup failed — skip restaurant association to avoid inserting a junk row
+        console.warn('Failed to look up restaurant by google_places_id:', placesLookupError.message)
+        skipRestaurant = true
+      } else {
+        existingId = data?.id ?? null
+      }
+    }
+
+    if (!skipRestaurant && !existingId && body.restaurantName) {
+      const { data } = await supabase
+        .from('restaurants')
+        .select('id')
+        .eq('name', body.restaurantName)
+        .maybeSingle()
+      existingId = data?.id ?? null
+    }
+
+    if (!skipRestaurant) {
+      if (existingId) {
+        await supabase.from('restaurants').update({ updated_at: new Date().toISOString() }).eq('id', existingId)
+        resolvedRestaurantId = existingId
+      } else {
+        const { data: newRestaurant, error: restaurantError } = await supabase
+          .from('restaurants')
+          .insert({
+            name: body.restaurantName ?? 'Unknown Restaurant',
+            google_places_id: body.restaurantGooglePlacesId ?? null,
+            atmospheric_palette_json: null,
+          })
+          .select('id')
+          .single()
+
+        if (restaurantError) {
+          // Non-fatal: continue save without restaurant association
+          console.error('Failed to create restaurant:', restaurantError.message)
+        } else {
+          resolvedRestaurantId = newRestaurant.id
+        }
+      }
+    }
+  }
+
   const { data: recipe, error: recipeError } = await supabase
     .from('recipes')
     .insert({
@@ -25,6 +81,7 @@ export async function POST(req: NextRequest) {
       dish_image_url: body.dishImageUrl ?? null,
       confidence_metadata_json: body.confidenceMetadata ?? null,
       serving_size: body.servingSize ?? 1,
+      restaurant_id: resolvedRestaurantId,
     })
     .select('id, name, restaurant_id, serving_size, created_at')
     .single()
@@ -69,8 +126,10 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ data: response })
 }
 
-export async function GET() {
-  const { data, error } = await supabase
+export async function GET(req: NextRequest) {
+  const restaurantId = req.nextUrl.searchParams.get('restaurantId')
+
+  let query = supabase
     .from('recipes')
     .select(`
       id,
@@ -83,6 +142,12 @@ export async function GET() {
       restaurants ( id, name, google_places_id, atmospheric_palette_json, updated_at )
     `)
     .order('created_at', { ascending: false })
+
+  if (restaurantId) {
+    query = query.eq('restaurant_id', restaurantId)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     return NextResponse.json({ error: 'Failed to fetch recipes', code: 'DB_ERROR' }, { status: 500 })
