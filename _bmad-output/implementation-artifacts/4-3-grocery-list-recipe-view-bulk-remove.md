@@ -1,6 +1,6 @@
 # Story 4.3: Grocery List Recipe View & Bulk Remove
 
-**Status:** ready-for-dev
+**Status:** done
 **Story ID:** 4.3
 **Epic:** 4 — Grocery List
 
@@ -46,47 +46,47 @@ So that I can remove all items from a recipe I no longer want to cook.
 ## Tasks / Subtasks
 
 ### Task 1: Verify bulk delete `?recipeId` support in `src/app/api/grocery/bulk/route.ts`
-- [ ] Read existing `bulk/route.ts` to confirm `?recipeId=<uuid>` DELETE path exists from story 4.2
-- [ ] If missing, add the `recipeId` branch (UUID-validated, Supabase delete where `recipe_id = recipeId`)
-- [ ] If present, no changes needed to `bulk/route.ts`
+- [x] Read existing `bulk/route.ts` to confirm `?recipeId=<uuid>` DELETE path exists from story 4.2
+- [x] If missing, add the `recipeId` branch (UUID-validated, Supabase delete where `recipe_id = recipeId`)
+- [x] If present, no changes needed to `bulk/route.ts`
 
 ### Task 2: Add new API route `src/app/api/grocery/recipes/route.ts` (Option C)
-- [ ] Create GET handler that queries `grocery_items` joined to `recipes` and `restaurants`
-- [ ] Return `GroceryRecipeSummary[]` (recipeId, recipeName, dishImageUrl, restaurantName, itemCount)
-- [ ] Include a "null" group entry if any items have `recipe_id = null`
-- [ ] Validate no untrusted input (this is a read-only route with no query params)
-- [ ] Return `{ data: GroceryRecipeSummary[] }`
+- [x] Create GET handler that queries `grocery_items` joined to `recipes` and `restaurants`
+- [x] Return `GroceryRecipeSummary[]` (recipeId, recipeName, dishImageUrl, restaurantName, itemCount)
+- [x] Include a "null" group entry if any items have `recipe_id = null`
+- [x] Validate no untrusted input (this is a read-only route with no query params)
+- [x] Return `{ data: GroceryRecipeSummary[] }`
 
 ### Task 3: Add types to `src/types/api.ts`
-- [ ] Append `GroceryRecipeSummary` interface (returned by new API route)
-- [ ] Append `GroceryRecipeGroup` interface (client-side derived type, includes `items: GroceryListItem[]`)
+- [x] Append `GroceryRecipeSummary` interface (returned by new API route)
+- [x] Append `GroceryRecipeGroup` interface (client-side derived type, includes `items: GroceryListItem[]`)
 
 ### Task 4: Add new hooks to `src/hooks/use-grocery.ts`
-- [ ] Add `useGroceryRecipeGroups()` — `useQuery({ queryKey: ['grocery-recipe-groups'], queryFn: GET /api/grocery/recipes })`
-- [ ] Add `useBulkRemoveRecipe()` — `useMutation` → `DELETE /api/grocery/bulk?recipeId=<uuid>`, invalidates `['grocery-items']` and `['grocery-recipe-groups']`
-- [ ] Do NOT modify existing hooks
+- [x] Add `useGroceryRecipeGroups()` — `useQuery({ queryKey: ['grocery-recipe-groups'], queryFn: GET /api/grocery/recipes })`
+- [x] Add `useBulkRemoveRecipe()` — `useMutation` → `DELETE /api/grocery/bulk?recipeId=<uuid>`, invalidates `['grocery-items']` and `['grocery-recipe-groups']`
+- [x] Do NOT modify existing hooks
 
 ### Task 5: Create `src/components/grocery/grocery-recipe-view.tsx`
-- [ ] Client component, reads from `useGroceryItems()` and `useGroceryRecipeGroups()`
-- [ ] Derive `GroceryRecipeGroup[]` client-side by merging flat items with recipe summaries (keyed by `recipeId`)
-- [ ] Render vertical list of recipe group cards per spec (thumbnail, name, restaurant, item count badge)
-- [ ] Implement 3-item disclosure with "+ N more" expand on tap
-- [ ] "Remove all X items" footer button (destructive style) calls `useBulkRemoveRecipe()`
-- [ ] "Other items" group for `recipe_id = null` items (no image, no restaurant)
-- [ ] Loading and error states handled internally
-- [ ] Show sonner toast on bulk remove success/failure
+- [x] Client component, reads from `useGroceryItems()` and `useGroceryRecipeGroups()`
+- [x] Derive `GroceryRecipeGroup[]` client-side by merging flat items with recipe summaries (keyed by `recipeId`)
+- [x] Render vertical list of recipe group cards per spec (thumbnail, name, restaurant, item count badge)
+- [x] Implement 3-item disclosure with "+ N more" expand on tap
+- [x] "Remove all X items" footer button (destructive style) calls `useBulkRemoveRecipe()`
+- [x] "Other items" group for `recipe_id = null` items (no image, no restaurant)
+- [x] Loading and error states handled internally
+- [x] Show sonner toast on bulk remove success/failure
 
 ### Task 6: Modify `src/app/groceries/page.tsx` to add toggle pill and crossfade
-- [ ] Add `useState<'ingredients' | 'recipe'>('ingredients')` for view toggle
-- [ ] Add toggle pill UI (two buttons, active/inactive styles)
-- [ ] Wrap both views in opacity/pointerEvents crossfade container (both mount simultaneously)
-- [ ] Import and render `<GroceryRecipeView />` alongside existing `<GroceryIngredientView />`
-- [ ] Do NOT replace or rewrite existing ingredient view logic
+- [x] Add `useState<'ingredients' | 'recipe'>('ingredients')` for view toggle
+- [x] Add toggle pill UI (two buttons, active/inactive styles)
+- [x] Wrap both views in opacity/pointerEvents crossfade container (both mount simultaneously)
+- [x] Import and render `<GroceryRecipeView />` alongside existing `<GroceryIngredientView />`
+- [x] Do NOT replace or rewrite existing ingredient view logic
 
 ### Task 7: Write tests
-- [ ] `src/app/api/grocery/recipes/route.test.ts` — GET returns correct shape; null recipe_id group handled
-- [ ] `src/components/grocery/grocery-recipe-view.test.tsx` — renders groups, disclosure toggle, bulk remove mutation called correctly
-- [ ] `src/app/groceries/page.test.tsx` — toggle pill switches opacity; both views mounted simultaneously
+- [x] `src/app/api/grocery/recipes/route.test.ts` — GET returns correct shape; null recipe_id group handled
+- [x] `src/components/grocery/grocery-recipe-view.test.tsx` — renders groups, disclosure toggle, bulk remove mutation called correctly
+- [x] `src/app/groceries/page.test.tsx` — toggle pill switches opacity; both views mounted simultaneously
 
 ---
 
@@ -375,31 +375,49 @@ If any of the above files are missing, raise a blocker in the completion notes �
 ## Dev Agent Record
 
 ### Agent Model Used
-_To be filled by dev agent_
+claude-sonnet-4-6
 
 ### Debug Log References
 _None_
 
 ### Completion Notes List
-_To be filled by dev agent_
+
+**Task 1:** `bulk/route.ts` already had `?recipeId=<uuid>` Mode 2 (lines 42–59) from story 4.2. No changes required.
+
+**Task 2:** Created `GET /api/grocery/recipes/route.ts` using a two-step Supabase approach: (1) fetch all `grocery_items.recipe_id` rows and group by `recipe_id` in JS; (2) fetch recipe metadata for non-null IDs via `.select('id, name, dish_image_url, restaurants ( name )').in('id', recipeIds)`. Named groups appear first; null group ("Other items") appended last.
+
+**Task 3:** Appended `GroceryRecipeSummary` (API shape) and `GroceryRecipeGroup` (client-side derived, not from API) to `src/types/api.ts`.
+
+**Task 4:** Added `useGroceryRecipeGroups()` and `useBulkRemoveRecipe()` after all existing hooks. No existing hooks modified. `useBulkRemoveRecipe` typed as `string` (not `string | null`) since "Remove all" is suppressed for the null group.
+
+**Task 5:** Created `grocery-recipe-view.tsx` with `buildGroups()` merge function (documented the original-recipe_id intentional behavior from story 4.1 merge logic). `RecipeGroupCard` handles 3-item disclosure, destructive "Remove all" button, "Other items" group with no thumbnail and no remove button. Loading state uses skeleton cards; error state has retry button.
+
+**Decision — "Other items" bulk remove:** Button suppressed for the null group. Rationale: `bulk/route.ts` validates UUID format; `null` cannot be passed as a UUID. Suppressing is cleaner than adding a separate API param. Documented in `grocery-recipe-view.tsx` with code comment.
+
+**Task 6:** `groceries/page.tsx` rewritten with toggle pill (aria-pressed), both views always mounted simultaneously in absolute crossfade container (0.2s ease opacity transition).
+
+**Task 7:** 3 new test files, 36 new tests. All 501 tests pass (42 test files, 0 failures).
 
 ### File List
 
-**Create:**
+**Created:**
 - `src/app/api/grocery/recipes/route.ts`
 - `src/app/api/grocery/recipes/route.test.ts`
 - `src/components/grocery/grocery-recipe-view.tsx`
 - `src/components/grocery/grocery-recipe-view.test.tsx`
+- `src/app/groceries/page.test.tsx` (new — did not exist before)
 
-**Modify:**
-- `src/types/api.ts` — append `GroceryRecipeSummary` and `GroceryRecipeGroup` interfaces
-- `src/hooks/use-grocery.ts` — append `useGroceryRecipeGroups()` and `useBulkRemoveRecipe()` hooks
-- `src/app/groceries/page.tsx` — add toggle pill state + UI + crossfade container
-- `src/app/groceries/page.test.tsx` — extend with toggle pill and dual-mount tests
-- `src/app/api/grocery/bulk/route.ts` — only if `?recipeId` mode is missing (verify first)
+**Modified:**
+- `src/types/api.ts` — appended `GroceryRecipeSummary` and `GroceryRecipeGroup` interfaces
+- `src/hooks/use-grocery.ts` — appended `useGroceryRecipeGroups()` and `useBulkRemoveRecipe()` hooks (import updated too)
+- `src/app/groceries/page.tsx` — added toggle pill state + UI + crossfade container
+
+**No changes:**
+- `src/app/api/grocery/bulk/route.ts` — `?recipeId=<uuid>` mode was already present from story 4.2
 
 ---
 
 ## Change Log
 
 - 2026-03-22: Story 4.3 created
+- 2026-03-22: Story 4.3 implemented — recipe view, toggle pill, bulk remove, 36 new tests (501 total passing)

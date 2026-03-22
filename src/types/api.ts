@@ -127,3 +127,24 @@ export interface GroceryCheckResponse {
   id: string
   checked: boolean
 }
+
+// ─── Grocery Recipe View (Story 4.3) ─────────────────────────────────────────
+
+// Returned by GET /api/grocery/recipes
+export interface GroceryRecipeSummary {
+  recipeId: string | null       // null = "Other items" group
+  recipeName: string            // "Other items" for the null group
+  dishImageUrl: string | null
+  restaurantName: string | null
+  itemCount: number
+}
+
+// Client-side derived type — NOT returned from any API route.
+// Constructed in grocery-recipe-view.tsx by joining GroceryListItem[] on recipeId.
+export interface GroceryRecipeGroup {
+  recipeId: string | null
+  recipeName: string
+  dishImageUrl: string | null
+  restaurantName: string | null
+  items: GroceryListItem[]
+}

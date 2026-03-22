@@ -8,6 +8,7 @@ import type {
   GroceryListItem,
   GroceryCheckRequest,
   GroceryCheckResponse,
+  GroceryRecipeSummary,
   ApiSuccess,
 } from '@/types/api'
 
@@ -152,6 +153,48 @@ export function useClearChecked() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['grocery-items'] })
+    },
+  })
+}
+
+// ─── Story 4.3 hooks ──────────────────────────────────────────────────────────
+
+export function useGroceryRecipeGroups() {
+  return useQuery<GroceryRecipeSummary[]>({
+    queryKey: ['grocery-recipe-groups'],
+    queryFn: async () => {
+      const res = await fetch('/api/grocery/recipes')
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error((json as { error?: string }).error ?? 'Failed to fetch recipe groups')
+      }
+      const json = await res.json()
+      return (json as ApiSuccess<GroceryRecipeSummary[]>).data
+    },
+  })
+}
+
+export function useBulkRemoveRecipe() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, string>({
+    mutationFn: async (recipeId: string) => {
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!UUID_RE.test(recipeId)) {
+        throw new Error(`Invalid recipe ID format: ${recipeId}`)
+      }
+      const res = await fetch(`/api/grocery/bulk?recipeId=${recipeId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error((json as { error?: string }).error ?? 'Failed to remove recipe items')
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['grocery-items'] })
+      void queryClient.invalidateQueries({ queryKey: ['grocery-recipe-groups'] })
+      toast.success('Recipe items removed')
+    },
+    onError: () => {
+      toast.error('Failed to remove items')
     },
   })
 }
