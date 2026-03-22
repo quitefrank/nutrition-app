@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RecipeDetail } from './recipe-detail'
@@ -12,6 +12,11 @@ vi.mock('next/image', () => ({
 const mockSetAtmospheric = vi.fn()
 vi.mock('@/contexts/atmospheric-context', () => ({
   useSetAtmospheric: () => mockSetAtmospheric,
+}))
+
+const mockAddToGrocery = vi.fn()
+vi.mock('@/hooks/use-grocery', () => ({
+  useAddToGrocery: () => ({ mutate: mockAddToGrocery, isPending: false }),
 }))
 
 function createWrapper() {
@@ -116,8 +121,18 @@ describe('RecipeDetail', () => {
     expect(screen.getByText('Serving size: 2×')).toBeTruthy()
   })
 
-  it('"Add to Grocery List" button is disabled', () => {
+  it('"Add to Grocery List" button is enabled and calls addToGrocery on click', () => {
     render(<RecipeDetail recipe={makeRecipe()} />, { wrapper: createWrapper() })
+    const btn = screen.getByRole('button', { name: /Add to Grocery List/i }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    expect(btn.getAttribute('aria-label')).toBe('Add to Grocery List')
+    fireEvent.click(btn)
+    expect(mockAddToGrocery).toHaveBeenCalledWith('recipe-1')
+  })
+
+  // IG-2: button disabled when recipe has no ingredients
+  it('"Add to Grocery List" button is disabled when recipe has no ingredients', () => {
+    render(<RecipeDetail recipe={makeRecipe({ ingredients: [] })} />, { wrapper: createWrapper() })
     const btn = screen.getByRole('button', { name: /Add to Grocery List/i }) as HTMLButtonElement
     expect(btn.disabled).toBe(true)
   })

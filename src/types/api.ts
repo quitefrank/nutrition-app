@@ -95,3 +95,14 @@ export interface RecipeUpdateRequest {
   servingSize: number
   ingredients: RecipeUpdateIngredient[]
 }
+
+// ─── Grocery API ──────────────────────────────────────────────────────────────
+
+export interface GroceryAddRequest {
+  recipeId: string
+}
+
+export interface GroceryAddResponse {
+  added: number
+  merged: number
+}

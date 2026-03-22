@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import Image from 'next/image'
 import { useSetAtmospheric } from '@/contexts/atmospheric-context'
+import { useAddToGrocery } from '@/hooks/use-grocery'
 import type { Recipe, DomainIngredient } from '@/types/domain'
 
 interface RecipeDetailProps {
@@ -26,6 +27,7 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
   }, [recipe.dishImageUrl, setAtmospheric])
 
   const ingredients = recipe.ingredients ?? []
+  const { mutate: addToGrocery, isPending: isAddingToGrocery } = useAddToGrocery()
 
   return (
     <div className="flex flex-col flex-1 px-[var(--spacing-4)] py-[var(--spacing-4)]">
@@ -93,23 +95,25 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
       {/* Divider */}
       <div style={{ height: '1px', background: 'rgba(255,255,255,0.10)', margin: 'var(--spacing-4) 0' }} />
 
-      {/* Add to Grocery List CTA — inactive until Epic 4 */}
+      {/* Add to Grocery List CTA */}
       <button
-        disabled
+        onClick={() => addToGrocery(recipe.id)}
+        disabled={isAddingToGrocery || ingredients.length === 0}
         style={{
           width: '100%',
           height: '56px',
           borderRadius: 'var(--radius-xl)',
-          background: 'rgba(255,255,255,0.12)',
-          color: 'var(--text-tertiary)',
+          background: isAddingToGrocery ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.12)',
+          color: isAddingToGrocery ? 'var(--text-tertiary)' : 'var(--text-primary)',
           fontWeight: 600,
           fontSize: 'var(--text-base)',
           border: 'none',
-          cursor: 'not-allowed',
+          cursor: isAddingToGrocery ? 'not-allowed' : 'pointer',
+          transition: 'background 0.15s, color 0.15s',
         }}
-        aria-label="Add to Grocery List (coming soon)"
+        aria-label="Add to Grocery List"
       >
-        Add to Grocery List
+        {isAddingToGrocery ? 'Adding…' : 'Add to Grocery List'}
       </button>
     </div>
   )
