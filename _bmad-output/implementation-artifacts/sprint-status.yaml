@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-19
-last_updated: 2026-03-22  # Stories 3.1–3.5 done; 4.1 ready-for-dev
+last_updated: 2026-03-22  # Stories 3.1–3.5 done; 3.6 review; 4.1–4.4 ready-for-dev
 project: Plately
 project_key: NOKEY
 tracking_system: file-system
@@ -62,21 +62,21 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Recipe Save & Collection
-  epic-3: done
+  epic-3: in-progress
   3-1-recipe-save-flow-undo: done
   3-2-recipe-collection-populated-home-screen: done
   3-3-recipe-detail-page: done
   3-4-recipe-edit-portion-adjustment: done
   3-5-recipe-delete-restaurant-association-return-visit-banner: done
-  3-6-usda-nutritional-data-at-save-time: backlog
+  3-6-usda-nutritional-data-at-save-time: done
   epic-3-retrospective: done
 
   # Epic 4: Grocery List
   epic-4: in-progress
   4-1-add-recipe-to-grocery-list: ready-for-dev
-  4-2-grocery-list-ingredient-view: backlog
-  4-3-grocery-list-recipe-view-bulk-remove: backlog
-  4-4-offline-read-access: backlog
+  4-2-grocery-list-ingredient-view: ready-for-dev
+  4-3-grocery-list-recipe-view-bulk-remove: ready-for-dev
+  4-4-offline-read-access: ready-for-dev
   epic-4-retrospective: optional
 
   # Epic 5: Manual Search & Discovery

@@ -9,6 +9,14 @@ vi.mock('@/lib/supabase', () => ({
   supabase: { from: mockFrom },
 }))
 
+vi.mock('@/lib/api-keys', () => ({
+  getApiKeys: vi.fn(() => ({ gemini: undefined, places: undefined, usda: 'test-usda-key' })),
+}))
+
+// Default fetch mock — USDA returns a successful match
+const mockFetch = vi.fn()
+vi.stubGlobal('fetch', mockFetch)
+
 function makeRequest(body: object) {
   return new Request('http://localhost/api/recipes', {
     method: 'POST',
@@ -34,9 +42,32 @@ const validPayload = {
   ],
 }
 
+const usdaSuccessResponse = {
+  ok: true,
+  json: async () => ({
+    foods: [{
+      servingSize: 240,          // 1 serving = 240g (e.g. 1 duck leg)
+      servingSizeUnit: 'g',
+      foodNutrients: [
+        { nutrientId: 1008, value: 250 },  // 250 kcal per 100g
+        { nutrientId: 1003, value: 20 },   // 20g protein per 100g
+        { nutrientId: 1004, value: 10 },   // 10g fat per 100g
+        { nutrientId: 1005, value: 30 },   // 30g carbs per 100g
+      ]
+    }]
+  })
+}
+
+const usdaNoMatchResponse = {
+  ok: true,
+  json: async () => ({ foods: [] })
+}
+
 describe('POST /api/recipes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: USDA returns a successful match for all ingredients
+    mockFetch.mockResolvedValue(usdaSuccessResponse)
   })
 
   it('success: valid payload returns 200 with recipe data', async () => {
@@ -352,6 +383,424 @@ describe('POST /api/recipes', () => {
     // restaurants table should only have been queried once (the lookup), NOT inserted
     const restaurantInsertCalls = mockFrom.mock.calls.filter(([t]: [string]) => t === 'restaurants')
     expect(restaurantInsertCalls).toHaveLength(1) // only the lookup, no insert
+  })
+
+  // USDA macro lookup tests (Story 3.6)
+  it('usda: USDA key configured + lookup succeeds → macros stored; correct URL and X-Api-Key header used', async () => {
+    const mockRecipe = {
+      id: 'recipe-usda-1',
+      name: 'Duck Confit',
+      restaurant_id: null,
+      serving_size: 1,
+      created_at: '2026-03-22T00:00:00Z',
+    }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') {
+        return {
+          insert: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+        }
+      }
+      if (table === 'recipe_ingredients') {
+        return {
+          insert: vi.fn().mockImplementation((rows: unknown) => {
+            capturedInsertArgs = rows
+            return Promise.resolve({ error: null })
+          }),
+        }
+      }
+    })
+
+    // Tier 2: "Duck leg" quantity="2" unit="pcs" + USDA servingSize=240g → scale=(2×240)/100=4.8
+    // "Thyme" quantity=null → Tier 3 scale=1 → per-100g reference
+    const res = await POST(makeRequest(validPayload))
+    expect(res.status).toBe(200)
+
+    // Assert fetch URL includes pageSize=1, dataType=Foundation and X-Api-Key header
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    const [url, options] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }]
+    expect(url).toContain('pageSize=1')
+    expect(url).toContain('dataType=Foundation,SR%20Legacy')
+    expect(url).toContain('query=Duck%20leg')
+    expect(options.headers['X-Api-Key']).toBe('test-usda-key')
+
+    // Verify macros: Duck leg (Tier 2, scale=4.8) — assert all 4 columns
+    const rows = capturedInsertArgs as Array<{ name: string; calories_kcal: number | null; protein_g: number | null; fat_g: number | null; carbs_g: number | null }>
+    expect(rows).toBeDefined()
+    const duckRow = rows.find(r => r.name === 'Duck leg')!
+    expect(duckRow.calories_kcal).toBe(1200)   // 250 × 4.8
+    expect(duckRow.protein_g).toBe(96)          // 20 × 4.8
+    expect(duckRow.fat_g).toBe(48)              // 10 × 4.8
+    expect(duckRow.carbs_g).toBe(144)           // 30 × 4.8
+
+    // Thyme (Tier 3, scale=1) — per-100g reference
+    const thymeRow = rows.find(r => r.name === 'Thyme')!
+    expect(thymeRow.calories_kcal).toBe(250)
+    expect(thymeRow.protein_g).toBe(20)
+    expect(thymeRow.fat_g).toBe(10)
+    expect(thymeRow.carbs_g).toBe(30)
+  })
+
+  it('usda: ingredient with gram unit → macros scaled by quantity/100', async () => {
+    const mockRecipe = {
+      id: 'recipe-usda-scale',
+      name: 'Salad',
+      restaurant_id: null,
+      serving_size: 1,
+      created_at: '2026-03-22T00:00:00Z',
+    }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') {
+        return {
+          insert: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+        }
+      }
+      if (table === 'recipe_ingredients') {
+        return {
+          insert: vi.fn().mockImplementation((rows: unknown) => {
+            capturedInsertArgs = rows
+            return Promise.resolve({ error: null })
+          }),
+        }
+      }
+    })
+
+    // Ingredient with 200g — should scale by 200/100 = 2
+    const gramPayload = {
+      name: 'Salad',
+      ingredients: [{ name: 'Chicken breast', quantity: '200', unit: 'g', confidenceLevel: 'high' }],
+    }
+    const res = await POST(makeRequest(gramPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null; protein_g: number | null }>
+    expect(rows[0].calories_kcal).toBe(500)   // 250 * 2
+    expect(rows[0].protein_g).toBe(40)          // 20 * 2
+  })
+
+  it('usda: USDA key not configured → macros are null, recipe saves normally (200)', async () => {
+    const { getApiKeys } = await import('@/lib/api-keys')
+    vi.mocked(getApiKeys).mockReturnValueOnce({ gemini: undefined, places: undefined, usda: undefined })
+
+    const mockRecipe = {
+      id: 'recipe-usda-nokey',
+      name: 'Duck Confit',
+      restaurant_id: null,
+      serving_size: 1,
+      created_at: '2026-03-22T00:00:00Z',
+    }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') {
+        return {
+          insert: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+        }
+      }
+      if (table === 'recipe_ingredients') {
+        return {
+          insert: vi.fn().mockImplementation((rows: unknown) => {
+            capturedInsertArgs = rows
+            return Promise.resolve({ error: null })
+          }),
+        }
+      }
+    })
+
+    const res = await POST(makeRequest(validPayload))
+    expect(res.status).toBe(200)
+
+    // USDA should NOT have been called
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    // Macros should be null
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    rows.forEach(row => expect(row.calories_kcal).toBeNull())
+  })
+
+  it('usda: USDA fetch returns 404 → macros are null, recipe saves normally (200)', async () => {
+    mockFetch.mockResolvedValue({ ok: false })
+
+    const mockRecipe = {
+      id: 'recipe-usda-404',
+      name: 'Duck Confit',
+      restaurant_id: null,
+      serving_size: 1,
+      created_at: '2026-03-22T00:00:00Z',
+    }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') {
+        return {
+          insert: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+        }
+      }
+      if (table === 'recipe_ingredients') {
+        return {
+          insert: vi.fn().mockImplementation((rows: unknown) => {
+            capturedInsertArgs = rows
+            return Promise.resolve({ error: null })
+          }),
+        }
+      }
+    })
+
+    const res = await POST(makeRequest(validPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null; protein_g: number | null }>
+    rows.forEach(row => {
+      expect(row.calories_kcal).toBeNull()
+      expect(row.protein_g).toBeNull()
+    })
+  })
+
+  it('usda: USDA fetch times out → macros are null, recipe saves normally (200)', async () => {
+    mockFetch.mockRejectedValue(Object.assign(new Error('Aborted'), { name: 'AbortError' }))
+
+    const mockRecipe = {
+      id: 'recipe-usda-timeout',
+      name: 'Duck Confit',
+      restaurant_id: null,
+      serving_size: 1,
+      created_at: '2026-03-22T00:00:00Z',
+    }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') {
+        return {
+          insert: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+        }
+      }
+      if (table === 'recipe_ingredients') {
+        return {
+          insert: vi.fn().mockImplementation((rows: unknown) => {
+            capturedInsertArgs = rows
+            return Promise.resolve({ error: null })
+          }),
+        }
+      }
+    })
+
+    const res = await POST(makeRequest(validPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    rows.forEach(row => expect(row.calories_kcal).toBeNull())
+  })
+
+  it('usda: two ingredients, USDA finds first but not second → first has macros, second has nulls', async () => {
+    const mockRecipe = {
+      id: 'recipe-usda-partial',
+      name: 'Duck Confit',
+      restaurant_id: null,
+      serving_size: 1,
+      created_at: '2026-03-22T00:00:00Z',
+    }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') {
+        return {
+          insert: vi.fn().mockReturnThis(),
+          select: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+        }
+      }
+      if (table === 'recipe_ingredients') {
+        return {
+          insert: vi.fn().mockImplementation((rows: unknown) => {
+            capturedInsertArgs = rows
+            return Promise.resolve({ error: null })
+          }),
+        }
+      }
+    })
+
+    // First call (Duck leg) returns match, second call (Thyme) returns no match
+    mockFetch
+      .mockResolvedValueOnce(usdaSuccessResponse)
+      .mockResolvedValueOnce(usdaNoMatchResponse)
+
+    const res = await POST(makeRequest(validPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ name: string; calories_kcal: number | null }>
+    const duckRow = rows.find(r => r.name === 'Duck leg')!
+    const thymeRow = rows.find(r => r.name === 'Thyme')!
+
+    expect(duckRow.calories_kcal).toBe(1200)  // Tier 2: pcs + servingSize=240g → scale=4.8
+    expect(thymeRow.calories_kcal).toBeNull()
+  })
+
+  it('usda: Tier 1 — gram and grams unit variants are scaled correctly (case-insensitive)', async () => {
+    const mockRecipe = { id: 'recipe-tier1-gram', name: 'Pasta', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    // Test 'gram' unit: scale = (150 × 1) / 100 = 1.5 → calories = 250 × 1.5 = 375
+    const gramPayload = { name: 'Pasta', ingredients: [{ name: 'Pasta', quantity: '150', unit: 'gram', confidenceLevel: 'high' }] }
+    await POST(makeRequest(gramPayload))
+    const rows1 = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    expect(rows1[0].calories_kcal).toBe(375)
+
+    // Test 'GRAMS' unit (case-insensitive): same scale
+    capturedInsertArgs = undefined
+    const gramsPayload = { name: 'Pasta', ingredients: [{ name: 'Pasta', quantity: '150', unit: 'GRAMS', confidenceLevel: 'high' }] }
+    await POST(makeRequest(gramsPayload))
+    const rows2 = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    expect(rows2[0].calories_kcal).toBe(375)
+  })
+
+  it('usda: Tier 1 — kg unit applies correct gram conversion (×1000)', async () => {
+    const mockRecipe = { id: 'recipe-tier1-kg', name: 'Beef', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    // 0.5 kg = 500g → scale = 500/100 = 5 → calories = 250×5 = 1250
+    const kgPayload = { name: 'Beef', ingredients: [{ name: 'Beef', quantity: '0.5', unit: 'kg', confidenceLevel: 'high' }] }
+    const res = await POST(makeRequest(kgPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null; protein_g: number | null; fat_g: number | null; carbs_g: number | null }>
+    expect(rows[0].calories_kcal).toBe(1250)  // 250 × 5
+    expect(rows[0].protein_g).toBe(100)        // 20 × 5
+    expect(rows[0].fat_g).toBe(50)             // 10 × 5
+    expect(rows[0].carbs_g).toBe(150)          // 30 × 5
+  })
+
+  it('usda: Tier 1 — oz unit applies correct gram conversion (×28.3495)', async () => {
+    const mockRecipe = { id: 'recipe-tier1-oz', name: 'Cheese', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    // 4 oz = 113.398g → scale ≈ 1.13398 → calories = 250 × 1.13398 ≈ 283.5
+    const ozPayload = { name: 'Cheese', ingredients: [{ name: 'Cheese', quantity: '4', unit: 'oz', confidenceLevel: 'high' }] }
+    const res = await POST(makeRequest(ozPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    expect(rows[0].calories_kcal).toBeCloseTo(283.5, 0)  // within 0.5 of 283.5
+  })
+
+  it('usda: Tier 3 — count unit with USDA servingSize absent → stores per-100g reference (scale=1)', async () => {
+    // Mock USDA response WITHOUT servingSize
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        foods: [{
+          foodNutrients: [
+            { nutrientId: 1008, value: 250 },
+            { nutrientId: 1003, value: 20 },
+            { nutrientId: 1004, value: 10 },
+            { nutrientId: 1005, value: 30 },
+          ]
+        }]
+      })
+    })
+
+    const mockRecipe = { id: 'recipe-tier3-noserving', name: 'Duck Confit', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    // pcs unit with NO servingSize → falls to Tier 3, scale=1 → per-100g reference
+    const res = await POST(makeRequest({ name: 'Duck Confit', ingredients: [{ name: 'Duck leg', quantity: '2', unit: 'pcs', confidenceLevel: 'high' }] }))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null; protein_g: number | null; fat_g: number | null; carbs_g: number | null }>
+    expect(rows[0].calories_kcal).toBe(250)  // Tier 3: scale=1
+    expect(rows[0].protein_g).toBe(20)
+    expect(rows[0].fat_g).toBe(10)
+    expect(rows[0].carbs_g).toBe(30)
+  })
+
+  it('usda: Tier 3 — quantity "0" or negative falls through to per-100g reference (scale=1)', async () => {
+    const mockRecipe = { id: 'recipe-tier3-qty', name: 'Flour', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    // quantity "0" with gram unit → validQty=false → Tier 3, scale=1
+    await POST(makeRequest({ name: 'Flour', ingredients: [{ name: 'Flour', quantity: '0', unit: 'g', confidenceLevel: 'high' }] }))
+    const rows1 = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    expect(rows1[0].calories_kcal).toBe(250)  // no zero-scaled macros
+
+    // quantity "-5" with gram unit → validQty=false → Tier 3, scale=1
+    capturedInsertArgs = undefined
+    await POST(makeRequest({ name: 'Flour', ingredients: [{ name: 'Flour', quantity: '-5', unit: 'g', confidenceLevel: 'high' }] }))
+    const rows2 = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    expect(rows2[0].calories_kcal).toBe(250)
+  })
+
+  it('usda: foodNutrients is not an array → macros null, recipe saves normally (200)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        foods: [{
+          servingSize: 240,
+          servingSizeUnit: 'g',
+          foodNutrients: 'not-an-array',
+        }]
+      })
+    })
+
+    const mockRecipe = { id: 'recipe-usda-badshape', name: 'Duck Confit', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    const res = await POST(makeRequest(validPayload))
+    expect(res.status).toBe(200)
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null; protein_g: number | null }>
+    rows.forEach(row => {
+      expect(row.calories_kcal).toBeNull()
+      expect(row.protein_g).toBeNull()
+    })
+  })
+
+  it('usda: ingredient with empty name → fetch not called for that ingredient, macros null', async () => {
+    const mockRecipe = { id: 'recipe-usda-emptyname', name: 'Mystery', restaurant_id: null, serving_size: 1, created_at: '2026-03-22T00:00:00Z' }
+    let capturedInsertArgs: unknown
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'recipes') return { insert: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }) }
+      if (table === 'recipe_ingredients') return { insert: vi.fn().mockImplementation((rows: unknown) => { capturedInsertArgs = rows; return Promise.resolve({ error: null }) }) }
+    })
+
+    // Single ingredient with empty name
+    const res = await POST(makeRequest({ name: 'Mystery', ingredients: [{ name: '', quantity: '100', unit: 'g', confidenceLevel: 'high' }] }))
+    expect(res.status).toBe(200)
+
+    // fetch should NOT be called for empty name
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    const rows = capturedInsertArgs as Array<{ calories_kcal: number | null }>
+    expect(rows[0].calories_kcal).toBeNull()
   })
 
   it('restaurant: when no restaurant fields in payload, restaurant_id is null', async () => {
