@@ -24,23 +24,26 @@ export default function RecipeDetailPage({ params }: PageProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-full">
-      {/* Back navigation */}
-      <div className="px-[var(--spacing-4)] pt-[var(--spacing-4)]">
+      {/* Back navigation + Edit button */}
+      <div className="px-[var(--spacing-4)] pt-[var(--spacing-4)] flex items-center justify-between">
         <button
           onClick={() => goBack(router)}
-          style={{
-            fontSize: 'var(--text-sm)',
-            color: 'var(--text-secondary)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '8px 0',
-            minHeight: '44px',
-          }}
+          style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', background: 'none',
+            border: 'none', cursor: 'pointer', padding: '8px 0', minHeight: '44px' }}
           aria-label="Go back"
         >
           ← Back
         </button>
+        {recipe && (
+          <button
+            onClick={() => router.push(`/recipes/${id}/edit`)}
+            style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', background: 'none',
+              border: 'none', cursor: 'pointer', padding: '8px', minHeight: '44px' }}
+            aria-label="Edit recipe"
+          >
+            Edit
+          </button>
+        )}
       </div>
 
       {/* Loading: skeleton not shown — cache renders immediately (NFR03) */}

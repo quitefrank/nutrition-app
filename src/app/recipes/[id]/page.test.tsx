@@ -80,6 +80,22 @@ describe('RecipeDetailPage', () => {
     expect(screen.queryByTestId('recipe-detail')).toBeNull()
   })
 
+  it('renders Edit button when recipe data is available', () => {
+    mockUseRecipe.mockReturnValue({ data: baseRecipe, isLoading: false, isError: false })
+
+    render(<RecipeDetailPage params={Promise.resolve({ id: 'test-id' })} />)
+
+    expect(screen.getByRole('button', { name: /Edit recipe/i })).toBeTruthy()
+  })
+
+  it('does not render Edit button when loading', () => {
+    mockUseRecipe.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+
+    render(<RecipeDetailPage params={Promise.resolve({ id: 'test-id' })} />)
+
+    expect(screen.queryByRole('button', { name: /Edit recipe/i })).toBeNull()
+  })
+
   it('back button navigates away (back or replace depending on history)', async () => {
     mockUseRecipe.mockReturnValue({ data: baseRecipe, isLoading: false, isError: false })
 

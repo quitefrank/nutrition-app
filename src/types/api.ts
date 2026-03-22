@@ -70,6 +70,8 @@ export interface RecipeSaveRequest {
   confidenceMetadata: Record<string, unknown> | null
   servingSize: number
   ingredients: IngredientResult[]  // reuse existing IngredientResult — same shape
+  restaurantName?: string | null
+  restaurantGooglePlacesId?: string | null
 }
 
 export interface RecipeSaveResponse {
@@ -78,4 +80,18 @@ export interface RecipeSaveResponse {
   createdAt: string
   servingSize: number
   restaurantId: string | null
+}
+
+export interface RecipeUpdateIngredient {
+  id: string          // existing ingredient UUID — edit-in-place only (no add/remove in this story)
+  name: string
+  quantity: string | null
+  unit: string | null
+  confidenceLevel: 'high' | 'medium' | 'low'
+}
+
+export interface RecipeUpdateRequest {
+  name: string
+  servingSize: number
+  ingredients: RecipeUpdateIngredient[]
 }

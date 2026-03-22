@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { RecipeSaveRequest, RecipeSaveResponse, ApiSuccess } from '@/types/api'
+import type { RecipeSaveRequest, RecipeSaveResponse, RecipeUpdateRequest, ApiSuccess } from '@/types/api'
 import type { Recipe } from '@/types/domain'
 
 async function fetchRecipes(): Promise<Recipe[]> {
@@ -72,6 +72,47 @@ export function useDeleteRecipe() {
       }
     },
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+    },
+  })
+}
+
+async function fetchRecipesByRestaurant(restaurantId: string): Promise<Recipe[]> {
+  const res = await fetch(`/api/recipes?restaurantId=${encodeURIComponent(restaurantId)}`)
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}))
+    throw new Error((json as { error?: string }).error ?? 'Failed to fetch recipes')
+  }
+  const json = await res.json()
+  return (json as ApiSuccess<Recipe[]>).data
+}
+
+export function useRecipesByRestaurant(restaurantId: string | null) {
+  return useQuery({
+    queryKey: ['recipes', 'restaurant', restaurantId],
+    queryFn: () => fetchRecipesByRestaurant(restaurantId!),
+    enabled: !!restaurantId,
+  })
+}
+
+export function useUpdateRecipe() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: RecipeUpdateRequest }): Promise<Recipe> => {
+      const res = await fetch(`/api/recipes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error((json as { error?: string }).error ?? 'Failed to update recipe')
+      }
+      const json = await res.json()
+      return (json as ApiSuccess<Recipe>).data
+    },
+    onSuccess: (_data, { id }) => {
+      void queryClient.invalidateQueries({ queryKey: ['recipes', id] })
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
   })
