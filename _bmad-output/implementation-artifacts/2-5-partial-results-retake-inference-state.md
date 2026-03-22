@@ -1,6 +1,6 @@
 # Story 2.5: Partial Results, Retake & Inference State
 
-**Status:** review
+**Status:** done
 **Story ID:** 2.5
 **Epic:** 2 — Scan & AI Identification
 

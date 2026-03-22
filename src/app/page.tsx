@@ -1,6 +1,81 @@
+'use client'
+
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { toast } from 'sonner'
+import { useRecipes, useDeleteRecipe } from '@/hooks/use-recipes'
+import { useSetAtmospheric } from '@/contexts/atmospheric-context'
+import { FeaturedRecipeCard } from '@/components/recipes/featured-recipe-card'
+import { RecipeCard } from '@/components/recipes/recipe-card'
+import { SwipeToDelete } from '@/components/recipes/swipe-to-delete'
 
 export default function Home() {
+  const { data: recipes = [] } = useRecipes()
+  const deleteMutation = useDeleteRecipe()
+  const setAtmospheric = useSetAtmospheric()
+
+  // Atmospheric background: use most recent recipe's dish image
+  useEffect(() => {
+    const latest = recipes[0]
+    if (latest?.dishImageUrl) {
+      setAtmospheric({
+        imageUrl: latest.dishImageUrl,
+        palette: null,
+        tier: 'restaurant',
+        backgroundColorFallback: '#0a0a0a',
+      })
+    } else {
+      setAtmospheric(undefined)  // fall back to neutral
+    }
+  }, [recipes, setAtmospheric])
+
+  async function handleDelete(id: string) {
+    if (deleteMutation.isPending) return
+    try {
+      await deleteMutation.mutateAsync(id)
+      toast('Recipe deleted')
+    } catch {
+      toast.error('Failed to delete recipe')
+    }
+  }
+
+  // Populated state
+  if (recipes.length > 0) {
+    const [featured, ...rest] = recipes
+    return (
+      <div className="flex flex-col flex-1 gap-[var(--spacing-6)] px-[var(--spacing-4)] py-[var(--spacing-4)]">
+        {/* Featured recipe — first/most recent */}
+        <SwipeToDelete onDelete={() => handleDelete(featured.id)}>
+          <FeaturedRecipeCard recipe={featured} />
+        </SwipeToDelete>
+
+        {/* Collection grid — all remaining recipes */}
+        {rest.length > 0 && (
+          <section>
+            <h2
+              style={{
+                fontSize: 'var(--text-base)',
+                color: 'var(--text-secondary)',
+                fontWeight: 600,
+              }}
+              className="mb-[var(--spacing-3)]"
+            >
+              Your Collection
+            </h2>
+            <div className="grid grid-cols-2 gap-[var(--spacing-2)]">
+              {rest.map(recipe => (
+                <SwipeToDelete key={recipe.id} onDelete={() => handleDelete(recipe.id)}>
+                  <RecipeCard recipe={recipe} />
+                </SwipeToDelete>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    )
+  }
+
+  // Empty state — preserve existing JSX exactly
   return (
     <div className="flex flex-col items-center justify-center flex-1 gap-[var(--spacing-8)] px-[var(--spacing-4)] text-center">
       <h1

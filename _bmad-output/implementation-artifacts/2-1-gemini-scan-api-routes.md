@@ -1,6 +1,6 @@
 # Story 2.1: Gemini Scan API Routes
 
-Status: review
+Status: done
 
 ## Story
 

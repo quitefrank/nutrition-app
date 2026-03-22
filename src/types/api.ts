@@ -61,3 +61,21 @@ export interface ScanRequest {
   mimeType: string
   // mode removed — route path determines scan type
 }
+
+// ─── Recipe API ───────────────────────────────────────────────────────────────
+
+export interface RecipeSaveRequest {
+  name: string
+  dishImageUrl: string | null
+  confidenceMetadata: Record<string, unknown> | null
+  servingSize: number
+  ingredients: IngredientResult[]  // reuse existing IngredientResult — same shape
+}
+
+export interface RecipeSaveResponse {
+  id: string
+  name: string
+  createdAt: string
+  servingSize: number
+  restaurantId: string | null
+}

@@ -16,6 +16,10 @@ export interface DomainIngredient {
   quantity: string | null
   unit: string | null
   confidenceLevel: 'high' | 'medium' | 'low'
+  caloriesKcal: number | null   // null until Story 3.6 populates
+  proteinG: number | null
+  fatG: number | null
+  carbsG: number | null
 }
 
 export interface Recipe {

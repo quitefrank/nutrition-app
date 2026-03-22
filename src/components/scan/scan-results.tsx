@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { GlassCard } from '@/components/ui/glass-card'
 import { DishDetailSheet } from './dish-detail-sheet'
-import type { ScanResult, DishResult } from '@/types/api'
+import { useSaveRecipe, useDeleteRecipe } from '@/hooks/use-recipes'
+import type { ScanResult, DishResult, RecipeSaveRequest } from '@/types/api'
 
 interface ScanResultsProps {
   result: ScanResult
@@ -30,6 +32,44 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
   // Use liveResult throughout — falls back to prop if query hasn't updated yet
   const activeResult = liveResult ?? result
 
+  const saveMutation = useSaveRecipe()
+  const deleteMutation = useDeleteRecipe()
+
+  const handleSaveRecipe = async (dish: DishResult) => {
+    if (saveMutation.isPending) return
+
+    const payload: RecipeSaveRequest = {
+      name: dish.name,
+      dishImageUrl: dish.imageUrl,
+      confidenceMetadata: { confidenceSource: activeResult.confidenceSource },
+      servingSize: 1,
+      ingredients: dish.ingredients,
+    }
+
+    try {
+      const result = await saveMutation.mutateAsync(payload)
+      const savedId = result.data.id
+
+      // Store toast ID so the undo handler can update (not replace) the same toast
+      const toastId = toast('Recipe saved', {
+        duration: 4000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              await deleteMutation.mutateAsync(savedId)
+              toast('Recipe removed', { id: toastId })
+            } catch {
+              toast.error('Could not undo — recipe may already be saved')
+            }
+          },
+        },
+      })
+    } catch {
+      toast.error('Failed to save recipe')
+    }
+  }
+
   const handleRetake = onRetakeProp ?? (() => {
     queryClient.removeQueries({ queryKey: ['scan-result', scanId] })
     queryClient.removeQueries({ queryKey: ['scan-thumbnail', scanId] })
@@ -40,13 +80,33 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
 
   const selectedDish = selectedDishIndex !== null ? (activeResult.dishes[selectedDishIndex] ?? null) : null
 
+  const [showTip, setShowTip] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !localStorage.getItem('plately_seen_scan_tip')) {
+      setShowTip(true)
+    }
+  }, [])
+
+  const dismissTip = () => {
+    localStorage.setItem('plately_seen_scan_tip', 'true')
+    setShowTip(false)
+  }
+
   // Empty scan result — differentiated copy based on emptyReason
   if (activeResult.dishes.length === 0) {
-    return <EmptyScanState emptyReason={activeResult.emptyReason ?? null} onRetake={handleRetake} />
+    return (
+      <>
+        {showTip && <ScanTipBanner onDismiss={dismissTip} />}
+        <EmptyScanState emptyReason={activeResult.emptyReason ?? null} onRetake={handleRetake} />
+      </>
+    )
   }
 
   return (
     <div style={{ padding: '0 var(--spacing-4)', paddingBottom: '80px' }}>
+      {/* First-time tip banner */}
+      {showTip && <ScanTipBanner onDismiss={dismissTip} />}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--spacing-4) 0' }}>
         <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-xs)' }}>
@@ -104,6 +164,7 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
         onClose={() => setSelectedDishIndex(null)}
         scanId={scanId}
         dishIndex={selectedDishIndex ?? 0}
+        onSave={handleSaveRecipe}
       />
     </div>
   )
@@ -134,6 +195,34 @@ function EmptyScanState({ emptyReason, onRetake }: { emptyReason: 'image_quality
         aria-label="Retake scan"
       >
         ↺ Retake
+      </button>
+    </div>
+  )
+}
+
+function ScanTipBanner({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div
+      style={{
+        background: 'rgba(255,255,255,0.10)',
+        borderRadius: 'var(--radius-md)',
+        padding: 'var(--spacing-3) var(--spacing-4)',
+        marginBottom: 'var(--spacing-3)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 'var(--spacing-3)',
+      }}
+    >
+      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0, flex: 1 }}>
+        For best results, hold steady and scan one section at a time.
+      </p>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss tip"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', padding: '0', flexShrink: 0, minHeight: '44px', minWidth: '44px' }}
+      >
+        ✕
       </button>
     </div>
   )

@@ -748,9 +748,17 @@ So that I understand what I need to cook the dish at home.
 **When** tapped
 **Then** it triggers the grocery list add flow (Epic 4); in this story it may show a "coming soon" state or be inactive; the CTA must be visually present
 
-**Given** USDA nutrition data is unavailable for the recipe
-**When** a nutrition section would render
-**Then** a "Nutrition unavailable" label is shown; the ingredient list and all other recipe detail functionality work normally without nutrition data (NFR12)
+**Given** the recipe detail page renders for a recipe with stored nutritional data (from Story 3.6)
+**When** the nutrition section renders
+**Then** a nutrition panel shows total calories and per-serving macros (protein g, fat g, carbs g) aggregated across all ingredients; each ingredient row shows its individual macro breakdown
+
+**Given** nutritional data is unavailable for one or more ingredients (USDA lookup returned no match at save time)
+**When** the nutrition panel renders
+**Then** a "Partial nutrition data" label is shown alongside available values; ingredients with no data show "—" rather than 0; the panel is still rendered (not hidden)
+
+**Given** nutritional data fetch failed entirely at save time (USDA unavailable)
+**When** the nutrition section would render
+**Then** a "Nutrition unavailable" label is shown; the ingredient list and all other recipe detail functionality work normally (NFR12)
 
 ---
 
@@ -819,6 +827,40 @@ So that my collection is organised and I see my history when I return somewhere 
 **Given** the return-visit banner is tapped
 **When** the restaurant profile page renders
 **Then** it shows the restaurant name and all previously saved recipes associated with that `restaurant_id` (FR32)
+
+---
+
+### Story 3.6: USDA Nutritional Data at Save Time
+
+> **Added:** Epic 2 retrospective (2026-03-22). Nutrition is a core Plately feature — positioned as "a tap away, not the hero." The USDA key and fetch pattern are already established from the Story 2.4 enrichment pipeline.
+
+As a user who saves a recipe,
+I want nutritional information stored alongside my ingredients,
+So that I can see macros on the recipe detail page without an additional fetch.
+
+**Acceptance Criteria:**
+
+**Given** the user taps "Save Recipe" from the dish detail bottom sheet
+**When** `POST /api/recipes` processes the save
+**Then** for each ingredient, the route queries USDA FoodData Central for matching nutritional data; macro values (calories kcal, protein g, fat g, carbs g) are stored per ingredient on `recipe_ingredients`; the save completes even if USDA is unavailable (graceful degradation)
+
+**Given** a USDA lookup matches an ingredient
+**When** the match is found
+**Then** macros are stored normalised to the ingredient's `quantity` and `unit`; if quantity/unit is null, macros are stored per 100g as a reference value
+
+**Given** USDA returns no match for an ingredient or the USDA API is unavailable
+**When** the ingredient is saved
+**Then** macro columns are stored as null for that ingredient; no error is returned to the client; the recipe saves successfully
+
+**Given** the `POST /api/recipes` route
+**When** called
+**Then** it performs USDA lookups in parallel across all ingredients via `Promise.allSettled`; total route latency must not degrade more than 2× versus a no-USDA baseline (USDA lookups run concurrently, not sequentially)
+
+**Given** the `recipe_ingredients` schema
+**When** a recipe is saved
+**Then** each row stores: `id`, `recipe_id`, `name`, `quantity`, `unit`, `confidence_level`, `calories_kcal`, `protein_g`, `fat_g`, `carbs_g` (macro columns nullable)
+
+> **Architecture note:** USDA is used in two distinct ways in Plately. (1) Confidence signals at scan time (existing, `/api/scan/enrich`): upgrade low-confidence ingredient confidence levels. (2) Nutritional data at save time (this story): fetch and store macros per ingredient. These are separate code paths. The USDA key and fetch pattern from Story 2.4 carry forward — no new API key required.
 
 ---
 

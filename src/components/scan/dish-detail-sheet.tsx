@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
 import type { DishResult } from '@/types/api'
@@ -11,10 +10,10 @@ interface DishDetailSheetProps {
   onClose: () => void
   scanId: string
   dishIndex: number
+  onSave?: (dish: DishResult) => void
 }
 
-export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex }: DishDetailSheetProps) {
-  const router = useRouter()
+export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave }: DishDetailSheetProps) {
   const detailUrl = `/scan/dish?scanId=${scanId}&dishIndex=${dishIndex}`
 
   return (
@@ -50,9 +49,9 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex }: Dish
           {/* Divider */}
           <div data-testid="divider" style={{ height: '1px', background: 'rgba(255,255,255,0.10)', margin: 'var(--spacing-4) 0' }} />
 
-          {/* Save Recipe CTA — Story 3.1 replaces onClick with actual save logic */}
+          {/* Save Recipe CTA */}
           <button
-            onClick={() => router.push(detailUrl)}
+            onClick={() => { onSave?.(dish); onClose() }}
             style={{ width: '100%', height: '56px', borderRadius: 'var(--radius-xl)', background: 'rgba(255,255,255,0.90)', color: 'var(--text-on-button)', fontWeight: 600, fontSize: 'var(--text-base)', border: 'none', cursor: 'pointer', marginBottom: 'var(--spacing-3)' }}
             aria-label={`Save recipe for ${dish.name}`}
           >

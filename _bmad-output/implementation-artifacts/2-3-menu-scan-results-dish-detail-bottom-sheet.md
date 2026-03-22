@@ -1,6 +1,6 @@
 # Story 2.3: Menu Scan Results & Dish Detail Bottom Sheet
 
-**Status:** review
+**Status:** done
 **Story ID:** 2.3
 **Epic:** 2 — Scan & AI Identification
 
@@ -111,24 +111,24 @@ So that I can confidently decide what to order and understand what I'd be eating
   - [x] Confirm CSS exists to scale `<main>` to 0.95 when `body[data-sheet-open]` is set (BottomSheet sets this automatically)
   - [x] Add if missing
 
-- [ ] Task 8: Update API route and types for `emptyReason`
-  - [ ] Add `emptyReason` to `MENU_SCAN_PROMPT` in `src/app/api/scan/menu/route.ts` — instruct Gemini to return one of `"image_quality"` | `"not_menu"` | `"no_dishes_found"` | `null`
-  - [ ] Update `parseGeminiMenuResponse` to extract and return `emptyReason` alongside `dishes`
-  - [ ] Add `emptyReason: 'image_quality' | 'not_menu' | 'no_dishes_found' | null` to `ScanResult` type in `src/types/api.ts`
+- [x] Task 8: Update API route and types for `emptyReason`
+  - [x] Add `emptyReason` to `MENU_SCAN_PROMPT` in `src/app/api/scan/menu/route.ts` — instruct Gemini to return one of `"image_quality"` | `"not_menu"` | `"no_dishes_found"` | `null`
+  - [x] Update `parseGeminiMenuResponse` to extract and return `emptyReason` alongside `dishes`
+  - [x] Add `emptyReason: 'image_quality' | 'not_menu' | 'no_dishes_found' | null` to `ScanResult` type in `src/types/api.ts`
 
-- [ ] Task 9: Implement empty state in `src/components/scan/scan-results.tsx`
-  - [ ] When `result.dishes.length === 0`, render centred empty state with icon, headline, tip, and Retake CTA
-  - [ ] Map `result.emptyReason` to the correct headline + tip copy per AC table above
-  - [ ] Retake CTA uses existing `handleRetake` — no new logic needed
+- [x] Task 9: Implement empty state in `src/components/scan/scan-results.tsx`
+  - [x] When `result.dishes.length === 0`, render centred empty state with icon, headline, tip, and Retake CTA
+  - [x] Map `result.emptyReason` to the correct headline + tip copy per AC table above
+  - [x] Retake CTA uses existing `handleRetake` — no new logic needed
 
-- [ ] Task 10: Implement first-time scan tip banner in `src/components/scan/scan-results.tsx`
-  - [ ] On mount, check `localStorage.getItem('plately_seen_scan_tip')`
-  - [ ] If not set, render dismissible banner above list/empty state
-  - [ ] On dismiss, set `localStorage.setItem('plately_seen_scan_tip', 'true')` and hide banner
+- [x] Task 10: Implement first-time scan tip banner in `src/components/scan/scan-results.tsx`
+  - [x] On mount, check `localStorage.getItem('plately_seen_scan_tip')`
+  - [x] If not set, render dismissible banner above list/empty state
+  - [x] On dismiss, set `localStorage.setItem('plately_seen_scan_tip', 'true')` and hide banner
 
-- [ ] Task 11: Write tests for Tasks 8–10
-  - [ ] `src/app/api/scan/menu/route.test.ts` — verify `emptyReason` is parsed and returned in `ScanResult`
-  - [ ] `src/components/scan/scan-results.test.tsx` — empty state renders correct copy per `emptyReason`; first-time tip banner shows/hides correctly
+- [x] Task 11: Write tests for Tasks 8–10
+  - [x] `src/app/api/scan/menu/route.test.ts` — verify `emptyReason` is parsed and returned in `ScanResult`
+  - [x] `src/components/scan/scan-results.test.tsx` — empty state renders correct copy per `emptyReason`; first-time tip banner shows/hides correctly
 
 - [x] Task 7: Write tests
   - [x] `src/components/scan/scan-results.test.tsx`

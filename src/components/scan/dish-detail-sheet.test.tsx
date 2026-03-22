@@ -195,14 +195,16 @@ describe('DishDetailSheet', () => {
     expect(screen.getByText('See Full Details')).toBeDefined()
   })
 
-  it('Save Recipe button routes to /scan/dish with scanId and dishIndex', () => {
+  it('Save Recipe button calls onClose when no onSave prop is provided', () => {
+    const mockOnClose = vi.fn()
     const Wrapper = createWrapper()
     render(
-      React.createElement(DishDetailSheet, { ...defaultProps }),
+      React.createElement(DishDetailSheet, { ...defaultProps, onClose: mockOnClose }),
       { wrapper: Wrapper }
     )
     fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
-    expect(mockPush).toHaveBeenCalledWith('/scan/dish?scanId=test-scan-id&dishIndex=0')
+    expect(mockOnClose).toHaveBeenCalledOnce()
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('See Full Details link points to /scan/dish with scanId and dishIndex', () => {
@@ -244,6 +246,41 @@ describe('DishDetailSheet', () => {
     const link = screen.getByRole('link', { name: /see full details/i })
     expect(link).toBeDefined()
     expect(link.tagName.toLowerCase()).toBe('a')
+  })
+
+  it('onSave is called with dish when Save Recipe button is clicked', () => {
+    const mockOnSave = vi.fn()
+    const Wrapper = createWrapper()
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, onSave: mockOnSave }),
+      { wrapper: Wrapper }
+    )
+    fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
+    expect(mockOnSave).toHaveBeenCalledOnce()
+    expect(mockOnSave).toHaveBeenCalledWith(mockDish)
+  })
+
+  it('onClose is called when Save Recipe button is clicked', () => {
+    const mockOnClose = vi.fn()
+    const mockOnSave = vi.fn()
+    const Wrapper = createWrapper()
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, onClose: mockOnClose, onSave: mockOnSave }),
+      { wrapper: Wrapper }
+    )
+    fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
+    expect(mockOnClose).toHaveBeenCalledOnce()
+  })
+
+  it('Save Recipe no longer triggers navigation when onSave prop is provided', () => {
+    const mockOnSave = vi.fn()
+    const Wrapper = createWrapper()
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, onSave: mockOnSave }),
+      { wrapper: Wrapper }
+    )
+    fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
+    expect(mockPush).not.toHaveBeenCalled()
   })
 
   it('evidence block falls back to high-confidence text when medium path has no high-confidence ingredients', () => {

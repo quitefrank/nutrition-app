@@ -41,7 +41,11 @@ CREATE TABLE recipe_ingredients (
   name             TEXT NOT NULL,
   quantity         TEXT,
   unit             TEXT,
-  confidence_level TEXT NOT NULL CHECK (confidence_level IN ('high', 'medium', 'low'))
+  confidence_level TEXT NOT NULL CHECK (confidence_level IN ('high', 'medium', 'low')),
+  calories_kcal    NUMERIC,     -- Story 3.6: USDA macro at save time (null until then)
+  protein_g        NUMERIC,
+  fat_g            NUMERIC,
+  carbs_g          NUMERIC
 );
 
 -- ============================================================

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Providers } from '@/components/providers'
 import { AtmosphericBackground } from '@/components/layout/atmospheric-background'
+import { AtmosphericProvider } from '@/contexts/atmospheric-context'
 import { AppShell } from '@/components/layout/app-shell'
 import { Toaster } from 'sonner'
 import './globals.css'
@@ -32,15 +33,17 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased" data-theme="dark">
       <body className="min-h-full flex flex-col">
-        {/* AtmosphericBackground is outside #main-content — CSS transform on
-            #main-content (BottomSheet open) would break fixed positioning if
-            placed inside. See globals.css #main-content transform rule. */}
-        <AtmosphericBackground />
-        <div id="main-content" className="flex flex-col flex-1 min-h-full">
-          <Providers>
-            <AppShell>{children}</AppShell>
-          </Providers>
-        </div>
+        <AtmosphericProvider>
+          {/* AtmosphericBackground is OUTSIDE #main-content — CSS transform on
+              #main-content (BottomSheet open state) would break fixed positioning
+              if placed inside. See globals.css #main-content transform rule. */}
+          <AtmosphericBackground />
+          <div id="main-content" className="flex flex-col flex-1 min-h-full">
+            <Providers>
+              <AppShell>{children}</AppShell>
+            </Providers>
+          </div>
+        </AtmosphericProvider>
         <Toaster />
       </body>
     </html>

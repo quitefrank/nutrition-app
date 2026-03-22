@@ -1,6 +1,6 @@
 # Story 2.6: Scan Error States & Graceful Degradation
 
-**Status:** review
+**Status:** done
 **Story ID:** 2.6
 **Epic:** 2 — Scan & AI Identification
 
@@ -475,7 +475,7 @@ claude-sonnet-4-6
 
 ## Amendment: Differentiated Empty States (Party Mode Decision)
 
-**Status:** Pending implementation
+**Status:** Implemented (2026-03-21)
 **Source:** Party mode session — multi-agent alignment between UX (Sally), PM (John), Architect (Winston), QA (Quinn), and Developer (Amelia). AI Studio testing confirmed `emptyReason` signal availability.
 
 ### Background

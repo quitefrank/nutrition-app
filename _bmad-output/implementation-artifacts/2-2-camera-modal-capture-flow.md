@@ -1,6 +1,6 @@
 # Story 2.2: Camera Modal & Capture Flow
 
-**Status:** review
+**Status:** done
 **Story ID:** 2.2
 **Epic:** 2 — Scan & AI Identification
 

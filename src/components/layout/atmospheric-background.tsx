@@ -3,11 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { AtmosphericState } from '@/types/domain'
-
-interface AtmosphericBackgroundProps {
-  state?: AtmosphericState
-}
+import { useAtmosphericState } from '@/contexts/atmospheric-context'
 
 /**
  * Full-bleed atmospheric background component.
@@ -19,7 +15,8 @@ interface AtmosphericBackgroundProps {
  * AC 3: 400ms ease crossfade on imageUrl change.
  * AC 6: fixed inset-0, edge-to-edge including safe areas.
  */
-export function AtmosphericBackground({ state }: AtmosphericBackgroundProps) {
+export function AtmosphericBackground() {
+  const state = useAtmosphericState()
   const shouldReduceMotion = useReducedMotion()
   const crossfadeDuration = shouldReduceMotion ? 0.15 : 0.4
   const imageUrl = state?.imageUrl ?? null

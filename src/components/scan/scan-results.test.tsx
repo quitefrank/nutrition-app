@@ -5,6 +5,27 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ScanResults } from './scan-results'
 import type { ScanResult, DishResult } from '@/types/api'
 
+// Mock use-recipes hooks
+const { mockSaveMutateAsync, mockDeleteMutateAsync } = vi.hoisted(() => ({
+  mockSaveMutateAsync: vi.fn(),
+  mockDeleteMutateAsync: vi.fn(),
+}))
+
+vi.mock('@/hooks/use-recipes', () => ({
+  useSaveRecipe: () => ({
+    mutateAsync: mockSaveMutateAsync,
+  }),
+  useDeleteRecipe: () => ({
+    mutateAsync: mockDeleteMutateAsync,
+  }),
+}))
+
+// Mock sonner toast
+const { mockToast } = vi.hoisted(() => ({
+  mockToast: Object.assign(vi.fn().mockReturnValue('mock-toast-id'), { error: vi.fn() }),
+}))
+vi.mock('sonner', () => ({ toast: mockToast }))
+
 // framer-motion — mock to avoid animation complexity in tests
 vi.mock('framer-motion', () => ({
   motion: {
@@ -90,6 +111,10 @@ const mockEnrichedResult: ScanResult = {
 describe('ScanResults', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    mockSaveMutateAsync.mockResolvedValue({
+      data: { id: 'saved-recipe-id', name: 'Duck Confit', createdAt: '2026-03-22T00:00:00Z', servingSize: 1, restaurantId: null },
+    })
   })
 
   afterEach(() => {
@@ -309,6 +334,112 @@ describe('ScanResults', () => {
     )
     fireEvent.click(screen.getByLabelText('Retake scan'))
     expect(mockOnRetake).toHaveBeenCalledOnce()
+  })
+
+  // ─── First-time scan tip banner ─────────────────────────────────────────────
+
+  it('shows tip banner when localStorage key is absent', () => {
+    const Wrapper = createWrapper('test-scan-id', mockScanResult)
+    render(
+      React.createElement(ScanResults, { result: mockScanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.getByText(/hold steady and scan one section at a time/i)).toBeDefined()
+  })
+
+  it('does not show tip banner when localStorage key is already set', () => {
+    localStorage.setItem('plately_seen_scan_tip', 'true')
+    const Wrapper = createWrapper('test-scan-id', mockScanResult)
+    render(
+      React.createElement(ScanResults, { result: mockScanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.queryByText(/hold steady and scan one section at a time/i)).toBeNull()
+  })
+
+  it('dismissing tip banner sets localStorage key and hides the banner', () => {
+    const Wrapper = createWrapper('test-scan-id', mockScanResult)
+    render(
+      React.createElement(ScanResults, { result: mockScanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.getByText(/hold steady and scan one section at a time/i)).toBeDefined()
+    fireEvent.click(screen.getByLabelText('Dismiss tip'))
+    expect(screen.queryByText(/hold steady and scan one section at a time/i)).toBeNull()
+    expect(localStorage.getItem('plately_seen_scan_tip')).toBe('true')
+  })
+
+  // ─── Save flow + toast ──────────────────────────────────────────────────────
+
+  it('shows "Recipe saved" toast with undo action after successful save', async () => {
+    mockSaveMutateAsync.mockResolvedValue({
+      data: { id: 'saved-recipe-id', name: 'Duck Confit', createdAt: '2026-03-22T00:00:00Z', servingSize: 1, restaurantId: null },
+    })
+    const Wrapper = createWrapper('test-scan-id', mockScanResult)
+    render(
+      React.createElement(ScanResults, { result: mockScanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    // Open the DishDetailSheet
+    fireEvent.click(screen.getByTestId('glass-card'))
+    // Click Save Recipe
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
+    })
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith('Recipe saved', expect.objectContaining({
+        duration: 4000,
+        action: expect.objectContaining({ label: 'Undo' }),
+      }))
+    })
+  })
+
+  it('undo action calls delete mutation and shows "Recipe removed" toast', async () => {
+    mockSaveMutateAsync.mockResolvedValue({
+      data: { id: 'saved-recipe-id', name: 'Duck Confit', createdAt: '2026-03-22T00:00:00Z', servingSize: 1, restaurantId: null },
+    })
+    mockDeleteMutateAsync.mockResolvedValue(undefined)
+
+    const Wrapper = createWrapper('test-scan-id', mockScanResult)
+    render(
+      React.createElement(ScanResults, { result: mockScanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    fireEvent.click(screen.getByTestId('glass-card'))
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
+    })
+
+    // Get the undo click handler from the toast call and invoke it
+    await waitFor(() => expect(mockToast).toHaveBeenCalled())
+    const toastCall = mockToast.mock.calls[0]
+    const undoClickHandler = toastCall[1].action.onClick
+
+    await act(async () => {
+      await undoClickHandler()
+    })
+
+    expect(mockDeleteMutateAsync).toHaveBeenCalledWith('saved-recipe-id')
+    // Toast updates the existing toast by re-using the same ID returned from the first call
+    expect(mockToast).toHaveBeenCalledWith('Recipe removed', { id: 'mock-toast-id' })
+  })
+
+  it('shows error toast when save fails', async () => {
+    mockSaveMutateAsync.mockRejectedValue(new Error('Network error'))
+
+    const Wrapper = createWrapper('test-scan-id', mockScanResult)
+    render(
+      React.createElement(ScanResults, { result: mockScanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    fireEvent.click(screen.getByTestId('glass-card'))
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
+    })
+
+    await waitFor(() => {
+      expect(mockToast.error).toHaveBeenCalledWith('Failed to save recipe')
+    })
   })
 
   it('re-renders dish card with imageUrl after enrichment arrives via TQ cache update', async () => {

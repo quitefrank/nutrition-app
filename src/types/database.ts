@@ -69,6 +69,10 @@ export interface Database {
           quantity: string | null
           unit: string | null
           confidence_level: 'high' | 'medium' | 'low'
+          calories_kcal: number | null
+          protein_g: number | null
+          fat_g: number | null
+          carbs_g: number | null
         }
         Insert: {
           id?: string
@@ -77,6 +81,10 @@ export interface Database {
           quantity?: string | null
           unit?: string | null
           confidence_level: 'high' | 'medium' | 'low'
+          calories_kcal?: number | null
+          protein_g?: number | null
+          fat_g?: number | null
+          carbs_g?: number | null
         }
         Update: {
           id?: string
@@ -85,6 +93,10 @@ export interface Database {
           quantity?: string | null
           unit?: string | null
           confidence_level?: 'high' | 'medium' | 'low'
+          calories_kcal?: number | null
+          protein_g?: number | null
+          fat_g?: number | null
+          carbs_g?: number | null
         }
       }
       grocery_items: {
