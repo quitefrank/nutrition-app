@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect } from 'react'
+import { Suspense, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ScanResults } from '@/components/scan/scan-results'
@@ -21,11 +21,18 @@ function ScanResultsContent() {
   const queryClient = useQueryClient()
 
   const scanId = searchParams.get('scanId') ?? ''
+  const retakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (retakeTimeoutRef.current) clearTimeout(retakeTimeoutRef.current)
+    }
+  }, [])
 
   // Reactive: re-renders when cache updates (e.g. inference → user-confirmed)
-  const { data: scanResult } = useQuery<ScanResult>({
+  const { data: scanResult } = useQuery<ScanResult | undefined>({
     queryKey: ['scan-result', scanId],
-    queryFn: () => queryClient.getQueryData<ScanResult>(['scan-result', scanId]) as ScanResult,
+    queryFn: () => queryClient.getQueryData<ScanResult>(['scan-result', scanId]),
     enabled: !!scanId && !!queryClient.getQueryData(['scan-result', scanId]),
     initialData: queryClient.getQueryData<ScanResult>(['scan-result', scanId]),
     staleTime: Infinity,
@@ -37,7 +44,7 @@ function ScanResultsContent() {
       queryClient.removeQueries({ queryKey: ['scan-thumbnail', scanId] })
     }
     router.push('/')
-    setTimeout(() => window.dispatchEvent(new CustomEvent('plately:openCamera')), 300)
+    retakeTimeoutRef.current = setTimeout(() => window.dispatchEvent(new CustomEvent('plately:openCamera')), 300)
   }, [scanId, queryClient, router])
 
   const handleConfirm = useCallback(() => {

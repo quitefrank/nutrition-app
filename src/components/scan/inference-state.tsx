@@ -25,13 +25,8 @@ export function InferenceState({ result, scanId, onRetake, onConfirm }: Inferenc
     staleTime: Infinity,
   })
 
-  const { data: thumbnailUrl } = useQuery<string | undefined>({
-    queryKey: ['scan-thumbnail', scanId],
-    queryFn: () => queryClient.getQueryData<string>(['scan-thumbnail', scanId]),
-    enabled: false,
-    initialData: queryClient.getQueryData<string>(['scan-thumbnail', scanId]),
-    staleTime: Infinity,
-  })
+  // Thumbnail is set once before this component renders and never updated — read directly
+  const thumbnailUrl = queryClient.getQueryData<string>(['scan-thumbnail', scanId])
 
   const activeResult = liveResult ?? result
   const dish = activeResult.dishes[0] // dish scan always has one dish

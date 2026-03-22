@@ -142,7 +142,10 @@ export function useScan(): UseScanReturn {
 
   const cancelScan = () => {
     abortRef.current?.abort()
-    if (state.scanId) queryClient.removeQueries({ queryKey: ['scan-thumbnail', state.scanId] })
+    if (state.scanId) {
+      queryClient.removeQueries({ queryKey: ['scan-result', state.scanId] })
+      queryClient.removeQueries({ queryKey: ['scan-thumbnail', state.scanId] })
+    }
     setState({ status: 'idle', scanId: null, thumbnailUrl: null, lastScanParams: null })
   }
 

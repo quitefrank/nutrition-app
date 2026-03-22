@@ -420,7 +420,7 @@ describe('useScan — enrichment (fireEnrichment)', () => {
     expect(thumbnail).toBe('blob:thumb-url')
   })
 
-  it('cancelScan clears thumbnail from TQ cache', async () => {
+  it('cancelScan clears thumbnail and scan-result from TQ cache', async () => {
     const { queryClient, wrapper } = createWrapperWithClient()
 
     global.fetch = vi.fn().mockImplementation(async (url: string) => {
@@ -439,15 +439,17 @@ describe('useScan — enrichment (fireEnrichment)', () => {
       await new Promise((r) => setTimeout(r, 50))
     })
 
-    // Confirm thumbnail is in cache
+    // Confirm both are in cache
     expect(queryClient.getQueryData(['scan-thumbnail', 'test-scan-id'])).toBe('blob:thumb-url')
+    expect(queryClient.getQueryData(['scan-result', 'test-scan-id'])).toEqual(mockScanResult)
 
-    // Cancel and verify thumbnail is removed
+    // Cancel and verify both are removed
     act(() => {
       result.current.cancelScan()
     })
 
     expect(queryClient.getQueryData(['scan-thumbnail', 'test-scan-id'])).toBeUndefined()
+    expect(queryClient.getQueryData(['scan-result', 'test-scan-id'])).toBeUndefined()
   })
 
   it('setQueryData updater returns undefined when cache is cleared before enrichment arrives', async () => {
