@@ -36,6 +36,12 @@ describe('BottomSheet', () => {
     expect(screen.getByRole('dialog')).toBeDefined()
   })
 
+  // AC3: aria-modal on dialog
+  it('has aria-modal="true" when open', () => {
+    render(<BottomSheet open={true} onClose={vi.fn()}>x</BottomSheet>)
+    expect(screen.getByRole('dialog').getAttribute('aria-modal')).toBe('true')
+  })
+
   // IG-1: Accessible dialog name
   it('sets aria-label from label prop', () => {
     render(<BottomSheet open={true} onClose={vi.fn()} label="Dish detail">x</BottomSheet>)

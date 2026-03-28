@@ -1,7 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
 import { ProcessingStrip } from './processing-strip'
+import { useReducedMotion } from 'framer-motion'
+
+const { mockUseReducedMotion } = vi.hoisted(() => ({
+  mockUseReducedMotion: vi.fn().mockReturnValue(false),
+}))
 
 vi.mock('framer-motion', () => ({
   motion: {
@@ -50,7 +55,7 @@ vi.mock('framer-motion', () => ({
     }: React.PropsWithChildren<{ animate?: unknown; transition?: unknown }>) =>
       React.createElement('span', props, children),
   },
-  useReducedMotion: () => false,
+  useReducedMotion: mockUseReducedMotion,
   AnimatePresence: ({ children }: React.PropsWithChildren) => children,
 }))
 
@@ -62,6 +67,9 @@ const defaultProps = {
 }
 
 describe('ProcessingStrip', () => {
+  beforeEach(() => {
+    mockUseReducedMotion.mockReturnValue(false)
+  })
   it('renders with processing status showing "Identifying your menu"', () => {
     render(<ProcessingStrip {...defaultProps} />)
     expect(screen.getByText(/Identifying your menu/)).toBeDefined()
@@ -114,5 +122,40 @@ describe('ProcessingStrip', () => {
     render(<ProcessingStrip {...defaultProps} />)
     const strip = screen.getByTestId('processing-strip')
     expect(strip.getAttribute('aria-live')).toBe('polite')
+  })
+})
+
+// ─── AC6: Reduce Motion ───────────────────────────────────────────────────────
+
+describe('ProcessingStrip — Reduce Motion (AC6)', () => {
+  beforeEach(() => {
+    mockUseReducedMotion.mockReturnValue(true)
+  })
+
+  it('AnimatedEllipsis renders static text "Identifying your menu..." when reduce motion is on', () => {
+    render(<ProcessingStrip {...defaultProps} status="processing" />)
+    // Static text: the ellipsis is appended directly — not inside a child motion.span
+    const strip = screen.getByTestId('processing-strip')
+    expect(strip.textContent).toContain('Identifying your menu...')
+  })
+
+  it('AnimatedEllipsis does not render a child span when reduce motion is on', () => {
+    const { container } = render(<ProcessingStrip {...defaultProps} status="processing" />)
+    // When reduce motion is on, AnimatedEllipsis renders a single <span> with no child spans
+    // The text content element wrapping the strip text should contain no inner <span> for animation
+    const textDiv = container.querySelector('[data-testid="processing-strip"] > div')
+    expect(textDiv?.querySelectorAll('span span').length).toBe(0)
+  })
+
+  it('Spinner renders as a static SVG (no rotation animation) when reduce motion is on', () => {
+    const { container } = render(<ProcessingStrip {...defaultProps} status="processing" />)
+    // A static SVG should be present for the spinner
+    const svgs = container.querySelectorAll('svg')
+    expect(svgs.length).toBeGreaterThan(0)
+  })
+
+  it('ready state renders normally when reduce motion is on', () => {
+    render(<ProcessingStrip {...defaultProps} status="ready" />)
+    expect(screen.getByText('Your results are ready →')).toBeDefined()
   })
 })

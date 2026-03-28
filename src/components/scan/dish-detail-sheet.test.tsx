@@ -115,6 +115,30 @@ describe('DishDetailSheet', () => {
     expect(screen.getByRole('img')).toBeDefined()
   })
 
+  // ─── AC1: Alt text format ────────────────────────────────────────────────────
+
+  it('full-bleed image has descriptive alt "Name — description" when description present (AC1)', () => {
+    const Wrapper = createWrapper()
+    const dishWithImage: DishResult = { ...mockDish, imageUrl: 'https://example.com/duck.jpg' }
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, dish: dishWithImage }),
+      { wrapper: Wrapper }
+    )
+    const img = screen.getByRole('img')
+    expect(img.getAttribute('alt')).toBe('Duck Confit — Crispy duck leg with cherry jus')
+  })
+
+  it('full-bleed image falls back to name-only alt when description is empty (AC1)', () => {
+    const Wrapper = createWrapper()
+    const dishNoDesc: DishResult = { ...mockDish, description: '', imageUrl: 'https://example.com/duck.jpg' }
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, dish: dishNoDesc }),
+      { wrapper: Wrapper }
+    )
+    const img = screen.getByRole('img')
+    expect(img.getAttribute('alt')).toBe('Duck Confit')
+  })
+
   it('evidence block shows high-confidence text for menu scan (no ingredients)', () => {
     const Wrapper = createWrapper()
     const menuDish: DishResult = { ...mockDish, ingredients: [] }
@@ -335,6 +359,34 @@ describe('DishDetailSheet', () => {
     )
     fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
     expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // ─── AC8: Confidence indicator — icon + text (never colour alone) ────────────
+
+  it('evidence block high-confidence path includes SVG icon alongside text (AC8)', () => {
+    const Wrapper = createWrapper()
+    const menuDish: DishResult = { ...mockDish, ingredients: [] }
+    const { container } = render(
+      React.createElement(DishDetailSheet, { ...defaultProps, dish: menuDish }),
+      { wrapper: Wrapper }
+    )
+    // Icon must be present (SVG with aria-hidden so screen readers ignore it — text carries meaning)
+    const icons = container.querySelectorAll('svg[aria-hidden="true"]')
+    expect(icons.length).toBeGreaterThan(0)
+    // Text must also be present
+    expect(screen.getByText(/Identified from your scan/)).toBeDefined()
+  })
+
+  it('evidence block medium-confidence path includes SVG icon alongside text (AC8)', () => {
+    const Wrapper = createWrapper()
+    // 1/4 high ingredients = below 80% threshold → medium path
+    const { container } = render(
+      React.createElement(DishDetailSheet, { ...defaultProps }),
+      { wrapper: Wrapper }
+    )
+    const icons = container.querySelectorAll('svg[aria-hidden="true"]')
+    expect(icons.length).toBeGreaterThan(0)
+    expect(screen.getByText(/ingredients match common preparation/)).toBeDefined()
   })
 
   it('evidence block falls back to high-confidence text when medium path has no high-confidence ingredients', () => {

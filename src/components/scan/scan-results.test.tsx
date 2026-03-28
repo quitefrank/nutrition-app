@@ -458,7 +458,33 @@ describe('ScanResults', () => {
       queryClient.setQueryData<ScanResult>(['scan-result', 'test-scan-id'], mockEnrichedResult)
     })
 
-    // After enrichment — dish card should show the img
-    await waitFor(() => expect(screen.getByRole('img', { name: 'Duck Confit' })).toBeDefined())
+    // After enrichment — dish card should show the img with descriptive alt text (AC1)
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Duck Confit — Crispy duck leg with cherry jus' })).toBeDefined())
+  })
+
+  // ─── AC1: Alt text format ────────────────────────────────────────────────────
+
+  it('DishCard uses descriptive alt text "Name — description" when imageUrl and description present', () => {
+    const enrichedDish: DishResult = { ...mockDish, imageUrl: 'https://example.com/duck.jpg' }
+    const scanResult: ScanResult = { ...mockScanResult, dishes: [enrichedDish] }
+    const Wrapper = createWrapper('test-scan-id', scanResult)
+    render(
+      React.createElement(ScanResults, { result: scanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    const img = screen.getByRole('img')
+    expect(img.getAttribute('alt')).toBe('Duck Confit — Crispy duck leg with cherry jus')
+  })
+
+  it('DishCard falls back to name-only alt when description is empty', () => {
+    const dishNoDesc: DishResult = { ...mockDish, description: '', imageUrl: 'https://example.com/duck.jpg' }
+    const scanResult: ScanResult = { ...mockScanResult, dishes: [dishNoDesc] }
+    const Wrapper = createWrapper('test-scan-id', scanResult)
+    render(
+      React.createElement(ScanResults, { result: scanResult, scanId: 'test-scan-id' }),
+      { wrapper: Wrapper }
+    )
+    const img = screen.getByRole('img')
+    expect(img.getAttribute('alt')).toBe('Duck Confit')
   })
 })

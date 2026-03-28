@@ -238,7 +238,7 @@ export function DishCard({ dish, onClick }: { dish: DishResult; onClick: () => v
     >
       {/* Thumbnail: 64×64pt — imageUrl is null in 2.3 (enriched in Story 2.4) */}
       {dish.imageUrl ? (
-        <img src={dish.imageUrl} alt={dish.name} style={{ width: '64px', height: '64px', borderRadius: 'var(--radius-xs)', objectFit: 'cover', flexShrink: 0 }} />
+        <img src={dish.imageUrl} alt={dish.description ? `${dish.name} — ${dish.description}` : dish.name} style={{ width: '64px', height: '64px', borderRadius: 'var(--radius-xs)', objectFit: 'cover', flexShrink: 0 }} />
       ) : (
         <div style={{ width: '64px', height: '64px', borderRadius: 'var(--radius-xs)', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} aria-hidden="true" />
       )}

@@ -28,7 +28,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-19
-last_updated: 2026-03-28  # Stories 5.1 done; 5.2 and 5.3 in review
+last_updated: 2026-03-28  # Story 6.1 review
 project: Plately
 project_key: NOKEY
 tracking_system: file-system
@@ -72,17 +72,17 @@ development_status:
   epic-4-retrospective: done
 
   # Epic 5: Manual Search & Discovery
-  epic-5: in-progress
+  epic-5: done
   5-1-restaurant-dish-search-api-routes: done
   5-2-search-screen-ui-restaurant-results: done
   5-3-recipe-generation-from-search: done
-  5-4-restaurant-profile-complete-return-visit-recognition: backlog
+  5-4-restaurant-profile-complete-return-visit-recognition: done
   epic-5-retrospective: optional
 
   # Epic 6: Accessibility, PWA & Production Readiness
-  epic-6: backlog
-  6-1-accessibility-audit-screen-reader-support: backlog
-  6-2-pwa-install-experience: backlog
-  6-3-complete-error-states-notification-permission: backlog
-  6-4-performance-security-validation: backlog
+  epic-6: in-progress
+  6-1-accessibility-audit-screen-reader-support: review
+  6-2-pwa-install-experience: ready-for-dev
+  6-3-complete-error-states-notification-permission: ready-for-dev
+  6-4-performance-security-validation: ready-for-dev
   epic-6-retrospective: optional

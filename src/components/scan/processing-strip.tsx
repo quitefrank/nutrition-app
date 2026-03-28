@@ -11,6 +11,10 @@ interface ProcessingStripProps {
 }
 
 function AnimatedEllipsis({ text }: { text: string }) {
+  const shouldReduceMotion = useReducedMotion()
+  if (shouldReduceMotion) {
+    return <span>{text}...</span>
+  }
   return (
     <span>
       {text}
@@ -24,7 +28,24 @@ function AnimatedEllipsis({ text }: { text: string }) {
   )
 }
 
-function Spinner() {
+function Spinner({ shouldReduceMotion }: { shouldReduceMotion: boolean }) {
+  if (shouldReduceMotion) {
+    return (
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="rgba(255,255,255,0.6)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        aria-hidden="true"
+        style={{ flexShrink: 0 }}
+      >
+        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+      </svg>
+    )
+  }
   return (
     <motion.svg
       width="18"
@@ -160,7 +181,7 @@ export function ProcessingStrip({ status, thumbnailUrl, onTap, onCancel }: Proce
       </div>
 
       {/* Right icon */}
-      {status === 'processing' ? <Spinner /> : <ChevronRight />}
+      {status === 'processing' ? <Spinner shouldReduceMotion={shouldReduceMotion ?? false} /> : <ChevronRight />}
     </motion.div>
   )
 }

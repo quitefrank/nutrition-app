@@ -28,7 +28,7 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave
             {dish.imageUrl ? (
               <img
                 src={dish.imageUrl}
-                alt={dish.name}
+                alt={dish.description ? `${dish.name} — ${dish.description}` : dish.name}
                 style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0', display: 'block' }}
               />
             ) : (
@@ -101,17 +101,29 @@ function EvidenceBlock({ dish, nutritionAvailable }: { dish: DishResult; nutriti
   // Fall back to high-confidence display when there are no pills to support the medium-confidence text
   if (isHigh || evidencePills.length === 0) {
     return (
-      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 'var(--spacing-2) 0' }}>
-        Identified from your scan{calorieText}
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 'var(--spacing-2) 0' }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0 }}>
+          Identified from your scan{calorieText}
+        </p>
+      </div>
     )
   }
 
   return (
     <div style={{ margin: 'var(--spacing-2) 0' }}>
-      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: '0 0 var(--spacing-1)' }}>
-        Identified from your scan — ingredients match common preparation
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--spacing-1)' }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0 }}>
+          Identified from your scan — ingredients match common preparation
+        </p>
+      </div>
       {evidencePills.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
           {evidencePills.map((ing) => (
