@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -9,12 +9,40 @@ import { useSetAtmospheric } from '@/contexts/atmospheric-context'
 import { FeaturedRecipeCard } from '@/components/recipes/featured-recipe-card'
 import { RecipeCard } from '@/components/recipes/recipe-card'
 import { SwipeToDelete } from '@/components/recipes/swipe-to-delete'
+import { useNearbyRestaurant } from '@/hooks/use-nearby-restaurant'
+
+interface SearchVisit {
+  googlePlacesId: string
+  restaurantId: string
+  restaurantName: string | null
+  recipeCount: number
+  visitedAt: number
+}
 
 export default function Home() {
   const { data: recipes = [] } = useRecipes()
   const deleteMutation = useDeleteRecipe()
   const setAtmospheric = useSetAtmospheric()
   const router = useRouter()
+  const { nearbyRestaurant, requestPermission } = useNearbyRestaurant()
+  const [searchVisit, setSearchVisit] = useState<SearchVisit | null>(null)
+  const hasRequestedLocationRef = useRef(false)
+
+  // Load search-triggered visit from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('plately-search-visit')
+      if (raw) {
+        const parsed = JSON.parse(raw) as SearchVisit
+        const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000
+        if (Date.now() - parsed.visitedAt <= TWENTY_FOUR_HOURS) {
+          setSearchVisit(parsed)
+        }
+      }
+    } catch {
+      // Malformed localStorage — ignore
+    }
+  }, [])
 
   // Atmospheric background: use most recent recipe's dish image
   useEffect(() => {
@@ -31,6 +59,41 @@ export default function Home() {
     }
   }, [recipes, setAtmospheric])
 
+  // Compute banner triggers at top level (no hooks inside conditionals)
+  const latestRestaurantId = recipes[0]?.restaurantId ?? null
+  const sameRestaurantRecipes = latestRestaurantId
+    ? recipes.filter(r => r.restaurantId === latestRestaurantId)
+    : []
+  // Trigger 1 (highest priority): scan-triggered
+  const showScanBanner = sameRestaurantRecipes.length > 1 && !!latestRestaurantId
+
+  // Trigger 2: search-triggered — localStorage visit within 24h with saved recipes
+  // Match on restaurantId OR googlePlacesId in case the restaurant was re-inserted with a new UUID
+  const searchRestaurantHasRecipes = searchVisit
+    ? recipes.some(r =>
+        r.restaurantId === searchVisit.restaurantId ||
+        r.restaurant?.googlePlacesId === searchVisit.googlePlacesId
+      )
+    : false
+  const showSearchBanner = !showScanBanner && !!searchVisit && searchRestaurantHasRecipes
+
+  // Trigger 3: location-triggered
+  const showLocationBanner = !showScanBanner && !showSearchBanner && !!nearbyRestaurant
+
+  // Request location permission after first recipe save if no scan/search banner (AC: 5, UX-DR9)
+  // useRef guard ensures this fires at most once per session
+  useEffect(() => {
+    if (hasRequestedLocationRef.current) return
+    if (recipes.length === 0 || showScanBanner || showSearchBanner) return
+    if (typeof navigator === 'undefined' || !navigator.permissions) return
+    void navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      if (status.state === 'prompt') {
+        hasRequestedLocationRef.current = true
+        requestPermission()
+      }
+    })
+  }, [recipes.length, showScanBanner, showSearchBanner]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleDelete(id: string) {
     if (deleteMutation.isPending) return
     try {
@@ -41,16 +104,33 @@ export default function Home() {
     }
   }
 
+  // Resolve single banner slot (highest-priority trigger wins)
+  const showBanner = showScanBanner || showSearchBanner || showLocationBanner
+  const bannerRestaurantId = showScanBanner
+    ? latestRestaurantId!
+    : showSearchBanner
+    ? searchVisit!.restaurantId
+    : showLocationBanner
+    ? nearbyRestaurant!.id
+    : null
+  const bannerCount = showScanBanner
+    ? sameRestaurantRecipes.length
+    : showSearchBanner
+    ? searchVisit!.recipeCount
+    : showLocationBanner
+    ? nearbyRestaurant!.recipeCount
+    : 0
+  const bannerRestaurantName = showScanBanner
+    ? (recipes[0]?.restaurant?.name ?? null)
+    : showSearchBanner
+    ? (searchVisit!.restaurantName ?? null)
+    : showLocationBanner
+    ? nearbyRestaurant!.name
+    : null
+
   // Populated state
   if (recipes.length > 0) {
     const [featured, ...rest] = recipes
-
-    // Return-visit banner: show when latest recipe has a restaurant and other recipes share it
-    const latestRestaurantId = recipes[0]?.restaurantId ?? null
-    const sameRestaurantRecipes = latestRestaurantId
-      ? recipes.filter(r => r.restaurantId === latestRestaurantId)
-      : []
-    const showReturnVisitBanner = sameRestaurantRecipes.length > 1 && latestRestaurantId
 
     return (
       <div className="flex flex-col flex-1 gap-[var(--spacing-6)] px-[var(--spacing-4)] py-[var(--spacing-4)]">
@@ -59,10 +139,10 @@ export default function Home() {
           <FeaturedRecipeCard recipe={featured} />
         </SwipeToDelete>
 
-        {/* Return-visit banner — shown between featured card and collection */}
-        {showReturnVisitBanner && (
+        {/* Return-visit banner — single slot, highest-priority trigger wins (AC: 3, 4, 5) */}
+        {showBanner && bannerRestaurantId && (
           <button
-            onClick={() => router.push(`/restaurants/${latestRestaurantId}`)}
+            onClick={() => router.push(`/restaurants/${bannerRestaurantId}`)}
             style={{
               width: '100%',
               background: 'rgba(255,255,255,0.08)',
@@ -75,9 +155,9 @@ export default function Home() {
               cursor: 'pointer',
               minHeight: '44px',
             }}
-            aria-label="Return visit banner"
+            aria-label={`Return visit banner${bannerRestaurantName ? ` for ${bannerRestaurantName}` : ''}`}
           >
-            You&apos;ve been here before — {sameRestaurantRecipes.length} saved recipes
+            You&apos;ve been here before — {bannerCount} saved recipes
           </button>
         )}
 

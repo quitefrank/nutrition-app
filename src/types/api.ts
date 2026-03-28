@@ -142,6 +142,15 @@ export interface SearchDishResponse {
   nutritionAvailable: boolean
 }
 
+// ─── Nearby Restaurants API (Story 5.4) ──────────────────────────────────────
+
+export interface NearbyRestaurantResult {
+  id: string
+  name: string
+  googlePlacesId: string
+  recipeCount: number
+}
+
 // ─── Grocery Recipe View (Story 4.3) ─────────────────────────────────────────
 
 // Returned by GET /api/grocery/recipes

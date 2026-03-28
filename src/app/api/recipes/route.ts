@@ -163,8 +163,48 @@ async function inferIngredientsFromDishName(
   }
 }
 
+async function enrichRestaurantImage(
+  restaurantId: string,
+  googlePlacesId: string,
+  placesKey: string | undefined
+): Promise<void> {
+  if (!placesKey) return
+
+  // Check if already populated — use maybeSingle to avoid PGRST116 on missing row
+  const { data: existing } = await supabase
+    .from('restaurants')
+    .select('restaurant_image_url')
+    .eq('id', restaurantId)
+    .maybeSingle()
+
+  if (existing?.restaurant_image_url) return  // already populated — skip
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 3000)
+    const detailsRes = await fetch(
+      `https://places.googleapis.com/v1/places/${encodeURIComponent(googlePlacesId)}`,
+      { headers: { 'X-Goog-Api-Key': placesKey, 'X-Goog-FieldMask': 'photos' }, signal: controller.signal }
+    )
+    clearTimeout(timer)
+    if (!detailsRes.ok) return
+
+    const details = await detailsRes.json() as { photos?: Array<{ name: string }> }
+    const photoName = details?.photos?.[0]?.name
+    if (!photoName) return
+
+    // Store only the photoName path — the API key is added at response time, never persisted (SEC-SEC-1.00)
+    await supabase
+      .from('restaurants')
+      .update({ restaurant_image_url: photoName })
+      .eq('id', restaurantId)
+  } catch (err) {
+    console.warn('[recipes] Failed to enrich restaurant image:', err instanceof Error ? err.message : err)
+  }
+}
+
 export async function POST(req: NextRequest) {
-  const { usda: usdaKey, gemini: geminiKey } = getApiKeys()
+  const { usda: usdaKey, gemini: geminiKey, places: placesKey } = getApiKeys()
   let body: RecipeSaveRequest
   try {
     body = await req.json() as RecipeSaveRequest
@@ -231,6 +271,11 @@ export async function POST(req: NextRequest) {
         } else {
           resolvedRestaurantId = newRestaurant.id
         }
+      }
+
+      // Enrich restaurant image — non-fatal, 3s timeout (NFR11)
+      if (resolvedRestaurantId && body.restaurantGooglePlacesId) {
+        await enrichRestaurantImage(resolvedRestaurantId, body.restaurantGooglePlacesId, placesKey)
       }
     }
   }
@@ -311,6 +356,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const { places: placesKey } = getApiKeys()
   const restaurantId = req.nextUrl.searchParams.get('restaurantId')
 
   let query = supabase
@@ -323,7 +369,7 @@ export async function GET(req: NextRequest) {
       confidence_metadata_json,
       serving_size,
       created_at,
-      restaurants ( id, name, google_places_id, atmospheric_palette_json, updated_at )
+      restaurants ( id, name, google_places_id, atmospheric_palette_json, restaurant_image_url, updated_at )
     `)
     .order('created_at', { ascending: false })
 
@@ -351,6 +397,11 @@ export async function GET(req: NextRequest) {
           name: row.restaurants.name,
           googlePlacesId: row.restaurants.google_places_id,
           atmosphericPaletteJson: row.restaurants.atmospheric_palette_json as Record<string, unknown> | null,
+          restaurantImageUrl: row.restaurants.restaurant_image_url
+            ? (row.restaurants.restaurant_image_url.startsWith('places/') && placesKey
+                ? `https://places.googleapis.com/v1/${row.restaurants.restaurant_image_url}/media?maxWidthPx=800&key=${placesKey}`
+                : row.restaurants.restaurant_image_url)
+            : null,
           updatedAt: row.restaurants.updated_at,
         }
       : null,

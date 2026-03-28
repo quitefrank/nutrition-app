@@ -38,6 +38,10 @@ vi.mock('@/components/recipes/swipe-to-delete', () => ({
     ),
 }))
 
+vi.mock('@/hooks/use-nearby-restaurant', () => ({
+  useNearbyRestaurant: () => ({ nearbyRestaurant: null, isLoading: false, requestPermission: vi.fn() }),
+}))
+
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [key: string]: unknown }) =>
     React.createElement('a', { href, ...props }, children),

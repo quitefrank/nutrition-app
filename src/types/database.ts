@@ -20,6 +20,7 @@ export interface Database {
           name: string
           google_places_id: string | null
           atmospheric_palette_json: Json | null
+          restaurant_image_url: string | null
           updated_at: string
         }
         Insert: {
@@ -27,6 +28,7 @@ export interface Database {
           name: string
           google_places_id?: string | null
           atmospheric_palette_json?: Json | null
+          restaurant_image_url?: string | null
           updated_at?: string
         }
         Update: {
@@ -34,6 +36,7 @@ export interface Database {
           name?: string
           google_places_id?: string | null
           atmospheric_palette_json?: Json | null
+          restaurant_image_url?: string | null
           updated_at?: string
         }
         Relationships: []

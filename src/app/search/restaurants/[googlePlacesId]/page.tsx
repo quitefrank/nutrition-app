@@ -1,13 +1,13 @@
 'use client'
 
-import { use, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { use, useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/layout/page-header'
 import { DishCard } from '@/components/scan/scan-results'
 import { DishDetailSheet } from '@/components/scan/dish-detail-sheet'
 import { useRestaurantDishes } from '@/hooks/use-search'
-import { useSaveRecipe, useDeleteRecipe } from '@/hooks/use-recipes'
+import { useSaveRecipe, useDeleteRecipe, useRecipes } from '@/hooks/use-recipes'
 import { useOnlineStatus } from '@/hooks/use-online-status'
 import type { DishResult, RecipeSaveRequest } from '@/types/api'
 
@@ -20,6 +20,7 @@ export default function RestaurantDishListPage({ params }: PageProps) {
   const searchParams = useSearchParams()
   const restaurantName = searchParams.get('restaurantName') ?? undefined
   const isOnline = useOnlineStatus()
+  const router = useRouter()
 
   const [selectedDish, setSelectedDish] = useState<DishResult | null>(null)
   const [savedDishIds, setSavedDishIds] = useState<Record<string, string>>({})
@@ -27,6 +28,32 @@ export default function RestaurantDishListPage({ params }: PageProps) {
   const { data: dishes, isLoading, error, refetch } = useRestaurantDishes(
     isOnline ? googlePlacesId : null
   )
+  const { data: allRecipes = [] } = useRecipes()
+
+  // Recipes saved from this restaurant
+  const savedAtThisRestaurant = allRecipes.filter(
+    r => r.restaurant?.googlePlacesId === googlePlacesId
+  )
+
+  // Write localStorage signal when there are saved recipes at this restaurant (AC: 3)
+  useEffect(() => {
+    if (savedAtThisRestaurant.length === 0) return
+
+    const restaurantId = savedAtThisRestaurant[0].restaurantId
+    if (!restaurantId) return
+
+    try {
+      localStorage.setItem('plately-search-visit', JSON.stringify({
+        googlePlacesId,
+        restaurantId,
+        restaurantName: restaurantName ?? savedAtThisRestaurant[0].restaurant?.name ?? null,
+        recipeCount: savedAtThisRestaurant.length,
+        visitedAt: Date.now(),
+      }))
+    } catch {
+      // localStorage unavailable (e.g. private/incognito quota) — non-fatal
+    }
+  }, [savedAtThisRestaurant.length, googlePlacesId, restaurantName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveMutation = useSaveRecipe()
   const deleteMutation = useDeleteRecipe()
@@ -141,6 +168,45 @@ export default function RestaurantDishListPage({ params }: PageProps) {
           >
             Try again
           </button>
+        </div>
+      )}
+
+      {/* Saved from here — shown when user has recipes from this restaurant (AC: 1, 3) */}
+      {savedAtThisRestaurant.length > 0 && (
+        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+          <h2
+            style={{
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-secondary)',
+              fontWeight: 600,
+              marginBottom: 'var(--spacing-2)',
+            }}
+          >
+            Saved from here
+          </h2>
+          <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', listStyle: 'none', padding: 0, margin: 0 }}>
+            {savedAtThisRestaurant.map(recipe => (
+              <li key={recipe.id}>
+                <button
+                  onClick={() => router.push(`/recipes/${recipe.id}`)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 'var(--spacing-3)',
+                    cursor: 'pointer',
+                    minHeight: '44px',
+                  }}
+                >
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                    {recipe.name}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

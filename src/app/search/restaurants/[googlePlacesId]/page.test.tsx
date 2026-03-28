@@ -36,9 +36,11 @@ vi.mock('@/hooks/use-search', () => ({
 
 const mockSaveMutateAsync = vi.fn()
 const mockDeleteMutateAsync = vi.fn()
+const mockUseRecipes = vi.fn((): { data: Recipe[] } => ({ data: [] }))
 vi.mock('@/hooks/use-recipes', () => ({
   useSaveRecipe: () => ({ mutateAsync: mockSaveMutateAsync, isPending: false }),
   useDeleteRecipe: () => ({ mutateAsync: mockDeleteMutateAsync, isPending: false }),
+  useRecipes: () => mockUseRecipes(),
 }))
 
 const mockUseOnlineStatus = vi.fn(() => true)
@@ -70,6 +72,7 @@ vi.mock('react', async () => {
 // ─── Test data ────────────────────────────────────────────────────────────────
 
 import type { DishResult } from '@/types/api'
+import type { Recipe } from '@/types/domain'
 
 const mockDishes: DishResult[] = [
   {
@@ -207,5 +210,93 @@ describe('RestaurantDishListPage', () => {
     const Wrapper = createWrapper()
     render(React.createElement(Page, { params: defaultParams }), { wrapper: Wrapper })
     expect(mockUseRestaurantDishes).toHaveBeenCalledWith(null)
+  })
+})
+
+describe('RestaurantDishListPage — Story 5.4 (saved-recipes section & localStorage)', () => {
+  const savedRecipe: Recipe = {
+    id: 'saved-recipe-1',
+    name: 'Shake Burger',
+    restaurantId: 'rest-uuid-1',
+    restaurant: {
+      id: 'rest-uuid-1',
+      name: 'Shake Shack',
+      googlePlacesId: 'test-place-id',
+      atmosphericPaletteJson: null,
+      restaurantImageUrl: null,
+      updatedAt: '2026-03-28T00:00:00Z',
+    },
+    dishImageUrl: null,
+    confidenceMetadataJson: null,
+    servingSize: 1,
+    createdAt: '2026-03-28T00:00:00Z',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockUseOnlineStatus.mockReturnValue(true)
+    mockUseRestaurantDishes.mockReturnValue({ data: mockDishes, isLoading: false, error: null, refetch: vi.fn() })
+  })
+
+  it('renders "Saved from here" section when useRecipes returns recipes matching googlePlacesId', async () => {
+    mockUseRecipes.mockReturnValue({ data: [savedRecipe] })
+    const Wrapper = createWrapper()
+    render(React.createElement(Page, { params: defaultParams }), { wrapper: Wrapper })
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved from here')).toBeDefined()
+      expect(screen.getAllByText('Shake Burger').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('does NOT render "Saved from here" section when no recipes match googlePlacesId', () => {
+    const differentRestaurantRecipe: Recipe = {
+      ...savedRecipe,
+      restaurant: {
+        id: 'rest-uuid-1',
+        name: 'Shake Shack',
+        googlePlacesId: 'different-place-id',
+        atmosphericPaletteJson: null,
+        restaurantImageUrl: null,
+        updatedAt: '2026-03-28T00:00:00Z',
+      },
+    }
+    mockUseRecipes.mockReturnValue({ data: [differentRestaurantRecipe] })
+    const Wrapper = createWrapper()
+    render(React.createElement(Page, { params: defaultParams }), { wrapper: Wrapper })
+
+    expect(screen.queryByText('Saved from here')).toBeNull()
+  })
+
+  it('writes plately-search-visit to localStorage on mount when saved recipes exist', async () => {
+    mockUseRecipes.mockReturnValue({ data: [savedRecipe] })
+    const Wrapper = createWrapper()
+    render(React.createElement(Page, { params: defaultParams }), { wrapper: Wrapper })
+
+    await waitFor(() => {
+      const stored = localStorage.getItem('plately-search-visit')
+      expect(stored).not.toBeNull()
+      const parsed = JSON.parse(stored!) as {
+        googlePlacesId: string
+        restaurantId: string
+        recipeCount: number
+        visitedAt: number
+      }
+      expect(parsed.googlePlacesId).toBe('test-place-id')
+      expect(parsed.restaurantId).toBe('rest-uuid-1')
+      expect(parsed.recipeCount).toBe(1)
+      expect(typeof parsed.visitedAt).toBe('number')
+    })
+  })
+
+  it('does NOT write localStorage when no saved recipes exist', async () => {
+    mockUseRecipes.mockReturnValue({ data: [] })
+    const Wrapper = createWrapper()
+    render(React.createElement(Page, { params: defaultParams }), { wrapper: Wrapper })
+
+    // Give effects a chance to run
+    await waitFor(() => expect(mockUseRecipes).toHaveBeenCalled())
+    expect(localStorage.getItem('plately-search-visit')).toBeNull()
   })
 })

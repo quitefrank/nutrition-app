@@ -6,6 +6,7 @@ export interface DomainRestaurant {
   name: string
   googlePlacesId: string | null
   atmosphericPaletteJson: Record<string, unknown> | null
+  restaurantImageUrl: string | null
   updatedAt: string
 }
 

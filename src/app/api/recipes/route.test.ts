@@ -835,6 +835,187 @@ describe('POST /api/recipes', () => {
   })
 })
 
+describe('POST /api/recipes — restaurant image enrichment (Story 5.4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default fetch: USDA returns no results so we can focus on Places API
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ foods: [] }) })
+  })
+
+  it('image enrichment: new restaurant with google_places_id → restaurant_image_url populated', async () => {
+    const { getApiKeys } = await import('@/lib/api-keys')
+    vi.mocked(getApiKeys).mockReturnValue({ gemini: undefined, places: 'test-places-key', usda: 'test-usda-key' })
+
+    const mockRecipe = {
+      id: 'recipe-img-1',
+      name: 'Duck Confit',
+      restaurant_id: 'rest-new-img',
+      serving_size: 1,
+      created_at: '2026-03-28T00:00:00Z',
+    }
+
+    // Call 1: google_places_id lookup → no match
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    })
+    // Call 2: name lookup → no match
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    })
+    // Call 3: insert new restaurant
+    mockFrom.mockReturnValueOnce({
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'rest-new-img' }, error: null }),
+    })
+    // Call 4: enrichRestaurantImage — check existing restaurant_image_url (null)
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { restaurant_image_url: null }, error: null }),
+    })
+    // Call 5: enrichRestaurantImage — update restaurant_image_url
+    mockFrom.mockReturnValueOnce({
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    })
+    // Call 6: recipes insert
+    mockFrom.mockReturnValueOnce({
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+    })
+    // Call 7: recipe_ingredients insert
+    mockFrom.mockReturnValueOnce({ insert: vi.fn().mockResolvedValue({ error: null }) })
+
+    // Places API: returns a photo
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ photos: [{ name: 'places/abc/photos/xyz' }] }),
+      })
+      // USDA for ingredients (already resolved via mockFetch default)
+      .mockResolvedValue({ ok: true, json: async () => ({ foods: [] }) })
+
+    const payload = { ...validPayload, restaurantName: 'Le Canard', restaurantGooglePlacesId: 'gp-img-1' }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(200)
+
+    // The Places API should have been called with the google_places_id
+    const placesCalls = mockFetch.mock.calls.filter(([url]: [string]) =>
+      typeof url === 'string' && url.includes('places.googleapis.com')
+    )
+    expect(placesCalls.length).toBeGreaterThanOrEqual(1)
+    expect(placesCalls[0][0]).toContain('gp-img-1')
+  })
+
+  it('image enrichment: restaurant_image_url already populated → Places API NOT called again', async () => {
+    const { getApiKeys } = await import('@/lib/api-keys')
+    vi.mocked(getApiKeys).mockReturnValue({ gemini: undefined, places: 'test-places-key', usda: 'test-usda-key' })
+
+    const mockRecipe = {
+      id: 'recipe-img-2',
+      name: 'Duck Confit',
+      restaurant_id: 'rest-existing-img',
+      serving_size: 1,
+      created_at: '2026-03-28T00:00:00Z',
+    }
+
+    // Call 1: google_places_id lookup → match (existing)
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'rest-existing-img' }, error: null }),
+    })
+    // Call 2: update updated_at
+    mockFrom.mockReturnValueOnce({
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    })
+    // Call 3: enrichRestaurantImage — check existing restaurant_image_url (already set)
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { restaurant_image_url: 'https://existing-image.com/photo.jpg' }, error: null }),
+    })
+    // Call 4: recipes insert
+    mockFrom.mockReturnValueOnce({
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+    })
+    // Call 5: recipe_ingredients insert
+    mockFrom.mockReturnValueOnce({ insert: vi.fn().mockResolvedValue({ error: null }) })
+
+    const payload = { ...validPayload, restaurantGooglePlacesId: 'gp-img-existing' }
+    const res = await POST(makeRequest(payload))
+    expect(res.status).toBe(200)
+
+    // No Places API call for photo details should have been made
+    const placesCalls = mockFetch.mock.calls.filter(([url]: [string]) =>
+      typeof url === 'string' && url.includes('places.googleapis.com')
+    )
+    expect(placesCalls).toHaveLength(0)
+  })
+
+  it('image enrichment: Places API failure is non-fatal — recipe saves normally', async () => {
+    const { getApiKeys } = await import('@/lib/api-keys')
+    vi.mocked(getApiKeys).mockReturnValue({ gemini: undefined, places: 'test-places-key', usda: 'test-usda-key' })
+
+    const mockRecipe = {
+      id: 'recipe-img-3',
+      name: 'Duck Confit',
+      restaurant_id: 'rest-img-fail',
+      serving_size: 1,
+      created_at: '2026-03-28T00:00:00Z',
+    }
+
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    })
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    })
+    mockFrom.mockReturnValueOnce({
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'rest-img-fail' }, error: null }),
+    })
+    // enrichRestaurantImage — null image_url
+    mockFrom.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { restaurant_image_url: null }, error: null }),
+    })
+    // recipes insert
+    mockFrom.mockReturnValueOnce({
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: mockRecipe, error: null }),
+    })
+    mockFrom.mockReturnValueOnce({ insert: vi.fn().mockResolvedValue({ error: null }) })
+
+    // Places API throws (non-fatal)
+    mockFetch.mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue({ ok: true, json: async () => ({ foods: [] }) })
+
+    const payload = { ...validPayload, restaurantName: 'Failing Place', restaurantGooglePlacesId: 'gp-fail' }
+    const res = await POST(makeRequest(payload))
+    // Recipe still saves
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.id).toBe('recipe-img-3')
+  })
+})
+
 describe('GET /api/recipes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
