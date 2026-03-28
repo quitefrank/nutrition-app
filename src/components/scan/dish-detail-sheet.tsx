@@ -8,15 +8,16 @@ interface DishDetailSheetProps {
   dish: DishResult | null
   open: boolean
   onClose: () => void
-  scanId: string
-  dishIndex: number
+  scanId?: string
+  dishIndex?: number
   onSave?: (dish: DishResult) => void
   savedId?: string
   onRemove?: (dish: DishResult) => void
+  nutritionAvailable?: boolean
 }
 
-export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave, savedId, onRemove }: DishDetailSheetProps) {
-  const detailUrl = `/scan/dish?scanId=${scanId}&dishIndex=${dishIndex}`
+export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave, savedId, onRemove, nutritionAvailable }: DishDetailSheetProps) {
+  const detailUrl = scanId ? `/scan/dish?scanId=${scanId}&dishIndex=${dishIndex ?? 0}` : null
 
   return (
     <BottomSheet open={open} onClose={onClose} label={dish?.name ?? 'Dish detail'}>
@@ -41,7 +42,7 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave
           </h2>
 
           {/* Evidence block */}
-          <EvidenceBlock dish={dish} />
+          <EvidenceBlock dish={dish} nutritionAvailable={nutritionAvailable} />
 
           {/* Description */}
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 'var(--spacing-3) 0' }}>
@@ -70,13 +71,15 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave
             </button>
           )}
 
-          {/* See Full Details */}
-          <Link
-            href={detailUrl}
-            style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 'var(--text-xs)', padding: '8px', minHeight: '44px', width: '100%', textAlign: 'center', textDecoration: 'none', lineHeight: '44px' }}
-          >
-            See Full Details
-          </Link>
+          {/* See Full Details — only shown when scanId is provided */}
+          {detailUrl && (
+            <Link
+              href={detailUrl}
+              style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 'var(--text-xs)', padding: '8px', minHeight: '44px', width: '100%', textAlign: 'center', textDecoration: 'none', lineHeight: '44px' }}
+            >
+              See Full Details
+            </Link>
+          )}
         </>
       )}
     </BottomSheet>
@@ -84,18 +87,22 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave
 }
 
 // Evidence block — confidence is always positive; tone assured; never warning colours
-function EvidenceBlock({ dish }: { dish: DishResult }) {
+function EvidenceBlock({ dish, nutritionAvailable }: { dish: DishResult; nutritionAvailable?: boolean }) {
   const highCount = dish.ingredients.filter(i => i.confidenceLevel === 'high').length
   const total = dish.ingredients.length
   // Treat as high confidence when: no ingredients (menu scan), or ≥80% are high
   const isHigh = total === 0 || highCount / total >= 0.8
   const evidencePills = dish.ingredients.filter(i => i.confidenceLevel === 'high').slice(0, 4)
 
+  const calorieText = nutritionAvailable === false
+    ? ' · Nutrition unavailable'
+    : dish.calorieEstimate ? ` · ${dish.calorieEstimate} cal` : ''
+
   // Fall back to high-confidence display when there are no pills to support the medium-confidence text
   if (isHigh || evidencePills.length === 0) {
     return (
       <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 'var(--spacing-2) 0' }}>
-        Identified from your scan{dish.calorieEstimate ? ` · ${dish.calorieEstimate} cal` : ''}
+        Identified from your scan{calorieText}
       </p>
     )
   }

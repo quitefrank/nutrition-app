@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-19
-last_updated: 2026-03-28  # Story 4.4 done — smoke test passed, Epic 4 complete
+last_updated: 2026-03-28  # Story 5.1 done; Story 5.2 in review; Story 5.3 in-progress
 project: Plately
 project_key: NOKEY
 tracking_system: file-system
@@ -77,13 +77,13 @@ development_status:
   4-2-grocery-list-ingredient-view: done
   4-3-grocery-list-recipe-view-bulk-remove: done
   4-4-offline-read-access: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   # Epic 5: Manual Search & Discovery
-  epic-5: backlog
-  5-1-restaurant-dish-search-api-routes: backlog
-  5-2-search-screen-ui-restaurant-results: backlog
-  5-3-recipe-generation-from-search: backlog
+  epic-5: in-progress
+  5-1-restaurant-dish-search-api-routes: done
+  5-2-search-screen-ui-restaurant-results: review
+  5-3-recipe-generation-from-search: in-progress
   5-4-restaurant-profile-complete-return-visit-recognition: backlog
   epic-5-retrospective: optional
 

@@ -268,3 +268,13 @@
     -webkit-backdrop-filter: blur(var(--glass-fab-blur)) saturate(1.8);
   }
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Next.js dev badge — moved to bottom nav tab slot; hide the floating overlay */
+#devtools-indicator,
+button#next-logo {
+  display: none !important;
+}

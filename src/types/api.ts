@@ -128,6 +128,26 @@ export interface GroceryCheckResponse {
   checked: boolean
 }
 
+// ─── Search API (Story 5.1) ───────────────────────────────────────────────────
+
+export interface RestaurantSearchResult {
+  googlePlacesId: string
+  name: string
+  address: string
+  imageUrl: string | null
+}
+
+export interface SearchDishResponse {
+  dish: DishResult           // the existing DishResult type — not redefined
+  nutritionAvailable: boolean
+}
+
+// ─── Search API — Restaurant Dishes (Story 5.3) ──────────────────────────────
+
+export interface RestaurantDishesResponse {
+  dishes: DishResult[]   // Gemini-generated list of typical dishes for the restaurant
+}
+
 // ─── Grocery Recipe View (Story 4.3) ─────────────────────────────────────────
 
 // Returned by GET /api/grocery/recipes

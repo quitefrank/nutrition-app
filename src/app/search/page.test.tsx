@@ -4,12 +4,39 @@ import React from 'react'
 import SearchPage from './page'
 import { useOnlineStatus } from '@/hooks/use-online-status'
 
+// SearchPage now delegates all rendering to SearchScreen — mock its dependencies
+
 vi.mock('@/hooks/use-online-status')
+
+vi.mock('@/hooks/use-search', () => ({
+  useRestaurantSearch: vi.fn(() => ({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+    fetchStatus: 'idle',
+    status: 'pending',
+  })),
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) =>
+      React.createElement('div', props, children),
+  },
+  useReducedMotion: () => false,
+}))
 
 describe('SearchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useOnlineStatus).mockReturnValue(true)
+    localStorage.clear()
   })
 
   it('renders search stub when online', () => {

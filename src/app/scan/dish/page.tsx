@@ -4,6 +4,7 @@ import { Suspense, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ScanResult } from '@/types/api'
+import { PageHeader } from '@/components/layout/page-header'
 
 export default function ScanDishPage() {
   return (
@@ -33,17 +34,7 @@ function ScanDishContent() {
 
   return (
     <div style={{ padding: '0 var(--spacing-4) var(--spacing-12)' }}>
-      <button
-        onClick={() => router.back()}
-        style={{ display: 'block', padding: '12px 0', minHeight: '44px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 'var(--text-sm)' }}
-        aria-label="Go back"
-      >
-        ← Back
-      </button>
-
-      <h1 style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)', fontWeight: 700, margin: 'var(--spacing-4) 0 var(--spacing-2)' }}>
-        {dish.name}
-      </h1>
+      <PageHeader title={dish.name} showBack />
 
       {dish.calorieEstimate !== null && (
         <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', margin: '0 0 var(--spacing-2)' }}>

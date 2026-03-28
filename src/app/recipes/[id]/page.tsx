@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { use } from 'react'
 import { useRecipe } from '@/hooks/use-recipes'
 import { RecipeDetail } from '@/components/recipes/recipe-detail'
+import { PageHeader } from '@/components/layout/page-header'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -25,25 +26,29 @@ export default function RecipeDetailPage({ params }: PageProps) {
   return (
     <div className="flex flex-col flex-1 min-h-full">
       {/* Back navigation + Edit button */}
-      <div className="px-[var(--spacing-4)] pt-[var(--spacing-4)] flex items-center justify-between">
-        <button
-          onClick={() => goBack(router)}
-          style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', background: 'none',
-            border: 'none', cursor: 'pointer', padding: '8px 0', minHeight: '44px' }}
-          aria-label="Go back"
-        >
-          ← Back
-        </button>
-        {recipe && (
-          <button
-            onClick={() => router.push(`/recipes/${id}/edit`)}
-            style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', background: 'none',
-              border: 'none', cursor: 'pointer', padding: '8px', minHeight: '44px' }}
-            aria-label="Edit recipe"
-          >
-            Edit
-          </button>
-        )}
+      <div className="px-[var(--spacing-4)]">
+        <PageHeader
+          showBack
+          rightSlot={
+            recipe ? (
+              <button
+                onClick={() => router.push(`/recipes/${id}/edit`)}
+                style={{
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--text-secondary)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '8px',
+                  minHeight: '44px',
+                }}
+                aria-label="Edit recipe"
+              >
+                Edit
+              </button>
+            ) : undefined
+          }
+        />
       </div>
 
       {/* Loading: skeleton not shown — cache renders immediately (NFR03) */}

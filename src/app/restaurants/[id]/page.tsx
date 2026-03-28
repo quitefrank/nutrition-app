@@ -3,6 +3,7 @@
 import { use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useRecipes } from '@/hooks/use-recipes'
+import { PageHeader } from '@/components/layout/page-header'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -17,28 +18,9 @@ export default function RestaurantProfilePage({ params }: PageProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-full">
-      <div className="px-[var(--spacing-4)] pt-[var(--spacing-4)]">
-        <button
-          onClick={() => router.back()}
-          style={{
-            fontSize: 'var(--text-sm)',
-            color: 'var(--text-secondary)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '8px 0',
-            minHeight: '44px',
-          }}
-          aria-label="Go back"
-        >
-          ← Back
-        </button>
-      </div>
-      <div className="px-[var(--spacing-4)] py-[var(--spacing-2)]">
-        <h1 style={{ fontSize: 'var(--text-xl)', color: 'var(--text-primary)', fontWeight: 700 }}>
-          {restaurantName}
-        </h1>
-        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+      <div className="px-[var(--spacing-4)]">
+        <PageHeader title={restaurantName} showBack />
+        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', paddingBottom: 'var(--spacing-2)' }}>
           {restaurantRecipes.length} saved {restaurantRecipes.length === 1 ? 'recipe' : 'recipes'}
         </p>
       </div>

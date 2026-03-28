@@ -229,7 +229,7 @@ function ScanTipBanner({ onDismiss }: { onDismiss: () => void }) {
   )
 }
 
-function DishCard({ dish, onClick }: { dish: DishResult; onClick: () => void }) {
+export function DishCard({ dish, onClick }: { dish: DishResult; onClick: () => void }) {
   return (
     <GlassCard
       variant="compact"

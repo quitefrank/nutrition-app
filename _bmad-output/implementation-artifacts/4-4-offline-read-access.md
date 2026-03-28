@@ -425,16 +425,15 @@ claude-sonnet-4-6
 
 ## Follow-Up Bugs (Logged During Smoke Test)
 
-### BUG-01: Grocery tab active states not using Glass UI
+### BUG-01: CLOSED — fixed in Story 4.4
 - **Where:** Grocery page top toggle ("By Recipe" / "Ingredients") and bottom nav "Grocery" tab
 - **Symptom:** Active/selected state text stays white; no Glass UI active styling applied
-- **Expected:** Active state should use the Glass UI active pill/highlight treatment consistent with the rest of the app
-- **Priority:** Medium — visual polish; does not affect functionality
+- **Resolution (2026-03-28):** Confirmed fixed — Glass UI active pill styling (background, border, color transition) was applied to both `groceries/page.tsx` toggle pill and `glass-tab-bar.tsx` bottom nav in the Story 4.4 commit (`42d40ef`)
 
 ### BUG-02: CLOSED — not a code defect
 - **Symptom:** Scan returns 503 after image upload
-- **Root cause:** Gemini free tier quota exhausted (429 from Google). Upload and code path are correct.
-- **Resolution:** Enable billing or wait for daily quota reset at https://ai.dev/rate-limit
+- **Root cause (corrected 2026-03-28):** Service worker `urlPattern` regex was tested against the full URL instead of the pathname, causing `/api/scan` to be intercepted and mishandled by the SW. Fixed in the March 24 change log entry. The original "Gemini free tier quota exhausted" diagnosis was a red herring — switching to a paid key did not resolve it; fixing the regex did.
+- **Resolution:** Corrected `urlPattern` to match against pathname only
 
 ### Smoke Test Prerequisites (Future Runs)
 

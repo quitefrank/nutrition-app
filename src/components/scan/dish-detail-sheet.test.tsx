@@ -248,6 +248,60 @@ describe('DishDetailSheet', () => {
     expect(link.tagName.toLowerCase()).toBe('a')
   })
 
+  it('hides See Full Details link when scanId is omitted', () => {
+    const Wrapper = createWrapper()
+    const propsWithoutScanId = { dish: mockDish, open: true, onClose: vi.fn() }
+    render(
+      React.createElement(DishDetailSheet, propsWithoutScanId),
+      { wrapper: Wrapper }
+    )
+    expect(screen.queryByText('See Full Details')).toBeNull()
+  })
+
+  it('renders Nutrition unavailable label when nutritionAvailable is false', () => {
+    const Wrapper = createWrapper()
+    const menuDish: DishResult = { ...mockDish, ingredients: [], calorieEstimate: null }
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, dish: menuDish, nutritionAvailable: false }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.getByText(/Nutrition unavailable/)).toBeDefined()
+  })
+
+  it('does not render Nutrition unavailable when nutritionAvailable is true', () => {
+    const Wrapper = createWrapper()
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, nutritionAvailable: true }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.queryByText(/Nutrition unavailable/)).toBeNull()
+  })
+
+  it('does not render Nutrition unavailable when nutritionAvailable is undefined (default)', () => {
+    const Wrapper = createWrapper()
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.queryByText(/Nutrition unavailable/)).toBeNull()
+  })
+
+  it('shows calorie estimate in evidence when nutritionAvailable is not false', () => {
+    const Wrapper = createWrapper()
+    const highConfidenceDish: DishResult = {
+      ...mockDish,
+      ingredients: [
+        { name: 'Duck leg', quantity: '2', unit: 'pcs', confidenceLevel: 'high' },
+        { name: 'Thyme', quantity: null, unit: null, confidenceLevel: 'high' },
+      ],
+    }
+    render(
+      React.createElement(DishDetailSheet, { ...defaultProps, dish: highConfidenceDish }),
+      { wrapper: Wrapper }
+    )
+    expect(screen.getByText(/620 cal/)).toBeDefined()
+  })
+
   it('onSave is called with dish when Save Recipe button is clicked', () => {
     const mockOnSave = vi.fn()
     const Wrapper = createWrapper()
