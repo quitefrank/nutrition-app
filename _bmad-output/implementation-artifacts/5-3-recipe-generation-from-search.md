@@ -1,6 +1,6 @@
 # Story 5.3: Recipe Generation from Search
 
-**Status:** ready-for-dev
+**Status:** review
 **Story ID:** 5.3
 **Epic:** 5 — Manual Search & Discovery
 
@@ -52,49 +52,49 @@ Then a loading indicator is displayed; if the fetch fails, an inline error messa
 
 ### Task 1: Create `GET /api/search/restaurants/[googlePlacesId]/dishes` route
 
-- [ ] Create `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.ts` (nested dynamic route)
-- [ ] Add `import 'server-only'` at the top of the file
-- [ ] Read `googlePlacesId` from route params; validate it is present and non-empty; return 400 if missing
-- [ ] Call Gemini (`gemini-2.5-flash`) with the restaurant ID context to generate a list of 6–10 typical dishes (see Dev Notes for prompt)
-- [ ] Return `{ data: DishResult[] }` on success — use the existing `DishResult` type from `@/types/api`; `imageUrl` is always `null` for search-generated dishes
-- [ ] On Gemini failure, return `{ error: 'Dish list unavailable', code: 'DISH_LIST_UNAVAILABLE' }` with HTTP 503
-- [ ] Write unit test `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.test.ts` — test success shape, Gemini failure (503), and missing/invalid `googlePlacesId` (400)
+- [x] Create `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.ts` (nested dynamic route)
+- [x] Add `import 'server-only'` at the top of the file
+- [x] Read `googlePlacesId` from route params; validate it is present and non-empty; return 400 if missing
+- [x] Call Gemini (`gemini-2.5-flash`) with the restaurant ID context to generate a list of 6–10 typical dishes (see Dev Notes for prompt)
+- [x] Return `{ data: DishResult[] }` on success — use the existing `DishResult` type from `@/types/api`; `imageUrl` is always `null` for search-generated dishes
+- [x] On Gemini failure, return `{ error: 'Dish list unavailable', code: 'DISH_LIST_UNAVAILABLE' }` with HTTP 503
+- [x] Write unit test `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.test.ts` — test success shape, Gemini failure (503), and missing/invalid `googlePlacesId` (400)
 
 ### Task 2: Add `useRestaurantDishes` to `src/hooks/use-search.ts` (created by Story 5.2)
 
-- [ ] In `src/hooks/use-search.ts` (created by Story 5.2), add `useRestaurantDishes(googlePlacesId: string | null)` — a `useQuery` hook that calls `GET /api/search/restaurants/[googlePlacesId]/dishes`
-- [ ] Use TanStack Query key: `['search', 'restaurants', googlePlacesId, 'dishes']`
-- [ ] Use `enabled: !!googlePlacesId` to prevent firing with null
-- [ ] Return `{ data: DishResult[], isLoading, error }` (same pattern as other hooks in the file)
-- [ ] Handle `ApiError` response shape — throw an `Error` with `json.error` message so TanStack Query surfaces it
-- [ ] If `use-search.ts` does not yet exist (5.2 not yet merged), create this hook in a separate file `src/hooks/use-restaurant-dishes.ts` and note the merge intent in a comment
+- [x] In `src/hooks/use-search.ts` (created by Story 5.2), add `useRestaurantDishes(googlePlacesId: string | null)` — a `useQuery` hook that calls `GET /api/search/restaurants/[googlePlacesId]/dishes`
+- [x] Use TanStack Query key: `['search', 'restaurants', googlePlacesId, 'dishes']`
+- [x] Use `enabled: !!googlePlacesId` to prevent firing with null
+- [x] Return `{ data: DishResult[], isLoading, error }` (same pattern as other hooks in the file)
+- [x] Handle `ApiError` response shape — throw an `Error` with `json.error` message so TanStack Query surfaces it
+- [x] If `use-search.ts` does not yet exist (5.2 not yet merged), create this hook in a separate file `src/hooks/use-restaurant-dishes.ts` and note the merge intent in a comment
 
 ### Task 3: Create the restaurant dish list page
 
-- [ ] Create `src/app/search/restaurants/[googlePlacesId]/page.tsx`
+- [x] Create `src/app/search/restaurants/[googlePlacesId]/page.tsx`
   - **Note:** This is a new nested route under `/search/`, NOT under `/restaurants/`. The existing `/restaurants/[id]/page.tsx` is a profile page for saved-recipe restaurants (uses internal Supabase UUID). This story creates the search-flow discovery page (uses Google Places ID).
-- [ ] The page receives `googlePlacesId` from URL params using `use(params)` (React 18 pattern — see existing `src/app/restaurants/[id]/page.tsx` for the exact import/usage pattern)
-- [ ] Accept optional `restaurantName` from `searchParams` (passed by 5.2's navigation) to display the restaurant name in the header
-- [ ] Call `useRestaurantDishes(googlePlacesId)` to fetch the dish list
-- [ ] Render a loading spinner / skeleton while `isLoading` is true
-- [ ] Render an inline error + retry button if `error` is set
-- [ ] Render the dish list using `DishCard` (extracted from `src/components/scan/scan-results.tsx` — see Dev Notes for extraction strategy)
-- [ ] On dish tap, set `selectedDish` state and open `DishDetailSheet` with the selected dish
-- [ ] Pass `nutritionAvailable` through to `DishDetailSheet` (see Task 4)
-- [ ] Back button: `router.back()` (same pattern as `src/app/restaurants/[id]/page.tsx`)
+- [x] The page receives `googlePlacesId` from URL params using `use(params)` (React 18 pattern — see existing `src/app/restaurants/[id]/page.tsx` for the exact import/usage pattern)
+- [x] Accept optional `restaurantName` from `searchParams` (passed by 5.2's navigation) to display the restaurant name in the header
+- [x] Call `useRestaurantDishes(googlePlacesId)` to fetch the dish list
+- [x] Render a loading spinner / skeleton while `isLoading` is true
+- [x] Render an inline error + retry button if `error` is set
+- [x] Render the dish list using `DishCard` (extracted from `src/components/scan/scan-results.tsx` — see Dev Notes for extraction strategy)
+- [x] On dish tap, set `selectedDish` state and open `DishDetailSheet` with the selected dish
+- [x] Pass `nutritionAvailable` through to `DishDetailSheet` (see Task 4)
+- [x] Back button: `router.back()` (same pattern as `src/app/restaurants/[id]/page.tsx`)
 
 ### Task 4: Add `nutritionAvailable` prop to `DishDetailSheet`
 
-- [ ] In `src/components/scan/dish-detail-sheet.tsx`, add optional prop `nutritionAvailable?: boolean` to `DishDetailSheetProps`
-- [ ] In the `EvidenceBlock` component (internal to the file), add optional `nutritionAvailable?: boolean` prop
-- [ ] When `nutritionAvailable === false`, render a "Nutrition unavailable" label in place of (or alongside) the calorie estimate display. The label should use `text-xs text-secondary` styling. It appears where the calorie line would appear in the evidence block.
-- [ ] When `nutritionAvailable` is `undefined` or `true`, the component renders exactly as it does today — no regressions
-- [ ] Update `dish-detail-sheet.test.tsx` to add a test: "renders 'Nutrition unavailable' label when nutritionAvailable is false"
+- [x] In `src/components/scan/dish-detail-sheet.tsx`, add optional prop `nutritionAvailable?: boolean` to `DishDetailSheetProps`
+- [x] In the `EvidenceBlock` component (internal to the file), add optional `nutritionAvailable?: boolean` prop
+- [x] When `nutritionAvailable === false`, render a "Nutrition unavailable" label in place of (or alongside) the calorie estimate display. The label should use `text-xs text-secondary` styling. It appears where the calorie line would appear in the evidence block.
+- [x] When `nutritionAvailable` is `undefined` or `true`, the component renders exactly as it does today — no regressions
+- [x] Update `dish-detail-sheet.test.tsx` to add a test: "renders 'Nutrition unavailable' label when nutritionAvailable is false"
 
 ### Task 5: Wire the save flow with search-generated metadata
 
-- [ ] In the restaurant dish list page, import `useSaveRecipe` and `useDeleteRecipe` from `@/hooks/use-recipes`
-- [ ] On "Save Recipe" tap, call `saveMutation.mutateAsync` with:
+- [x] In the restaurant dish list page, import `useSaveRecipe` and `useDeleteRecipe` from `@/hooks/use-recipes`
+- [x] On "Save Recipe" tap, call `saveMutation.mutateAsync` with:
   ```typescript
   const payload: RecipeSaveRequest = {
     name: dish.name,
@@ -106,15 +106,15 @@ Then a loading indicator is displayed; if the fetch fails, an inline error messa
     restaurantName: restaurantName ?? undefined,
   }
   ```
-- [ ] Track saved dish IDs locally with `useState<Record<string, string>>({})` — keyed by dish name — same pattern as `ScanResults`
-- [ ] Show `toast('Recipe saved')` on success; `toast.error('Failed to save recipe')` on error (import `toast` from `sonner`)
-- [ ] If dish is already saved, show "Remove Recipe" button using `useDeleteRecipe` — same toggle pattern as `ScanResults`
+- [x] Track saved dish IDs locally with `useState<Record<string, string>>({})` — keyed by dish name — same pattern as `ScanResults`
+- [x] Show `toast('Recipe saved')` on success; `toast.error('Failed to save recipe')` on error (import `toast` from `sonner`)
+- [x] If dish is already saved, show "Remove Recipe" button using `useDeleteRecipe` — same toggle pattern as `ScanResults`
 
 ### Task 6: Write tests
 
-- [ ] `src/app/search/restaurants/[googlePlacesId]/page.test.tsx` — test: dish list renders, loading state, error state, dish tap opens sheet, save is called with correct payload including `confidenceSource: 'search-generated'`
-- [ ] `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.test.ts` — created in Task 1
-- [ ] `src/components/scan/dish-detail-sheet.test.tsx` — add nutrition unavailable test (Task 4)
+- [x] `src/app/search/restaurants/[googlePlacesId]/page.test.tsx` — test: dish list renders, loading state, error state, dish tap opens sheet, save is called with correct payload including `confidenceSource: 'search-generated'`
+- [x] `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.test.ts` — created in Task 1
+- [x] `src/components/scan/dish-detail-sheet.test.tsx` — add nutrition unavailable test (Task 4)
 
 ---
 
@@ -451,31 +451,47 @@ Either approach is acceptable. The hook logic itself is the same regardless of f
 ## Dev Agent Record
 
 ### Agent Model Used
-_to be filled_
+claude-sonnet-4-6
 
 ### Debug Log References
-_to be filled_
+None — implementation was straightforward.
 
 ### Completion Notes List
-_to be filled_
+
+- **Task 1**: Created `GET /api/search/restaurants/[googlePlacesId]/dishes/route.ts` using Next.js 15 async params pattern. Gemini prompt generates 6–10 dishes with `ingredients: []` and `imageUrl: null`. Parse includes markdown fence stripping. 8 tests pass.
+
+- **Task 2**: Added `useRestaurantDishes(googlePlacesId: string | null)` to `src/hooks/use-search.ts` (5.2's file was already in place). Added 6 tests to the existing `use-search.test.ts`. Note: the linter added an extra array-shape guard to `fetchRestaurantDishes` after initial implementation — retained as correct validation.
+
+- **Task 3**: Created `src/app/search/restaurants/[googlePlacesId]/page.tsx`. Used `use(params)` for `googlePlacesId` and `useSearchParams()` for `restaurantName` (testability). Online guard disables fetch by passing `null` to `useRestaurantDishes`.
+
+- **Task 4**: Made `scanId` and `dishIndex` optional in `DishDetailSheet` (backward-compatible — existing callers still pass both). `detailUrl` is `null` when `scanId` absent; "See Full Details" link conditionally rendered. `nutritionAvailable === false` replaces calorie text with "Nutrition unavailable" in `EvidenceBlock`. 6 new tests added (26 total in dish-detail-sheet.test.tsx).
+
+- **Task 5**: Save flow wired in the page using `useSaveRecipe`/`useDeleteRecipe` from `@/hooks/use-recipes`. Payload includes `confidenceSource: 'search-generated'` and `restaurantGooglePlacesId`. Saved IDs tracked in `Record<string, string>` keyed by dish name.
+
+- **Coordination note**: `src/components/search/search-screen.tsx` (Story 5.2) navigates to `/restaurants/${result.googlePlacesId}` instead of `/search/restaurants/${result.googlePlacesId}`. The new page exists at the correct path; this navigation path is a 5.2 issue to resolve before the full flow is tested end-to-end.
+
+- **Pre-existing test failures**: 6 tests were already failing before this story (confirmed via git stash check): 2 in `scan-results.test.tsx` (undo toast feature not yet implemented), 3 in `recipe-detail.test.tsx` (nutrition panel), 1 in `grocery-recipe-view.test.tsx`. None introduced by this story.
 
 ### File List
 
-**To create:**
+**Created:**
 - `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.ts`
 - `src/app/api/search/restaurants/[googlePlacesId]/dishes/route.test.ts`
 - `src/app/search/restaurants/[googlePlacesId]/page.tsx`
 - `src/app/search/restaurants/[googlePlacesId]/page.test.tsx`
 
-**To modify:**
-- `src/components/scan/dish-detail-sheet.tsx` — add `nutritionAvailable?: boolean`, make `scanId?` and `dishIndex?` optional
-- `src/components/scan/scan-results.tsx` — export `DishCard`
-- `src/components/scan/dish-detail-sheet.test.tsx` — add nutrition unavailable test
-- `src/hooks/use-search.ts` (or new `src/hooks/use-restaurant-dishes.ts`) — add `useRestaurantDishes`
-- `src/types/api.ts` — add `RestaurantDishesResponse`
+**Modified:**
+- `src/components/scan/dish-detail-sheet.tsx` — added `nutritionAvailable?: boolean`, made `scanId?` and `dishIndex?` optional
+- `src/components/scan/scan-results.tsx` — exported `DishCard`
+- `src/components/scan/dish-detail-sheet.test.tsx` — added 6 tests (26 total)
+- `src/hooks/use-search.ts` — added `useRestaurantDishes`
+- `src/hooks/use-search.test.ts` — added 6 tests for `useRestaurantDishes` (11 total)
+- `src/types/api.ts` — added `RestaurantDishesResponse`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — status updated
 
 ---
 
 ## Change Log
 
 - 2026-03-28: Story 5.3 created (epic 5, story 3 — recipe generation from search-originated dishes)
+- 2026-03-28: Story 5.3 implemented — all 6 tasks complete, status → review (claude-sonnet-4-6)

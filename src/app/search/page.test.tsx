@@ -17,6 +17,7 @@ vi.mock('@/hooks/use-search', () => ({
     refetch: vi.fn(),
     fetchStatus: 'idle',
     status: 'pending',
+    debouncedQuery: '',
   })),
 }))
 

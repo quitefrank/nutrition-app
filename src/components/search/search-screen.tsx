@@ -113,13 +113,13 @@ function LoadingSpinner() {
       }}
     >
       <div
+        className="animate-spin"
         style={{
           width: 32,
           height: 32,
           border: '3px solid var(--glass-border)',
           borderTopColor: 'var(--text-primary)',
           borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite',
         }}
       />
     </div>
@@ -188,7 +188,7 @@ export function SearchScreen() {
 
   function handleCardTap(result: RestaurantSearchResult) {
     saveRecentSearch(debouncedQuery)
-    router.push('/restaurants/' + result.googlePlacesId)
+    router.push('/search/restaurants/' + encodeURIComponent(result.googlePlacesId) + '?restaurantName=' + encodeURIComponent(result.name))
   }
 
   return (
@@ -249,7 +249,7 @@ export function SearchScreen() {
       </div>
 
       {/* Recent searches — shown when query is empty or input is blurred */}
-      {(query === '' || !inputFocused) && recentSearches.length > 0 && (
+      {!inputFocused && query === '' && recentSearches.length > 0 && (
         <div className="flex flex-col gap-[var(--spacing-2)]">
           {recentSearches.map(term => (
             <GlassCard
@@ -261,6 +261,7 @@ export function SearchScreen() {
                 alignItems: 'center',
                 padding: '0 var(--spacing-4)',
                 cursor: 'pointer',
+                borderRadius: 'var(--radius-md)',
               }}
               className="focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
               onClick={() => handleRecentSearchTap(term)}

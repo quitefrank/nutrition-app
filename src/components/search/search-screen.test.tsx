@@ -114,6 +114,16 @@ describe('SearchScreen — recent searches', () => {
     fireEvent.change(input, { target: { value: 'ramen' } })
     expect(screen.queryByText('sushi')).toBeNull()
   })
+
+  it('re-shows recent searches after input is blurred with empty query', () => {
+    localStorage.setItem('plately-recent-searches', JSON.stringify(['sushi']))
+    render(React.createElement(SearchScreen))
+    const input = screen.getByPlaceholderText('Dish, restaurant...')
+    fireEvent.focus(input)
+    expect(screen.queryByText('sushi')).toBeNull()
+    fireEvent.blur(input)
+    expect(screen.getByText('sushi')).toBeTruthy()
+  })
 })
 
 describe('SearchScreen — loading state', () => {
@@ -212,7 +222,7 @@ describe('SearchScreen — results', () => {
 
     const cards = screen.getAllByRole('button')
     fireEvent.click(cards[0])
-    expect(pushMock).toHaveBeenCalledWith('/restaurants/place1')
+    expect(pushMock).toHaveBeenCalledWith('/search/restaurants/place1?restaurantName=Sushi%20Palace')
   })
 
   it('suggestion copy remains visible with results', () => {

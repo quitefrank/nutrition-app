@@ -35,7 +35,7 @@ Rules:
 }
 
 function parseGeminiDishListResponse(text: string): DishResult[] | null {
-  const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
+  const clean = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
 
   let parsed: Record<string, unknown>
   try {
@@ -66,7 +66,7 @@ export async function GET(
 ) {
   const { googlePlacesId } = await params
 
-  if (!googlePlacesId || googlePlacesId.trim() === '') {
+  if (!googlePlacesId || !/^[A-Za-z0-9_-]+$/.test(googlePlacesId)) {
     return NextResponse.json(
       { error: 'googlePlacesId is required', code: 'INVALID_REQUEST' },
       { status: 400 }

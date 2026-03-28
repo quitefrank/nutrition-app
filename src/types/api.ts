@@ -142,12 +142,6 @@ export interface SearchDishResponse {
   nutritionAvailable: boolean
 }
 
-// ─── Search API — Restaurant Dishes (Story 5.3) ──────────────────────────────
-
-export interface RestaurantDishesResponse {
-  dishes: DishResult[]   // Gemini-generated list of typical dishes for the restaurant
-}
-
 // ─── Grocery Recipe View (Story 4.3) ─────────────────────────────────────────
 
 // Returned by GET /api/grocery/recipes

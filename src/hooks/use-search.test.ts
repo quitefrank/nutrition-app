@@ -130,6 +130,7 @@ describe('useRestaurantDishes', () => {
   })
 
   it('does not fetch when googlePlacesId is null', async () => {
+    vi.useFakeTimers()
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
 
@@ -137,7 +138,8 @@ describe('useRestaurantDishes', () => {
       wrapper: makeWrapper(),
     })
 
-    await new Promise(r => setTimeout(r, 100))
+    await vi.advanceTimersByTimeAsync(100)
+    vi.useRealTimers()
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(result.current.data).toBeUndefined()
     expect(result.current.fetchStatus).toBe('idle')

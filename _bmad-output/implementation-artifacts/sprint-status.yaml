@@ -1,11 +1,3 @@
-# generated: 2026-03-19
-# last_updated: 2026-03-21  # epic-2 closed; Tasks 8-10 implemented
-
-# project: Plately
-# project_key: NOKEY
-# tracking_system: file-system
-# story_location: _bmad-output/implementation-artifacts
-
 # STATUS DEFINITIONS:
 # ==================
 # Epic Status:
@@ -36,7 +28,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-19
-last_updated: 2026-03-28  # Story 5.1 done; Story 5.2 in review; Story 5.3 in-progress
+last_updated: 2026-03-28  # Stories 5.1 done; 5.2 and 5.3 in review
 project: Plately
 project_key: NOKEY
 tracking_system: file-system
@@ -82,8 +74,8 @@ development_status:
   # Epic 5: Manual Search & Discovery
   epic-5: in-progress
   5-1-restaurant-dish-search-api-routes: done
-  5-2-search-screen-ui-restaurant-results: review
-  5-3-recipe-generation-from-search: in-progress
+  5-2-search-screen-ui-restaurant-results: done
+  5-3-recipe-generation-from-search: review
   5-4-restaurant-profile-complete-return-visit-recognition: backlog
   epic-5-retrospective: optional
 
