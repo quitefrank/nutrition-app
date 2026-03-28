@@ -81,8 +81,20 @@ development_status:
 
   # Epic 6: Accessibility, PWA & Production Readiness
   epic-6: in-progress
-  6-1-accessibility-audit-screen-reader-support: review
+  6-1-accessibility-audit-screen-reader-support: done
   6-2-pwa-install-experience: ready-for-dev
   6-3-complete-error-states-notification-permission: ready-for-dev
   6-4-performance-security-validation: ready-for-dev
   epic-6-retrospective: optional
+
+# Deferred items to surface at Epic 6 retrospective
+epic-6-deferred:
+  - id: D3-processing-strip-aria-live
+    story: 6-1-accessibility-audit-screen-reader-support
+    summary: >
+      AC4 — ProcessingStrip announces state changes via aria-label mutation on the
+      aria-live wrapper, not via text content change. Screen readers do not reliably
+      announce aria-label mutations on live regions. Fix requires restructuring
+      ProcessingStrip to put status text as DOM text content inside the aria-live
+      element. Higher-lift change; deferred from Story 6.1 code review (2026-03-28).
+    action: Address in Epic 6 retrospective — decide whether to fix in a 6.x story or carry to Epic 7.

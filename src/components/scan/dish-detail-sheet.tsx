@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { BottomSheet } from '@/components/ui/bottom-sheet'
+import { formatDishAlt } from '@/lib/utils'
 import type { DishResult } from '@/types/api'
 
 interface DishDetailSheetProps {
@@ -28,7 +29,7 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave
             {dish.imageUrl ? (
               <img
                 src={dish.imageUrl}
-                alt={dish.description ? `${dish.name} — ${dish.description}` : dish.name}
+                alt={formatDishAlt(dish.name, dish.description)}
                 style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0', display: 'block' }}
               />
             ) : (
@@ -96,7 +97,7 @@ function EvidenceBlock({ dish, nutritionAvailable }: { dish: DishResult; nutriti
 
   const calorieText = nutritionAvailable === false
     ? ' · Nutrition unavailable'
-    : dish.calorieEstimate ? ` · ${dish.calorieEstimate} cal` : ''
+    : dish.calorieEstimate !== null ? ` · ${dish.calorieEstimate} cal` : ''
 
   // Fall back to high-confidence display when there are no pills to support the medium-confidence text
   if (isHigh || evidencePills.length === 0) {

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
 import { ProcessingStrip } from './processing-strip'
-import { useReducedMotion } from 'framer-motion'
 
 const { mockUseReducedMotion } = vi.hoisted(() => ({
   mockUseReducedMotion: vi.fn().mockReturnValue(false),
