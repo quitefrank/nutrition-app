@@ -102,7 +102,11 @@ export function ProcessingStrip({ status, thumbnailUrl, onTap, onCancel }: Proce
             : { y: 0, opacity: 1 }
       }
       exit={shouldReduceMotion ? { opacity: 0 } : { y: '100%', opacity: 0 }}
-      transition={springTransition}
+      transition={
+        status === 'ready'
+          ? { ...springTransition, scale: { type: 'tween', duration: 0.3, ease: 'easeInOut' } }
+          : springTransition
+      }
       drag={status === 'processing' ? 'y' : false}
       dragConstraints={{ top: 0, bottom: 20 }}
       onDragEnd={handleDragEnd}

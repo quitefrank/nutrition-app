@@ -58,6 +58,11 @@ export function GlassTabBar({ activeTab, onTabChange, fabSlot, className }: Glas
             className="flex flex-col items-center gap-[2px] transition-colors duration-200 min-w-[44px] min-h-[44px] justify-center"
             style={{
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              background: activeTab === tab.id ? 'rgba(255,255,255,0.10)' : 'transparent',
+              borderRadius: 'var(--radius-full)',
+              border: activeTab === tab.id ? '0.5px solid rgba(255,255,255,0.12)' : '0.5px solid transparent',
+              padding: '4px 10px',
+              transition: 'background 0.2s ease, color 0.2s ease',
             }}
           >
             <span className="text-[22px] leading-none" aria-hidden="true">

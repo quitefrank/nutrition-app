@@ -64,6 +64,24 @@ CREATE TABLE grocery_items (
 );
 
 -- ============================================================
+-- ROW LEVEL SECURITY
+-- Single-user no-auth app: RLS enabled on all tables with a
+-- permissive anon policy. Prevents the Supabase "table publicly
+-- accessible" warning while keeping server-side anon-key access
+-- working. If auth is added in future, replace these with
+-- user-scoped policies (e.g. USING (auth.uid() = user_id)).
+-- ============================================================
+ALTER TABLE restaurants       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recipes            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recipe_ingredients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE grocery_items      ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anon_all" ON restaurants       FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all" ON recipes            FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all" ON recipe_ingredients FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all" ON grocery_items      FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 CREATE INDEX recipes_restaurant_id_idx ON recipes(restaurant_id);

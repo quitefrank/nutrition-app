@@ -1,11 +1,34 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { GroceryIngredientView } from '@/components/grocery/grocery-ingredient-view'
 import { GroceryRecipeView } from '@/components/grocery/grocery-recipe-view'
 
 export default function GroceriesPage() {
   const [view, setView] = useState<'ingredients' | 'recipe'>('ingredients')
+  const queryClient = useQueryClient()
+
+  // After background sync fires queued PUT /api/grocery/[id] requests on reconnect,
+  // invalidate both grocery query keys so the UI reflects the synced server state.
+  // We delay 1.5s because the window `online` event fires before the service worker
+  // `sync` event replays the queued PUTs — fetching immediately would return stale
+  // (unchecked) server state. A BroadcastChannel from the SW would be more precise
+  // but adds significant complexity; the delay is sufficient for this use case.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    const handleOnline = () => {
+      timer = setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['grocery-items'] })
+        void queryClient.invalidateQueries({ queryKey: ['grocery-recipe-groups'] })
+      }, 1500)
+    }
+    window.addEventListener('online', handleOnline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      clearTimeout(timer)
+    }
+  }, [queryClient])
 
   return (
     <main
@@ -42,9 +65,9 @@ export default function GroceriesPage() {
                 padding: '4px 16px',
                 fontSize: '0.875rem',
                 fontWeight: view === v ? 600 : 400,
-                background: view === v ? 'var(--bg-card, white)' : 'transparent',
-                color: view === v ? 'var(--text-primary)' : 'var(--text-muted)',
-                border: 'none',
+                background: view === v ? 'rgba(255,255,255,0.18)' : 'transparent',
+                color: view === v ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                border: view === v ? '0.5px solid rgba(255,255,255,0.15)' : '0.5px solid transparent',
                 cursor: 'pointer',
                 transition: 'background 0.15s ease, color 0.15s ease',
               }}

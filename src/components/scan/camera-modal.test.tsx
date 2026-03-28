@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React from 'react'
 import { CameraModal } from './camera-modal'
+import { useOnlineStatus } from '@/hooks/use-online-status'
+
+vi.mock('@/hooks/use-online-status')
 
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
@@ -61,7 +64,8 @@ const defaultProps = {
 describe('CameraModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Default: camera granted
+    // Default: online + camera granted
+    vi.mocked(useOnlineStatus).mockReturnValue(true)
     mockPermissions('granted')
     mockMediaDevicesGranted()
   })
@@ -206,6 +210,60 @@ describe('CameraModal', () => {
           video: expect.objectContaining({ facingMode: 'environment' }),
         })
       )
+    })
+  })
+
+  describe('offline guard', () => {
+    it('shows offline screen instead of camera UI when offline', () => {
+      vi.mocked(useOnlineStatus).mockReturnValue(false)
+      render(<CameraModal {...defaultProps} />)
+      expect(screen.getByTestId('camera-modal-offline')).toBeDefined()
+      expect(screen.queryByTestId('camera-modal')).toBeNull()
+    })
+
+    it('offline screen shows close button', () => {
+      vi.mocked(useOnlineStatus).mockReturnValue(false)
+      render(<CameraModal {...defaultProps} />)
+      expect(screen.getByLabelText('Close camera')).toBeDefined()
+    })
+
+    it('offline screen calls onClose when close button is clicked', () => {
+      const onClose = vi.fn()
+      vi.mocked(useOnlineStatus).mockReturnValue(false)
+      render(<CameraModal {...defaultProps} onClose={onClose} />)
+      fireEvent.click(screen.getByLabelText('Close camera'))
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('offline screen shows "No internet connection" message', () => {
+      vi.mocked(useOnlineStatus).mockReturnValue(false)
+      render(<CameraModal {...defaultProps} />)
+      expect(screen.getByText('No internet connection')).toBeDefined()
+    })
+
+    it('stops camera stream when going offline mid-session', async () => {
+      const mockStop = vi.fn()
+      const mockStream = { getTracks: () => [{ stop: mockStop }] }
+      Object.defineProperty(navigator, 'mediaDevices', {
+        value: { getUserMedia: vi.fn().mockResolvedValue(mockStream) },
+        writable: true,
+        configurable: true,
+      })
+      mockPermissions('granted')
+
+      const { rerender } = render(<CameraModal {...defaultProps} />)
+
+      await waitFor(() => {
+        expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled()
+      })
+
+      // Simulate going offline
+      vi.mocked(useOnlineStatus).mockReturnValue(false)
+      act(() => {
+        rerender(<CameraModal {...defaultProps} />)
+      })
+
+      expect(mockStop).toHaveBeenCalled()
     })
   })
 })

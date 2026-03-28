@@ -90,7 +90,7 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
       </ul>
 
       {/* Nutrition panel */}
-      <NutritionPanel ingredients={ingredients} />
+      <NutritionPanel ingredients={ingredients} servingSize={recipe.servingSize} />
 
       {/* Divider */}
       <div style={{ height: '1px', background: 'rgba(255,255,255,0.10)', margin: 'var(--spacing-4) 0' }} />
@@ -199,7 +199,7 @@ function SavedEvidenceBlock({ ingredients }: { ingredients: DomainIngredient[] }
 // 1. All macros null → "Nutrition unavailable"
 // 2. Some macros null → "Partial nutrition data" + available totals
 // 3. All macros present → Full panel with totals
-function NutritionPanel({ ingredients }: { ingredients: DomainIngredient[] }) {
+function NutritionPanel({ ingredients, servingSize }: { ingredients: DomainIngredient[]; servingSize: number }) {
   if (ingredients.length === 0) return null
 
   const anyMacros = ingredients.some(i => i.caloriesKcal !== null)
@@ -218,18 +218,18 @@ function NutritionPanel({ ingredients }: { ingredients: DomainIngredient[] }) {
     )
   }
 
-  const totalCalories = ingredients.reduce((sum, i) => sum + (i.caloriesKcal ?? 0), 0)
-  const totalProtein = ingredients.reduce((sum, i) => sum + (i.proteinG ?? 0), 0)
-  const totalFat = ingredients.reduce((sum, i) => sum + (i.fatG ?? 0), 0)
-  const totalCarbs = ingredients.reduce((sum, i) => sum + (i.carbsG ?? 0), 0)
+  const divisor = Math.max(1, servingSize)
+  const totalCalories = ingredients.reduce((sum, i) => sum + (i.caloriesKcal ?? 0), 0) / divisor
+  const totalProtein = ingredients.reduce((sum, i) => sum + (i.proteinG ?? 0), 0) / divisor
+  const totalFat = ingredients.reduce((sum, i) => sum + (i.fatG ?? 0), 0) / divisor
+  const totalCarbs = ingredients.reduce((sum, i) => sum + (i.carbsG ?? 0), 0) / divisor
 
   return (
     <div className="mb-[var(--spacing-4)]">
-      {partialMacros && (
-        <p style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }} className="mb-[var(--spacing-1)]">
-          Partial nutrition data
-        </p>
-      )}
+      <p style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }} className="mb-[var(--spacing-1)]">
+        {partialMacros ? 'Partial nutrition data · per serving' : 'Per serving'}
+        {divisor > 1 && ` (${divisor} servings total)`}
+      </p>
       <div className="flex gap-[var(--spacing-4)]">
         <NutritionCell label="Calories" value={Math.round(totalCalories)} unit="kcal" />
         <NutritionCell label="Protein" value={Math.round(totalProtein * 10) / 10} unit="g" />

@@ -19,6 +19,7 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
   const router = useRouter()
   const queryClient = useQueryClient()
   const [selectedDishIndex, setSelectedDishIndex] = useState<number | null>(null)
+  const [savedDishIds, setSavedDishIds] = useState<Record<string, string>>({})
 
   // Subscribe to TQ cache so enrichment updates are reflected reactively
   const { data: liveResult } = useQuery<ScanResult>({
@@ -47,26 +48,24 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
     }
 
     try {
-      const result = await saveMutation.mutateAsync(payload)
-      const savedId = result.data.id
-
-      // Store toast ID so the undo handler can update (not replace) the same toast
-      const toastId = toast('Recipe saved', {
-        duration: 4000,
-        action: {
-          label: 'Undo',
-          onClick: async () => {
-            try {
-              await deleteMutation.mutateAsync(savedId)
-              toast('Recipe removed', { id: toastId })
-            } catch {
-              toast.error('Could not undo — recipe may already be saved')
-            }
-          },
-        },
-      })
+      const saved = await saveMutation.mutateAsync(payload)
+      const savedId = saved.data.id
+      setSavedDishIds(prev => ({ ...prev, [dish.name]: savedId }))
+      toast('Recipe saved')
     } catch {
       toast.error('Failed to save recipe')
+    }
+  }
+
+  const handleRemoveRecipe = async (dish: DishResult) => {
+    const savedId = savedDishIds[dish.name]
+    if (!savedId || deleteMutation.isPending) return
+    try {
+      await deleteMutation.mutateAsync(savedId)
+      setSavedDishIds(prev => { const next = { ...prev }; delete next[dish.name]; return next })
+      toast('Recipe removed')
+    } catch {
+      toast.error('Failed to remove recipe')
     }
   }
 
@@ -165,6 +164,8 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
         scanId={scanId}
         dishIndex={selectedDishIndex ?? 0}
         onSave={handleSaveRecipe}
+        savedId={selectedDish ? savedDishIds[selectedDish.name] : undefined}
+        onRemove={handleRemoveRecipe}
       />
     </div>
   )

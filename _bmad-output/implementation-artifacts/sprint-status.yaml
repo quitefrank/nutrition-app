@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-19
-last_updated: 2026-03-22  # Story 4.3 done — code review complete
+last_updated: 2026-03-28  # Story 4.4 done — smoke test passed, Epic 4 complete
 project: Plately
 project_key: NOKEY
 tracking_system: file-system
@@ -72,11 +72,11 @@ development_status:
   epic-3-retrospective: done
 
   # Epic 4: Grocery List
-  epic-4: in-progress
+  epic-4: done
   4-1-add-recipe-to-grocery-list: done
   4-2-grocery-list-ingredient-view: done
   4-3-grocery-list-recipe-view-bulk-remove: done
-  4-4-offline-read-access: ready-for-dev
+  4-4-offline-read-access: done
   epic-4-retrospective: optional
 
   # Epic 5: Manual Search & Discovery

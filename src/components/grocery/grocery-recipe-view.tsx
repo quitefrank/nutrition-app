@@ -344,11 +344,18 @@ export function GroceryRecipeView() {
 
   const groups = buildGroups(items ?? [], summaries ?? [])
 
-  // Empty state handled by parent page — this component assumes at least one group exists.
   if (groups.length === 0) {
     return (
-      <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
-        <p>No recipes in your grocery list yet.</p>
+      <div
+        className="flex flex-col items-center justify-center gap-4 text-center px-6"
+        style={{ minHeight: 'calc(100dvh - 80px)' }}
+      >
+        <p style={{ fontSize: 'var(--text-2xl)', color: 'var(--text-primary)', fontWeight: 600 }}>
+          No recipes added yet
+        </p>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          Add a recipe to your grocery list to get started.
+        </p>
       </div>
     )
   }

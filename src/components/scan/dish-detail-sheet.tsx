@@ -11,9 +11,11 @@ interface DishDetailSheetProps {
   scanId: string
   dishIndex: number
   onSave?: (dish: DishResult) => void
+  savedId?: string
+  onRemove?: (dish: DishResult) => void
 }
 
-export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave }: DishDetailSheetProps) {
+export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave, savedId, onRemove }: DishDetailSheetProps) {
   const detailUrl = `/scan/dish?scanId=${scanId}&dishIndex=${dishIndex}`
 
   return (
@@ -49,14 +51,24 @@ export function DishDetailSheet({ dish, open, onClose, scanId, dishIndex, onSave
           {/* Divider */}
           <div data-testid="divider" style={{ height: '1px', background: 'rgba(255,255,255,0.10)', margin: 'var(--spacing-4) 0' }} />
 
-          {/* Save Recipe CTA */}
-          <button
-            onClick={() => { onSave?.(dish); onClose() }}
-            style={{ width: '100%', height: '56px', borderRadius: 'var(--radius-xl)', background: 'rgba(255,255,255,0.90)', color: 'var(--text-on-button)', fontWeight: 600, fontSize: 'var(--text-base)', border: 'none', cursor: 'pointer', marginBottom: 'var(--spacing-3)' }}
-            aria-label={`Save recipe for ${dish.name}`}
-          >
-            Save Recipe
-          </button>
+          {/* Save / Remove Recipe CTA */}
+          {savedId ? (
+            <button
+              onClick={() => { onRemove?.(dish); onClose() }}
+              style={{ width: '100%', height: '56px', borderRadius: 'var(--radius-xl)', background: 'rgba(255,255,255,0.15)', color: 'var(--text-primary)', fontWeight: 600, fontSize: 'var(--text-base)', border: '1px solid rgba(255,255,255,0.25)', cursor: 'pointer', marginBottom: 'var(--spacing-3)' }}
+              aria-label={`Remove recipe for ${dish.name}`}
+            >
+              Remove Recipe
+            </button>
+          ) : (
+            <button
+              onClick={() => { onSave?.(dish); onClose() }}
+              style={{ width: '100%', height: '56px', borderRadius: 'var(--radius-xl)', background: 'rgba(255,255,255,0.90)', color: 'var(--text-on-button)', fontWeight: 600, fontSize: 'var(--text-base)', border: 'none', cursor: 'pointer', marginBottom: 'var(--spacing-3)' }}
+              aria-label={`Save recipe for ${dish.name}`}
+            >
+              Save Recipe
+            </button>
+          )}
 
           {/* See Full Details */}
           <Link

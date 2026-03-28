@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { getApiKeys } from '@/lib/api-keys'
 import type { ScanRequest, ScanResult, DishResult, IngredientResult } from '@/types/api'
 
-const GEMINI_MODEL = 'gemini-2.0-flash'
+const GEMINI_MODEL = 'gemini-2.5-flash'
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',

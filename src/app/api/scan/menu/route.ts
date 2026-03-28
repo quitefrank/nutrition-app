@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { getApiKeys } from '@/lib/api-keys'
 import type { ScanRequest, ScanResult, DishResult, IngredientResult } from '@/types/api'
 
-const GEMINI_MODEL = 'gemini-2.0-flash'
+const GEMINI_MODEL = 'gemini-2.5-flash'
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
       text = result.response.text()
     } catch (error) {
-      console.error('[scan/menu] Gemini error:', error instanceof Error ? error.constructor.name : 'Unknown')
+      console.error('[scan/menu] Gemini error:', error instanceof Error ? `${error.constructor.name}: ${error.message}` : String(error))
       return NextResponse.json(
         { error: 'Gemini service unavailable', code: 'SCAN_SERVICE_UNAVAILABLE' },
         { status: 503 }

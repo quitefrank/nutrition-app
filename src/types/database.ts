@@ -3,6 +3,11 @@
 //
 // Until then, this hand-written version matches schema.sql exactly.
 // DO NOT hand-edit after generating from CLI.
+//
+// ⚠️  IMPORTANT: The `Relationships` arrays below were added manually (Story 4.4)
+// to fix Supabase 2.x type inference errors. If you regenerate this file from the
+// CLI, verify the generated output includes Relationships for all FK columns before
+// committing, or re-apply these entries manually.
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
@@ -31,6 +36,7 @@ export interface Database {
           atmospheric_palette_json?: Json | null
           updated_at?: string
         }
+        Relationships: []
       }
       recipes: {
         Row: {
@@ -60,6 +66,15 @@ export interface Database {
           serving_size?: number
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'recipes_restaurant_id_fkey'
+            columns: ['restaurant_id']
+            isOneToOne: false
+            referencedRelation: 'restaurants'
+            referencedColumns: ['id']
+          }
+        ]
       }
       recipe_ingredients: {
         Row: {
@@ -98,6 +113,15 @@ export interface Database {
           fat_g?: number | null
           carbs_g?: number | null
         }
+        Relationships: [
+          {
+            foreignKeyName: 'recipe_ingredients_recipe_id_fkey'
+            columns: ['recipe_id']
+            isOneToOne: false
+            referencedRelation: 'recipes'
+            referencedColumns: ['id']
+          }
+        ]
       }
       grocery_items: {
         Row: {
@@ -127,6 +151,15 @@ export interface Database {
           checked?: boolean
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'grocery_items_recipe_id_fkey'
+            columns: ['recipe_id']
+            isOneToOne: false
+            referencedRelation: 'recipes'
+            referencedColumns: ['id']
+          }
+        ]
       }
     }
     Views: Record<string, never>

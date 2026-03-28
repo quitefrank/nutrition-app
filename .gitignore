@@ -42,3 +42,13 @@ next-env.d.ts
 
 # scaffolding artifacts
 .scaffold-tmp/
+
+# next-pwa generated service worker files (build artifacts — do not commit)
+/public/sw.js
+/public/sw.js.map
+/public/workbox-*.js
+/public/workbox-*.js.map
+/public/swe-worker-*.js
+/public/swe-worker-*.js.map
+/public/worker-*.js
+/public/worker-*.js.map

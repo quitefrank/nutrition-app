@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '@/lib/supabase'
 import { getApiKeys } from '@/lib/api-keys'
 import type { RecipeSaveRequest, RecipeSaveResponse } from '@/types/api'
 import type { Recipe } from '@/types/domain'
+import type { Json } from '@/types/database'
 
 interface UsdaMacros {
   caloriesKcal: number | null
@@ -101,8 +103,68 @@ async function lookupUsdaMacros(
   }
 }
 
+interface InferredIngredient {
+  name: string
+  quantity: string | null
+  unit: string | null
+}
+
+interface InferredRecipe {
+  servings: number
+  ingredients: InferredIngredient[]
+}
+
+const INFER_PROMPT = (dishName: string) =>
+  `You are a culinary expert. List the typical ingredients for the dish: "${dishName}".
+
+Return ONLY valid JSON (no markdown, no explanation) in this exact format:
+{
+  "servings": 4,
+  "ingredients": [
+    { "name": "string", "quantity": "string or null", "unit": "string or null" }
+  ]
+}
+
+Rules:
+- servings: the number of people the quantities below serve (integer 1–12)
+- List 5–12 ingredients for a standard recipe preparation (quantities for all servings combined)
+- quantity: numeric string for the full recipe amount (e.g. "400"), or null if uncertain
+- unit: unit of measure (e.g. "g", "ml", "tbsp", "clove") or null if count/unknown
+- If the dish name is not a recognisable food, return { "servings": 1, "ingredients": [] }
+- Return valid JSON only`
+
+async function inferIngredientsFromDishName(
+  dishName: string,
+  geminiKey: string
+): Promise<InferredRecipe> {
+  try {
+    const genAI = new GoogleGenerativeAI(geminiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const result = await model.generateContent(INFER_PROMPT(dishName))
+    const text = result.response.text()
+    const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
+    const parsed = JSON.parse(clean) as { servings?: unknown; ingredients: unknown[] }
+    const servings = typeof parsed?.servings === 'number' && parsed.servings >= 1
+      ? Math.round(parsed.servings)
+      : 1
+    if (!Array.isArray(parsed?.ingredients)) return { servings, ingredients: [] }
+    const ingredients = parsed.ingredients
+      .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null)
+      .map(i => ({
+        name: typeof i.name === 'string' && i.name.trim() ? i.name.trim() : null,
+        quantity: typeof i.quantity === 'string' ? i.quantity : null,
+        unit: typeof i.unit === 'string' ? i.unit : null,
+      }))
+      .filter((i): i is InferredIngredient => i.name !== null)
+    return { servings, ingredients }
+  } catch (err) {
+    console.warn('[recipes] Gemini ingredient inference failed:', err instanceof Error ? err.message : err)
+    return { servings: 1, ingredients: [] }
+  }
+}
+
 export async function POST(req: NextRequest) {
-  const { usda: usdaKey } = getApiKeys()
+  const { usda: usdaKey, gemini: geminiKey } = getApiKeys()
   let body: RecipeSaveRequest
   try {
     body = await req.json() as RecipeSaveRequest
@@ -173,13 +235,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // When no ingredients are supplied (menu scan), infer them + serving count from Gemini
+  // before inserting the recipe row so serving_size is correct from the start.
+  let ingredientSource = body.ingredients as Array<{ name: string; quantity?: string | null; unit?: string | null; confidenceLevel?: string }>
+  let servingSize = body.servingSize ?? 1
+  if (ingredientSource.length === 0 && geminiKey) {
+    const { servings, ingredients: inferred } = await inferIngredientsFromDishName(body.name.trim(), geminiKey)
+    ingredientSource = inferred.map(i => ({ name: i.name, quantity: i.quantity, unit: i.unit, confidenceLevel: 'medium' }))
+    servingSize = servings
+  }
+
   const { data: recipe, error: recipeError } = await supabase
     .from('recipes')
     .insert({
       name: body.name.trim(),
       dish_image_url: body.dishImageUrl ?? null,
-      confidence_metadata_json: body.confidenceMetadata ?? null,
-      serving_size: body.servingSize ?? 1,
+      confidence_metadata_json: (body.confidenceMetadata ?? null) as Json | null,
+      serving_size: servingSize,
       restaurant_id: resolvedRestaurantId,
     })
     .select('id, name, restaurant_id, serving_size, created_at')
@@ -189,18 +261,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save recipe', code: 'DB_ERROR' }, { status: 500 })
   }
 
-  // Insert ingredients — keyed by name (never by index — see Epic 2 Retro Action 3)
-  if (body.ingredients.length > 0) {
+  if (ingredientSource.length > 0) {
     // Run USDA lookups in parallel — no-op if usdaKey is falsy
     const macroResults = usdaKey
       ? await Promise.allSettled(
-          body.ingredients.map(ing =>
+          ingredientSource.map(ing =>
             lookupUsdaMacros(ing.name, ing.quantity ?? null, ing.unit ?? null, usdaKey)
           )
         )
-      : body.ingredients.map(() => ({ status: 'fulfilled' as const, value: { caloriesKcal: null, proteinG: null, fatG: null, carbsG: null } }))
+      : ingredientSource.map(() => ({ status: 'fulfilled' as const, value: { caloriesKcal: null, proteinG: null, fatG: null, carbsG: null } }))
 
-    const ingredientRows = body.ingredients.map((ing, i) => {
+    const ingredientRows = ingredientSource.map((ing, i) => {
       const macros = macroResults[i].status === 'fulfilled'
         ? macroResults[i].value
         : { caloriesKcal: null, proteinG: null, fatG: null, carbsG: null }
@@ -209,7 +280,7 @@ export async function POST(req: NextRequest) {
         name: ing.name,
         quantity: ing.quantity ?? null,
         unit: ing.unit ?? null,
-        confidence_level: ing.confidenceLevel,
+        confidence_level: (ing.confidenceLevel ?? 'medium') as 'high' | 'medium' | 'low',
         calories_kcal: macros.caloriesKcal,
         protein_g: macros.proteinG,
         fat_g: macros.fatG,
@@ -271,7 +342,7 @@ export async function GET(req: NextRequest) {
     name: row.name,
     restaurantId: row.restaurant_id,
     dishImageUrl: row.dish_image_url,
-    confidenceMetadataJson: row.confidence_metadata_json,
+    confidenceMetadataJson: row.confidence_metadata_json as Record<string, unknown> | null,
     servingSize: row.serving_size,
     createdAt: row.created_at,
     restaurant: row.restaurants
@@ -279,7 +350,7 @@ export async function GET(req: NextRequest) {
           id: row.restaurants.id,
           name: row.restaurants.name,
           googlePlacesId: row.restaurants.google_places_id,
-          atmosphericPaletteJson: row.restaurants.atmospheric_palette_json,
+          atmosphericPaletteJson: row.restaurants.atmospheric_palette_json as Record<string, unknown> | null,
           updatedAt: row.restaurants.updated_at,
         }
       : null,

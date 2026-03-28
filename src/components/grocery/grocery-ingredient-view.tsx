@@ -74,34 +74,32 @@ export function GroceryIngredientView() {
   if (!items || items.length === 0) {
     return (
       <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '16px',
-          padding: '80px 24px 0',
-          textAlign: 'center',
-        }}
+        className="flex flex-col items-center justify-center gap-4 text-center px-6"
+        style={{ minHeight: 'calc(100dvh - 80px)' }}
       >
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-base)' }}>
-          Your grocery list is empty.
+        <p style={{ fontSize: 'var(--text-2xl)', color: 'var(--text-primary)', fontWeight: 600 }}>
+          No recipes added yet
+        </p>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          Add a recipe to your grocery list to get started.
         </p>
         <button
-          onClick={() => router.push('/recipes')}
+          onClick={() => router.push('/')}
           style={{
+            marginTop: '8px',
             minHeight: '44px',
             padding: '0 24px',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-full)',
             background: 'rgba(255,255,255,0.12)',
             color: 'var(--text-primary)',
             fontWeight: 600,
             fontSize: 'var(--text-base)',
-            border: 'none',
+            border: '0.5px solid rgba(255,255,255,0.15)',
             cursor: 'pointer',
           }}
           aria-label="Go to recipe collection"
         >
-          Add a saved recipe to start your list →
+          Browse your recipes →
         </button>
       </div>
     )
