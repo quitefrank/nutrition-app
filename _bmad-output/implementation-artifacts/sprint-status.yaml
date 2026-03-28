@@ -75,7 +75,7 @@ development_status:
   epic-5: in-progress
   5-1-restaurant-dish-search-api-routes: done
   5-2-search-screen-ui-restaurant-results: done
-  5-3-recipe-generation-from-search: review
+  5-3-recipe-generation-from-search: done
   5-4-restaurant-profile-complete-return-visit-recognition: backlog
   epic-5-retrospective: optional
 

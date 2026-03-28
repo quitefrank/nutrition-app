@@ -1,6 +1,6 @@
 # Story 5.3: Recipe Generation from Search
 
-**Status:** review
+**Status:** done
 **Story ID:** 5.3
 **Epic:** 5 — Manual Search & Discovery
 
