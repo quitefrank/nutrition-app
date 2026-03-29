@@ -28,7 +28,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-19
-last_updated: 2026-03-29  # Story 6.4 review
+last_updated: 2026-03-29  # Epic 6 done; D3 resolved
 project: Plately
 project_key: NOKEY
 tracking_system: file-system
@@ -80,21 +80,21 @@ development_status:
   epic-5-retrospective: optional
 
   # Epic 6: Accessibility, PWA & Production Readiness
-  epic-6: in-progress
+  epic-6: done
   6-1-accessibility-audit-screen-reader-support: done
   6-2-pwa-install-experience: done
   6-3-complete-error-states-notification-permission: done
-  6-4-performance-security-validation: review
+  6-4-performance-security-validation: done
   epic-6-retrospective: optional
 
-# Deferred items to surface at Epic 6 retrospective
+# Deferred items resolved
 epic-6-deferred:
   - id: D3-processing-strip-aria-live
     story: 6-1-accessibility-audit-screen-reader-support
+    status: resolved
+    resolved: 2026-03-29
     summary: >
       AC4 — ProcessingStrip announces state changes via aria-label mutation on the
       aria-live wrapper, not via text content change. Screen readers do not reliably
-      announce aria-label mutations on live regions. Fix requires restructuring
-      ProcessingStrip to put status text as DOM text content inside the aria-live
-      element. Higher-lift change; deferred from Story 6.1 code review (2026-03-28).
-    action: Address in Epic 6 retrospective — decide whether to fix in a 6.x story or carry to Epic 7.
+      announce aria-label mutations on live regions. Fixed by moving aria-live="polite"
+      to the text content div and removing aria-label from the wrapper.

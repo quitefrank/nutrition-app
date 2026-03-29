@@ -365,7 +365,7 @@ claude-sonnet-4-6
 
 ### D3 — AC4: `aria-label` mutation on live region may not reliably fire announcements
 
-**Deferred:** 2026-03-28 (code review)
+~~**Deferred:** 2026-03-28 (code review)~~ **Resolved:** 2026-03-29
 
 The processing strip uses `aria-live="polite"` on its wrapper `motion.div` with a changing `aria-label` attribute (`"Identifying your menu"` → `"Your results are ready"`). ARIA live regions announce changes to their **text content**, not to their own `aria-label` attribute. Screen reader behaviour on `aria-label` mutations is not universally reliable across VoiceOver/TalkBack implementations.
 
@@ -380,3 +380,4 @@ The processing strip uses `aria-live="polite"` on its wrapper `motion.div` with 
 - 2026-03-28: Story 6.1 created — accessibility audit and screen reader support
 - 2026-03-28: Story 6.1 implemented — all 8 tasks complete; status → review
 - 2026-03-28: Code review patches applied — P1 (unused import), P2 (.trim() on description), D2 (calorieEstimate !== null guard), D4 (formatDishAlt shared util); D3 documented as deferred
+- 2026-03-29: D3 resolved — moved aria-live="polite" from wrapper to text content div; removed aria-label from wrapper
