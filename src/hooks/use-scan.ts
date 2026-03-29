@@ -26,6 +26,8 @@ export interface UseScanReturn {
 export function useScan(): UseScanReturn {
   const queryClient = useQueryClient()
   const abortRef = useRef<AbortController | null>(null)
+  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timedOutRef = useRef(false)
   const mutationGenRef = useRef(0)
   const [state, setState] = useState<ScanState>({
     status: 'idle',
@@ -33,6 +35,13 @@ export function useScan(): UseScanReturn {
     thumbnailUrl: null,
     lastScanParams: null,
   })
+
+  // Clean up timeout on unmount to prevent setState on unmounted component
+  useEffect(() => {
+    return () => {
+      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current)
+    }
+  }, [])
 
   // Revoke blob URL when thumbnailUrl clears to prevent memory leaks
   const prevThumbnailRef = useRef<string | null>(null)
@@ -117,30 +126,46 @@ export function useScan(): UseScanReturn {
   })
 
   const submitScan = (imageBase64: string, mimeType: string, thumbnailUrl: string) => {
+    // Cancel any in-flight scan and its timeout
+    if (scanTimeoutRef.current) { clearTimeout(scanTimeoutRef.current); scanTimeoutRef.current = null }
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
     const gen = ++mutationGenRef.current
+    timedOutRef.current = false
     setState({ status: 'processing', scanId: null, thumbnailUrl, lastScanParams: { imageBase64, mimeType, thumbnailUrl } })
+
+    // 15s hard timeout (NFR10): if Gemini hasn't responded, surface the error state
+    scanTimeoutRef.current = setTimeout(() => {
+      if (mutationGenRef.current !== gen) return // already superseded
+      timedOutRef.current = true
+      controller.abort() // stop the in-flight request
+      setState((prev) => ({ ...prev, status: 'error' }))
+    }, 15_000)
+
     mutate({ imageBase64, mimeType, signal: controller.signal }, {
       onSuccess: (result) => {
+        if (scanTimeoutRef.current) { clearTimeout(scanTimeoutRef.current); scanTimeoutRef.current = null }
         if (mutationGenRef.current !== gen) return // superseded — discard
+        if (timedOutRef.current) return // response arrived after 15s timeout — discard
         queryClient.setQueryData(['scan-result', result.scanId], result)
         queryClient.setQueryData(['scan-thumbnail', result.scanId], thumbnailUrl)
         setState((prev) => ({ ...prev, status: 'ready', scanId: result.scanId }))
         void fireEnrichment(result) // fire-and-forget enrichment — do NOT await
       },
       onError: (err) => {
+        if (scanTimeoutRef.current) { clearTimeout(scanTimeoutRef.current); scanTimeoutRef.current = null }
         if (mutationGenRef.current !== gen) return // superseded — discard
         const isAbort = (err as Error).name === 'AbortError' ||
           (err instanceof DOMException && err.name === 'AbortError')
-        if (isAbort) return // user cancelled — stay idle
+        if (isAbort) return // user cancelled or timeout abort (timeout already set error state)
         setState((prev) => ({ ...prev, status: 'error' }))
       },
     })
   }
 
   const cancelScan = () => {
+    if (scanTimeoutRef.current) { clearTimeout(scanTimeoutRef.current); scanTimeoutRef.current = null }
     abortRef.current?.abort()
     if (state.scanId) {
       queryClient.removeQueries({ queryKey: ['scan-result', state.scanId] })

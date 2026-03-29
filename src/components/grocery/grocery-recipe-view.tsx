@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import { useGroceryItems, useGroceryRecipeGroups, useBulkRemoveRecipe } from '@/hooks/use-grocery'
+import { ErrorState } from '@/components/ui/error-state'
 import type { GroceryRecipeGroup, GroceryListItem } from '@/types/api'
 
 // Merge flat GroceryListItem[] with recipe summaries to produce GroceryRecipeGroup[].
@@ -316,28 +317,11 @@ export function GroceryRecipeView() {
 
   if (isError) {
     return (
-      <div
-        style={{
-          padding: '32px 16px',
-          textAlign: 'center',
-          color: 'var(--text-muted)',
-        }}
-      >
-        <p>Failed to load recipe groups</p>
-        <button
-          onClick={handleRetry}
-          style={{
-            marginTop: '12px',
-            padding: '8px 16px',
-            background: 'rgba(255,255,255,0.08)',
-            border: 'none',
-            borderRadius: 'var(--radius-md, 12px)',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-          }}
-        >
-          Retry
-        </button>
+      <div style={{ padding: '32px 16px' }}>
+        <ErrorState
+          message="Could not load recipes. Please try again."
+          onRetry={handleRetry}
+        />
       </div>
     )
   }

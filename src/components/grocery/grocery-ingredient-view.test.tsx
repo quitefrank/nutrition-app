@@ -65,10 +65,11 @@ describe('GroceryIngredientView', () => {
     expect(screen.getByLabelText('Loading grocery list')).toBeDefined()
   })
 
-  it('shows error state', () => {
+  it('shows error state with retry button when grocery items fail to load', () => {
     setupMocks({ isError: true, items: [] })
     render(<GroceryIngredientView />)
-    expect(screen.getByText(/Failed to load grocery list/i)).toBeDefined()
+    expect(screen.getByTestId('error-state')).toBeDefined()
+    expect(screen.getByRole('button', { name: /retry/i })).toBeDefined()
   })
 
   it('shows empty state with CTA when no items', () => {

@@ -8,10 +8,11 @@ import {
   useDeleteGroceryItem,
   useClearChecked,
 } from '@/hooks/use-grocery'
+import { ErrorState } from '@/components/ui/error-state'
 import type { GroceryListItem } from '@/types/api'
 
 export function GroceryIngredientView() {
-  const { data: items, isLoading, isError } = useGroceryItems()
+  const { data: items, isLoading, isError, refetch } = useGroceryItems()
   const { mutate: checkItem } = useCheckGroceryItem()
   const { mutate: deleteItem } = useDeleteGroceryItem()
   const { mutate: clearChecked, isPending: isClearing } = useClearChecked()
@@ -58,15 +59,11 @@ export function GroceryIngredientView() {
 
   if (isError) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          paddingTop: '48px',
-          color: 'var(--text-error, #ef4444)',
-        }}
-      >
-        Failed to load grocery list
+      <div style={{ padding: '32px 16px' }}>
+        <ErrorState
+          message="Could not load your grocery list. Please try again."
+          onRetry={() => { void refetch() }}
+        />
       </div>
     )
   }

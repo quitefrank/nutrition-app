@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -46,6 +46,11 @@ vi.mock('@/components/ui/error-state', () => ({
     ),
 }))
 
+// Mock useOnlineStatus — default online
+vi.mock('@/hooks/use-online-status', () => ({
+  useOnlineStatus: vi.fn(() => true),
+}))
+
 // Mock useScan so we can control status in tests
 vi.mock('@/hooks/use-scan')
 
@@ -67,6 +72,9 @@ const mockCancelScan = vi.fn()
 const mockReset = vi.fn()
 const mockRetry = vi.fn()
 
+import { useOnlineStatus } from '@/hooks/use-online-status'
+const mockUseOnlineStatus = vi.mocked(useOnlineStatus)
+
 function mockUseScanWith(overrides: Partial<ReturnType<typeof useScan>> = {}) {
   vi.mocked(useScan).mockReturnValue({
     status: 'idle',
@@ -83,8 +91,15 @@ function mockUseScanWith(overrides: Partial<ReturnType<typeof useScan>> = {}) {
 describe('AppShell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
     mockPathname = '/'
     mockUseScanWith()
+    mockUseOnlineStatus.mockReturnValue(true)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('renders children', () => {
@@ -218,5 +233,102 @@ describe('AppShell', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // ─── Notification permission tests (AC2, AC3) ────────────────────────────
+
+  it('requests notification permission when processing strip first appears in session', () => {
+    const requestPermissionMock = vi.fn().mockResolvedValue('granted')
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission: requestPermissionMock })
+
+    mockUseScanWith({ status: 'processing' })
+    vi.useFakeTimers()
+    try {
+      renderWithQueryClient(React.createElement(AppShell, null, React.createElement('div')))
+      fireEvent.click(screen.getByLabelText('Open camera'))
+      fireEvent.click(screen.getByLabelText('Simulate capture'))
+      // runAllTimers fires the 300ms strip timer and the nested 0ms permission timer
+      act(() => { vi.runAllTimers() })
+      expect(requestPermissionMock).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not re-request notification permission if sessionStorage key is set', () => {
+    sessionStorage.setItem('plately_notif_asked', 'true')
+    const requestPermissionMock = vi.fn().mockResolvedValue('granted')
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission: requestPermissionMock })
+
+    mockUseScanWith({ status: 'processing' })
+    vi.useFakeTimers()
+    try {
+      renderWithQueryClient(React.createElement(AppShell, null, React.createElement('div')))
+      fireEvent.click(screen.getByLabelText('Open camera'))
+      fireEvent.click(screen.getByLabelText('Simulate capture'))
+      act(() => { vi.runAllTimers() })
+      expect(requestPermissionMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not request permission when Notification API is unavailable (SSR / older browser)', () => {
+    // JSDOM has no Notification API by default — the guard should prevent any access.
+    // Any previous stub is cleared in beforeEach via vi.unstubAllGlobals().
+    // Deleting any leftover stub ensures the key is absent from window.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ('Notification' in window) delete (window as unknown as Record<string, unknown>)['Notification']
+
+    mockUseScanWith({ status: 'processing' })
+    vi.useFakeTimers()
+    try {
+      // Should not throw when Notification is absent from window
+      expect(() => {
+        renderWithQueryClient(React.createElement(AppShell, null, React.createElement('div')))
+        fireEvent.click(screen.getByLabelText('Open camera'))
+        fireEvent.click(screen.getByLabelText('Simulate capture'))
+        act(() => { vi.runAllTimers() })
+      }).not.toThrow()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not show warning or degrade functionality when notification permission is denied (AC3)', () => {
+    vi.stubGlobal('Notification', { permission: 'denied', requestPermission: vi.fn() })
+
+    mockUseScanWith({ status: 'processing' })
+    vi.useFakeTimers()
+    try {
+      renderWithQueryClient(React.createElement(AppShell, null, React.createElement('div')))
+      fireEvent.click(screen.getByLabelText('Open camera'))
+      fireEvent.click(screen.getByLabelText('Simulate capture'))
+      act(() => { vi.runAllTimers() })
+      // No permission request made — denied permission is skipped silently
+      expect(vi.mocked(window.Notification.requestPermission)).not.toHaveBeenCalled()
+      // No error or warning UI rendered
+      expect(screen.queryByTestId('error-state')).toBeNull()
+      // FAB still accessible (no functional degradation)
+      expect(screen.getByLabelText('Open camera')).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // ─── Offline FAB tests (AC4) ──────────────────────────────────────────────
+
+  it('FAB is marked aria-disabled when offline', () => {
+    mockUseOnlineStatus.mockReturnValue(false)
+    renderWithQueryClient(React.createElement(AppShell, null, React.createElement('div')))
+    const fab = screen.getByLabelText('Open camera')
+    expect(fab.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('camera modal does not open when FAB is tapped offline', () => {
+    mockUseOnlineStatus.mockReturnValue(false)
+    renderWithQueryClient(React.createElement(AppShell, null, React.createElement('div')))
+    fireEvent.click(screen.getByLabelText('Open camera'))
+    expect(screen.queryByTestId('camera-modal')).toBeNull()
   })
 })

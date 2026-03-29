@@ -131,7 +131,7 @@ describe('POST /api/scan/dish', () => {
     mockGenerateContent.mockRejectedValueOnce(new Error('Service down'))
     const res = await POST(makeRequest({ imageBase64: 'abc', mimeType: 'image/jpeg' }))
     expect(res.status).toBe(503)
-    expect((await res.json()).code).toBe('SCAN_SERVICE_UNAVAILABLE')
+    expect((await res.json()).code).toBe('SCAN_UNAVAILABLE')
   })
 
   it('handles Gemini response wrapped in markdown fences', async () => {

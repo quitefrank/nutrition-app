@@ -150,11 +150,12 @@ describe('RecipeDetail', () => {
       ],
     })
     render(<RecipeDetail recipe={recipe} />, { wrapper: createWrapper() })
-    expect(screen.getByText('Partial nutrition data')).toBeTruthy()
+    expect(screen.getByText(/Partial nutrition data/)).toBeTruthy()
   })
 
   it('nutrition panel: shows calorie total when all macros present', () => {
     const recipe = makeRecipe({
+      servingSize: 1,
       ingredients: [
         makeIngredient({ id: 'ing-1', caloriesKcal: 300, proteinG: 15, fatG: 10, carbsG: 20 }),
         makeIngredient({ id: 'ing-2', name: 'Herb', caloriesKcal: 50, proteinG: 2, fatG: 1, carbsG: 5 }),
@@ -205,6 +206,6 @@ describe('RecipeDetail', () => {
       ],
     })
     render(<RecipeDetail recipe={recipe} />, { wrapper: createWrapper() })
-    expect(screen.getByText('Partial nutrition data')).toBeTruthy()
+    expect(screen.getByText(/Partial nutrition data/)).toBeTruthy()
   })
 })

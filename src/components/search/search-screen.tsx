@@ -286,7 +286,7 @@ export function SearchScreen() {
           {isLoading && <LoadingSpinner />}
           {isError && (
             <ErrorState
-              message="Search is unavailable right now."
+              message="Restaurant search is temporarily unavailable"
               onRetry={() => {
                 void refetch()
               }}

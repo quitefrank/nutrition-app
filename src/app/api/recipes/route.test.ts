@@ -892,11 +892,15 @@ describe('POST /api/recipes — restaurant image enrichment (Story 5.4)', () => 
     // Call 7: recipe_ingredients insert
     mockFrom.mockReturnValueOnce({ insert: vi.fn().mockResolvedValue({ error: null }) })
 
-    // Places API: returns a photo
+    // Places API: call 1 returns photo metadata; call 2 returns CDN URI via skipHttpRedirect=true
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ photos: [{ name: 'places/abc/photos/xyz' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ photoUri: 'https://cdn.example.com/photo.jpg' }),
       })
       // USDA for ingredients (already resolved via mockFetch default)
       .mockResolvedValue({ ok: true, json: async () => ({ foods: [] }) })

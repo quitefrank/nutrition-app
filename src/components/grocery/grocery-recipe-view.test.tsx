@@ -70,10 +70,11 @@ describe('GroceryRecipeView', () => {
     expect(screen.getByLabelText('Loading recipe groups')).toBeDefined()
   })
 
-  it('shows error state when summaries query fails', () => {
+  it('shows error state with retry button when recipe groups fail to load', () => {
     setupMocks({ summariesError: true, summaries: [] })
     render(<GroceryRecipeView />)
-    expect(screen.getByText(/Failed to load recipe groups/i)).toBeDefined()
+    expect(screen.getByTestId('error-state')).toBeDefined()
+    expect(screen.getByRole('button', { name: /retry/i })).toBeDefined()
   })
 
   it('renders recipe group card with recipe name', () => {
@@ -190,7 +191,7 @@ describe('GroceryRecipeView', () => {
   it('shows empty state message when grocery list has no items', () => {
     setupMocks({ items: [], summaries: [] })
     render(<GroceryRecipeView />)
-    expect(screen.getByText(/No recipes in your grocery list yet/i)).toBeDefined()
+    expect(screen.getByText(/No recipes added yet/i)).toBeDefined()
   })
 
   it('renders retry button in error state', () => {

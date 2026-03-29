@@ -4,9 +4,10 @@ import { motion, useReducedMotion } from 'framer-motion'
 
 interface CameraFabProps {
   onClick: () => void
+  disabled?: boolean
 }
 
-export function CameraFab({ onClick }: CameraFabProps) {
+export function CameraFab({ onClick, disabled = false }: CameraFabProps) {
   const shouldReduceMotion = useReducedMotion()
 
   const initial = shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }
@@ -20,10 +21,11 @@ export function CameraFab({ onClick }: CameraFabProps) {
       initial={initial}
       animate={animateTo}
       transition={transition}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       aria-label="Open camera"
+      aria-disabled={disabled || undefined}
       className="glass-fab active:scale-[0.97] flex items-center justify-center rounded-[var(--radius-full)]"
-      style={{ width: '56px', height: '56px' }}
+      style={{ width: '56px', height: '56px', ...(disabled && { opacity: 0.4, cursor: 'not-allowed' }) }}
     >
       <svg
         width="22"

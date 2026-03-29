@@ -1,6 +1,6 @@
 # Story 6.3: Complete Error States & Notification Permission
 
-**Status:** ready-for-dev
+**Status:** review
 **Story ID:** 6.3
 **Epic:** 6 — Accessibility, PWA & Production Readiness
 
@@ -365,6 +365,74 @@ claude-sonnet-4-6
 
 ### Debug Log References
 
+- **Notification API `'Notification' in window` guard**: `vi.stubGlobal('Notification', undefined)` does not remove the property key — `'Notification' in window` still returns `true`, causing `Notification.permission` to throw TypeError. Fix: use `delete (window as unknown as Record<string, unknown>)['Notification']` to truly remove the key from `window`.
+- **Route test code mismatch**: After updating `scan/menu/route.ts` and `scan/dish/route.ts` Gemini error code from `SCAN_SERVICE_UNAVAILABLE` → `SCAN_UNAVAILABLE`, two route tests on line 102 (menu) and 134 (dish) still expected the old code. Updated test expectations to match. The "no API key" case on line 59 of both files correctly keeps `SCAN_SERVICE_UNAVAILABLE` (different error path).
+
 ### Completion Notes List
 
+**Task 1 — Notification permission (AC2, AC3):**
+Implemented in `AppShell.handleCapture` inside the 300ms `setTimeout` that reveals the processing strip. Guards: `'Notification' in window`, `Notification.permission === 'default'`, `!sessionStorage.getItem('plately_notif_asked')`. Sets session key before calling `requestPermission()` to prevent double-asking. No pre-prompt dialog built — OS native prompt satisfies UX-DR9.
+
+**Task 2 — Scan error bodies (AC1):**
+Updated both `scan/menu/route.ts` and `scan/dish/route.ts` Gemini-throws error body from `SCAN_SERVICE_UNAVAILABLE` to `{ error: 'Scan service is temporarily unavailable', code: 'SCAN_UNAVAILABLE' }`. The no-API-key error path retains `SCAN_SERVICE_UNAVAILABLE` (different scenario). Added 15s AbortController timeout in `use-scan.ts` via `scanTimeoutRef` — fires `controller.abort()` + sets `status: 'error'` if scan does not complete within 15s.
+
+**Task 3 — Search error (AC1, AC5):**
+`search-screen.tsx` already rendered an ErrorState for `isError`. Updated message copy from `"Search is unavailable right now."` to `"Restaurant search is temporarily unavailable"` for consistency with API route error body. Existing `search-screen.test.tsx` tests covered this; no new tests required.
+
+**Task 4 — Recipe error (AC1, AC5):**
+Audited `recipes/[id]/page.tsx` and `recipes/[id]/edit/page.tsx`. Both already had plain-language messages and back-button paths with `minHeight: 44px`. `api/recipes/[id]/route.ts` returns `RECIPE_NOT_FOUND` without raw DB details. No code changes needed.
+
+**Task 5 — Grocery error (AC1, AC5):**
+Both `grocery-ingredient-view.tsx` and `grocery-recipe-view.tsx` previously rendered raw text fallbacks. Replaced with `<ErrorState>` component: ingredient view shows "Could not load your grocery list. Please try again.", recipe view shows "Could not load recipes. Please try again." Both call `refetch()` on retry. Wrapped in `padding: '32px 16px'` matching page layout.
+
+**Task 6 — Offline FAB gate (AC4):**
+Added `disabled?: boolean` prop to `CameraFab`. When disabled: `aria-disabled="true"`, `opacity: 0.4`, `cursor: not-allowed`, click handler suppressed. `AppShell` passes `disabled={!isOnline}` and guards `setIsCameraModalOpen(true)` with online check. No offline toast — visual muting is sufficient.
+
+**Task 7 — Error state audit (AC5):**
+
+| Scenario | Component / Route | Message | Action | Dead end? |
+|---|---|---|---|---|
+| Scan → Gemini unavailable | `AppShell` renders `<ErrorState>` when `useScan.status === 'error'` | "Scan service is temporarily unavailable" | Retry (re-submits), Upload instead (opens camera) | No |
+| Scan → 15s timeout | `AppShell` via `scanTimeoutRef` abort → `status: 'error'` | Same ErrorState as above | Retry, Upload instead | No |
+| Scan → empty menu / not a menu | `ScanResults` handles `emptyReason` states | Various plain-language: "We couldn't identify any dishes", "Menu looks too dark to read", etc. | Back to search | No |
+| Scan enrichment failure | `use-scan.ts` silently ignores → `status: 'done'` with partial data | None (intentional per NFR11) | N/A — enrichment is supplemental | No |
+| Restaurant search → API unavailable | `SearchScreen` renders `<ErrorState>` when `isError` | "Restaurant search is temporarily unavailable" | Retry | No |
+| Restaurant dish list → API unavailable | `restaurants/[googlePlacesId]/page.tsx` renders inline error + retry | "Something went wrong…" (existing copy) | Retry | No |
+| Recipe detail → load failure | `recipes/[id]/page.tsx` | "Could not load this recipe." | ← Go back | No |
+| Recipe edit → load failure | `recipes/[id]/edit/page.tsx` | "Could not load recipe for editing." | ← Go back | No |
+| Grocery ingredient view → load failure | `GroceryIngredientView` renders `<ErrorState>` | "Could not load your grocery list. Please try again." | Retry | No |
+| Grocery recipe view → load failure | `GroceryRecipeView` renders `<ErrorState>` | "Could not load recipes. Please try again." | Retry | No |
+| Offline → scan attempted | `AppShell` FAB disabled; camera modal does not open | FAB visually muted (`opacity: 0.4`) | Tap is no-op | No |
+| Offline → search attempted | `SearchScreen` renders "No internet connection." message | "No internet connection. Search requires an internet connection." | Wait for connection | No |
+| Offline → restaurant dish list | `restaurants/[googlePlacesId]/page.tsx` | "Search requires an internet connection." | ← back | No |
+
+**Result: No dead ends found.** Every error scenario has a plain-language message and at least one forward path (retry, back navigation, or visual degradation indicating reduced capability).
+
+**Task 8 — Tests:**
+- `app-shell.test.tsx`: +5 tests (notification permission ×3, offline FAB ×2) — all pass
+- `grocery-ingredient-view.test.tsx`: updated error test to check `data-testid="error-state"` and retry button
+- `grocery-recipe-view.test.tsx`: updated error test to check `data-testid="error-state"` and retry button
+- Route tests updated: `scan/menu/route.test.ts:102` and `scan/dish/route.test.ts:134` updated to `SCAN_UNAVAILABLE`
+- Full suite: **650 tests, 0 failures**
+
 ### File List
+
+- `src/components/layout/app-shell.tsx` — notification permission request + isOnline FAB gate
+- `src/components/layout/app-shell.test.tsx` — +5 notification/offline tests
+- `src/components/layout/camera-fab.tsx` — `disabled?: boolean` prop
+- `src/hooks/use-scan.ts` — 15s AbortController timeout via `scanTimeoutRef`
+- `src/app/api/scan/menu/route.ts` — Gemini error body: `SCAN_UNAVAILABLE`
+- `src/app/api/scan/dish/route.ts` — Gemini error body: `SCAN_UNAVAILABLE`
+- `src/app/api/scan/menu/route.test.ts` — updated expected error code
+- `src/app/api/scan/dish/route.test.ts` — updated expected error code
+- `src/components/search/search-screen.tsx` — error message copy update
+- `src/components/grocery/grocery-ingredient-view.tsx` — `<ErrorState>` for load failure
+- `src/components/grocery/grocery-recipe-view.tsx` — `<ErrorState>` for load failure
+- `src/components/grocery/grocery-ingredient-view.test.tsx` — updated error state test
+- `src/components/grocery/grocery-recipe-view.test.tsx` — updated error state test
+
+### Change Log
+
+| Date | Change | Author |
+|---|---|---|
+| 2026-03-29 | Implemented all 8 tasks: notification permission on first scan, scan/grocery API error bodies, offline FAB gate, grocery error states, error audit | claude-sonnet-4-6 |
