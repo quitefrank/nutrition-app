@@ -151,8 +151,6 @@ export function ProcessingStrip({ status, thumbnailUrl, onTap, onCancel }: Proce
         cursor: status === 'ready' ? 'pointer' : 'default',
         zIndex: 40,
       }}
-      aria-live="polite"
-      aria-label={status === 'processing' ? 'Identifying your menu' : 'Your results are ready'}
     >
       {/* Thumbnail */}
       {thumbnailUrl && (
@@ -169,8 +167,8 @@ export function ProcessingStrip({ status, thumbnailUrl, onTap, onCancel }: Proce
         />
       )}
 
-      {/* Text */}
-      <div style={{ flex: 1, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+      {/* Text — aria-live here so content changes are announced, not aria-label mutations */}
+      <div aria-live="polite" data-testid="processing-strip-status" style={{ flex: 1, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
         {swipeWarning ? (
           'Swipe again to cancel'
         ) : status === 'processing' ? (

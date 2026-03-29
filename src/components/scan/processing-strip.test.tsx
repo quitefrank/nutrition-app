@@ -105,22 +105,24 @@ describe('ProcessingStrip', () => {
     expect(onTap).toHaveBeenCalledTimes(1)
   })
 
-  it('has correct aria-label for processing status', () => {
+  it('live region announces processing status text content', () => {
     render(<ProcessingStrip {...defaultProps} status="processing" />)
-    const strip = screen.getByTestId('processing-strip')
-    expect(strip.getAttribute('aria-label')).toBe('Identifying your menu')
+    const liveRegion = screen.getByTestId('processing-strip-status')
+    expect(liveRegion.textContent).toContain('Identifying your menu')
   })
 
-  it('has correct aria-label for ready status', () => {
+  it('live region announces ready status text content', () => {
     render(<ProcessingStrip {...defaultProps} status="ready" />)
-    const strip = screen.getByTestId('processing-strip')
-    expect(strip.getAttribute('aria-label')).toBe('Your results are ready')
+    const liveRegion = screen.getByTestId('processing-strip-status')
+    expect(liveRegion.textContent).toContain('Your results are ready')
   })
 
-  it('strip has aria-live="polite"', () => {
+  it('live region has aria-live="polite" (not the wrapper)', () => {
     render(<ProcessingStrip {...defaultProps} />)
-    const strip = screen.getByTestId('processing-strip')
-    expect(strip.getAttribute('aria-live')).toBe('polite')
+    const wrapper = screen.getByTestId('processing-strip')
+    const liveRegion = screen.getByTestId('processing-strip-status')
+    expect(wrapper.getAttribute('aria-live')).toBeNull()
+    expect(liveRegion.getAttribute('aria-live')).toBe('polite')
   })
 })
 
