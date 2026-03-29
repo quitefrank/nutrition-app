@@ -74,6 +74,7 @@ export default function RestaurantDishListPage({ params }: PageProps) {
       const key = `${dish.name}-${dishes?.indexOf(dish) ?? 0}`
       setSavedDishIds(prev => ({ ...prev, [key]: saved.data.id }))
       toast('Recipe saved')
+      window.dispatchEvent(new CustomEvent('plately:recipeSaved'))
     } catch {
       toast.error('Failed to save recipe')
     }

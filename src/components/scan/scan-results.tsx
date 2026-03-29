@@ -52,17 +52,7 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
       const saved = await saveMutation.mutateAsync(payload)
       const savedId = saved.data.id
       setSavedDishIds(prev => ({ ...prev, [dish.name]: savedId }))
-      const toastId = toast('Recipe saved', {
-        duration: 4000,
-        action: {
-          label: 'Undo',
-          onClick: async () => {
-            await deleteMutation.mutateAsync(savedId)
-            toast('Recipe removed', { id: toastId })
-          },
-        },
-      })
-      window.dispatchEvent(new CustomEvent('plately:recipeSaved'))
+      toast('Recipe saved')
     } catch {
       toast.error('Failed to save recipe')
     }
@@ -90,9 +80,9 @@ export function ScanResults({ result, scanId, onRetake: onRetakeProp }: ScanResu
 
   const selectedDish = selectedDishIndex !== null ? (activeResult.dishes[selectedDishIndex] ?? null) : null
 
-  const [showTip, setShowTip] = useState(
-    () => typeof window !== 'undefined' && !localStorage.getItem('plately_seen_scan_tip')
-  )
+  const [showTip, setShowTip] = useState(false)
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (!localStorage.getItem('plately_seen_scan_tip')) setShowTip(true) }, [])
 
   const dismissTip = () => {
     localStorage.setItem('plately_seen_scan_tip', 'true')

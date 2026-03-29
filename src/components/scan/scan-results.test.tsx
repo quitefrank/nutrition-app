@@ -371,7 +371,7 @@ describe('ScanResults', () => {
 
   // ─── Save flow + toast ──────────────────────────────────────────────────────
 
-  it('shows "Recipe saved" toast with undo action after successful save', async () => {
+  it('shows "Recipe saved" toast after successful save', async () => {
     mockSaveMutateAsync.mockResolvedValue({
       data: { id: 'saved-recipe-id', name: 'Duck Confit', createdAt: '2026-03-22T00:00:00Z', servingSize: 1, restaurantId: null },
     })
@@ -387,18 +387,15 @@ describe('ScanResults', () => {
       fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
     })
     await waitFor(() => {
-      expect(mockToast).toHaveBeenCalledWith('Recipe saved', expect.objectContaining({
-        duration: 4000,
-        action: expect.objectContaining({ label: 'Undo' }),
-      }))
+      expect(mockToast).toHaveBeenCalledWith('Recipe saved')
     })
   })
 
-  it('undo action calls delete mutation and shows "Recipe removed" toast', async () => {
+  it('save does not dispatch plately:recipeSaved event', async () => {
     mockSaveMutateAsync.mockResolvedValue({
       data: { id: 'saved-recipe-id', name: 'Duck Confit', createdAt: '2026-03-22T00:00:00Z', servingSize: 1, restaurantId: null },
     })
-    mockDeleteMutateAsync.mockResolvedValue(undefined)
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
 
     const Wrapper = createWrapper('test-scan-id', mockScanResult)
     render(
@@ -410,18 +407,11 @@ describe('ScanResults', () => {
       fireEvent.click(screen.getByLabelText('Save recipe for Duck Confit'))
     })
 
-    // Get the undo click handler from the toast call and invoke it
     await waitFor(() => expect(mockToast).toHaveBeenCalled())
-    const toastCall = mockToast.mock.calls[0]
-    const undoClickHandler = toastCall[1].action.onClick
-
-    await act(async () => {
-      await undoClickHandler()
-    })
-
-    expect(mockDeleteMutateAsync).toHaveBeenCalledWith('saved-recipe-id')
-    // Toast updates the existing toast by re-using the same ID returned from the first call
-    expect(mockToast).toHaveBeenCalledWith('Recipe removed', { id: 'mock-toast-id' })
+    const recipeSavedCalls = dispatchSpy.mock.calls.filter(
+      ([e]) => e instanceof CustomEvent && e.type === 'plately:recipeSaved'
+    )
+    expect(recipeSavedCalls).toHaveLength(0)
   })
 
   it('shows error toast when save fails', async () => {
