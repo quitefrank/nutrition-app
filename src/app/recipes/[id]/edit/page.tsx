@@ -39,7 +39,8 @@ export default function RecipeEditPage({ params }: PageProps) {
   const isInitialized = useRef(false)
   const servingSizeRef = useRef(1) // mirrors editedServingSize for stale-closure-free factor computation
 
-  // Initialise state from recipe data exactly once when recipe loads
+  // Initialise state from recipe data exactly once when recipe loads.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (recipe && !isInitialized.current) {
       isInitialized.current = true
@@ -49,6 +50,7 @@ export default function RecipeEditPage({ params }: PageProps) {
       setEditedIngredients(recipe.ingredients ?? [])
     }
   }, [recipe])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Scale all ingredient quantities when serving size changes
   function handleServingSizeChange(newSize: number) {

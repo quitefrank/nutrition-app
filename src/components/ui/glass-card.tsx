@@ -42,7 +42,7 @@ export function GlassCard({
       animate={animateTo}
       transition={transition}
       className={cn(
-        'glass-card',
+        'glass-card active:opacity-70',
         variant === 'compact'
           ? 'rounded-[var(--radius-sm)]'
           : 'rounded-[var(--radius-md)]',

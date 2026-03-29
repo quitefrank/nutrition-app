@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { getApiKeys } from '@/lib/api-keys'
 import type { Recipe } from '@/types/domain'
 import type { RecipeUpdateRequest } from '@/types/api'
 
@@ -46,6 +47,8 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid recipe id', code: 'BAD_REQUEST' }, { status: 400 })
   }
 
+  const { places: placesKey } = getApiKeys()
+
   const { data, error } = await supabase
     .from('recipes')
     .select(`
@@ -56,7 +59,7 @@ export async function GET(
       confidence_metadata_json,
       serving_size,
       created_at,
-      restaurants ( id, name, google_places_id, atmospheric_palette_json, updated_at ),
+      restaurants ( id, name, google_places_id, atmospheric_palette_json, restaurant_image_url, updated_at ),
       recipe_ingredients ( id, recipe_id, name, quantity, unit, confidence_level, calories_kcal, protein_g, fat_g, carbs_g )
     `)
     .eq('id', id)
@@ -69,7 +72,7 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to fetch recipe', code: 'DB_ERROR' }, { status: 500 })
   }
 
-  const restaurant = data.restaurants as { id: string; name: string; google_places_id: string | null; atmospheric_palette_json: Record<string, unknown> | null; updated_at: string } | null
+  const restaurant = data.restaurants as { id: string; name: string; google_places_id: string | null; atmospheric_palette_json: Record<string, unknown> | null; restaurant_image_url: string | null; updated_at: string } | null
 
   const recipe: Recipe = {
     id: data.id,
@@ -85,6 +88,11 @@ export async function GET(
           name: restaurant.name,
           googlePlacesId: restaurant.google_places_id,
           atmosphericPaletteJson: restaurant.atmospheric_palette_json,
+          restaurantImageUrl: restaurant.restaurant_image_url
+            ? (restaurant.restaurant_image_url.startsWith('places/') && placesKey
+                ? `https://places.googleapis.com/v1/${restaurant.restaurant_image_url}/media?maxWidthPx=800&key=${placesKey}`
+                : restaurant.restaurant_image_url)
+            : null,
           updatedAt: restaurant.updated_at,
         }
       : null,
@@ -168,11 +176,12 @@ export async function PUT(
   }
 
   // Re-query full recipe to return updated state (reuse GET query logic)
+  const { places: placesKeyForPut } = getApiKeys()
   const { data, error } = await supabase
     .from('recipes')
     .select(`
       id, name, restaurant_id, dish_image_url, confidence_metadata_json, serving_size, created_at,
-      restaurants ( id, name, google_places_id, atmospheric_palette_json, updated_at ),
+      restaurants ( id, name, google_places_id, atmospheric_palette_json, restaurant_image_url, updated_at ),
       recipe_ingredients ( id, recipe_id, name, quantity, unit, confidence_level, calories_kcal, protein_g, fat_g, carbs_g )
     `)
     .eq('id', id)
@@ -183,7 +192,7 @@ export async function PUT(
   }
 
   // Map to Recipe domain type — identical mapping as GET handler
-  const restaurant = data.restaurants as { id: string; name: string; google_places_id: string | null; atmospheric_palette_json: Record<string, unknown> | null; updated_at: string } | null
+  const restaurant = data.restaurants as { id: string; name: string; google_places_id: string | null; atmospheric_palette_json: Record<string, unknown> | null; restaurant_image_url: string | null; updated_at: string } | null
 
   const recipe: Recipe = {
     id: data.id,
@@ -197,6 +206,11 @@ export async function PUT(
       id: restaurant.id, name: restaurant.name,
       googlePlacesId: restaurant.google_places_id,
       atmosphericPaletteJson: restaurant.atmospheric_palette_json,
+      restaurantImageUrl: restaurant.restaurant_image_url
+        ? (restaurant.restaurant_image_url.startsWith('places/') && placesKeyForPut
+            ? `https://places.googleapis.com/v1/${restaurant.restaurant_image_url}/media?maxWidthPx=800&key=${placesKeyForPut}`
+            : restaurant.restaurant_image_url)
+        : null,
       updatedAt: restaurant.updated_at,
     } : null,
     ingredients: ((data.recipe_ingredients ?? []) as Array<{

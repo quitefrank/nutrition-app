@@ -36,6 +36,7 @@ export default function Home() {
         const parsed = JSON.parse(raw) as SearchVisit
         const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000
         if (Date.now() - parsed.visitedAt <= TWENTY_FOUR_HOURS) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setSearchVisit(parsed)
         }
       }

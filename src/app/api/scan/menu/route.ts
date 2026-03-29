@@ -131,6 +131,8 @@ export async function POST(request: Request) {
       const genAI = new GoogleGenerativeAI(apiKey)
       const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
+      // SEC-DAT-1.00: imageBase64 is passed to Gemini in-memory and discarded after this call.
+      // No image data is written to storage, filesystem, or database. (NFR07)
       const result = await model.generateContent([
         { inlineData: { data: imageBase64, mimeType } },
         { text: MENU_SCAN_PROMPT },
@@ -140,7 +142,7 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error('[scan/menu] Gemini error:', error instanceof Error ? `${error.constructor.name}: ${error.message}` : String(error))
       return NextResponse.json(
-        { error: 'Gemini service unavailable', code: 'SCAN_SERVICE_UNAVAILABLE' },
+        { error: 'Scan service is temporarily unavailable', code: 'SCAN_UNAVAILABLE' },
         { status: 503 }
       )
     }

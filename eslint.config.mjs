@@ -12,7 +12,19 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Archived worktrees and scaffold temp files — not part of the app
+    "_archive/**",
+    ".scaffold-tmp/**",
+    // Generated workbox runtime files — not hand-authored
+    "public/workbox-*.js",
   ]),
+  // Test files: display-name is not meaningful for wrapper components in tests
+  {
+    files: ["**/*.test.ts", "**/*.test.tsx"],
+    rules: {
+      "react/display-name": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

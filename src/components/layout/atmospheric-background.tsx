@@ -24,6 +24,7 @@ export function AtmosphericBackground() {
 
   // Fall back to bgColor if the image fails to load (404, CORS block, etc.)
   const [imageError, setImageError] = useState(false)
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setImageError(false) }, [imageUrl])
   const effectiveImageUrl = imageError ? null : imageUrl
 

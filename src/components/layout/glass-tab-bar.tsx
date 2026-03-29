@@ -57,7 +57,7 @@ export function GlassTabBar({ activeTab, onTabChange, fabSlot, className }: Glas
             onClick={() => onTabChange(tab.id)}
             aria-label={tab.label}
             aria-current={activeTab === tab.id ? 'page' : undefined}
-            className="flex flex-col items-center gap-[2px] transition-colors duration-200 min-w-[44px] min-h-[44px] justify-center"
+            className="flex flex-col items-center gap-[2px] transition-colors duration-200 min-w-[44px] min-h-[44px] justify-center active:opacity-70"
             style={{
               color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-tertiary)',
               background: activeTab === tab.id ? 'rgba(255,255,255,0.10)' : 'transparent',
