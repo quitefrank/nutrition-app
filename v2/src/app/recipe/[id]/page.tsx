@@ -1,0 +1,493 @@
+"use client";
+
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
+import { AppShell } from "@/components/AppShell";
+import { FrostedCard } from "@/components/ui/FrostedCard";
+import { addIngredientsToGrocery } from "@/lib/grocery-store";
+
+interface Ingredient {
+  name: string;
+  quantity?: string | null;
+  unit?: string | null;
+  confidenceLevel?: "high" | "medium" | "low";
+  calories_kcal?: number | null;
+  protein_g?: number | null;
+  fat_g?: number | null;
+  carbs_g?: number | null;
+}
+
+interface Dish {
+  id?: string;
+  name: string;
+  description?: string;
+  calorieEstimate?: number | null;
+  confidence?: number;
+  ingredients: Ingredient[];
+  photoUrl?: string | null;
+  servings?: number;
+  totalCalories?: number | null;
+  totalProtein?: number | null;
+  totalFat?: number | null;
+  totalCarbs?: number | null;
+}
+
+interface ScanResult {
+  type: "menu" | "dish";
+  restaurantName?: string | null;
+  allDishes: Dish[];
+  enriched?: boolean;
+}
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { type: "spring" as const, damping: 28, stiffness: 280 } },
+};
+
+const containerVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.06 } },
+};
+
+// ─── Inner page (uses useSearchParams) ────────────────────
+
+function RecipePageInner() {
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const id = typeof params.id === "string" ? params.id : params.id?.[0] ?? "";
+  const dishIndex = Math.max(0, Number(searchParams.get("dish") ?? "0"));
+
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [groceryAdded, setGroceryAdded] = useState(false);
+
+  const loadFromStorage = useCallback(() => {
+    if (!id) { setNotFound(true); return; }
+    const raw = sessionStorage.getItem(id);
+    if (!raw) { setNotFound(true); return; }
+    try {
+      setResult(JSON.parse(raw));
+    } catch {
+      setNotFound(true);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    loadFromStorage();
+  }, [loadFromStorage]);
+
+  // Listen for enrichment updates — CustomEvent from same tab
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ key: string }>).detail;
+      if (detail?.key === id) loadFromStorage();
+    };
+    window.addEventListener("plately:enriched", handler);
+    return () => window.removeEventListener("plately:enriched", handler);
+  }, [id, loadFromStorage]);
+
+  // Polling fallback: check every 3s until enriched (max 45s)
+  useEffect(() => {
+    if (!id) return;
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      const raw = sessionStorage.getItem(id);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as { enriched?: boolean };
+          if (parsed.enriched) {
+            loadFromStorage();
+            clearInterval(interval);
+            return;
+          }
+        } catch { /* ignore */ }
+      }
+      if (attempts >= 15) clearInterval(interval); // stop after 45s
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [id, loadFromStorage]);
+
+  if (notFound) {
+    return (
+      <AppShell>
+        <div className="min-h-full flex flex-col items-center justify-center gap-4 px-4">
+          <p className="text-sm" style={{ color: "var(--color-text-tertiary)" }}>
+            This dish result has expired.
+          </p>
+          <button
+            onClick={() => router.replace("/")}
+            className="text-sm font-medium"
+            style={{ color: "var(--color-accent)" }}
+          >
+            Back to Home
+          </button>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!result) {
+    return (
+      <AppShell>
+        <div className="min-h-full" />
+      </AppShell>
+    );
+  }
+
+  const { type, restaurantName, allDishes, enriched } = result;
+  const dish = allDishes[dishIndex] ?? allDishes[0];
+  const isMenu = type === "menu" && allDishes.length > 1;
+  const otherDishes = allDishes.filter((_, i) => i !== dishIndex);
+  const atmosphericUrl = dish?.photoUrl ?? null;
+
+  const hasRealMacros = dish?.ingredients?.some((i) => i.calories_kcal !== null && i.calories_kcal !== undefined);
+  const displayCalories = dish?.totalCalories ?? dish?.calorieEstimate ?? null;
+
+  return (
+    <AppShell atmosphericImageUrl={atmosphericUrl}>
+      <motion.div
+        className="min-h-full flex flex-col"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+        key={`${id}-${dishIndex}`}
+      >
+        {/* Header */}
+        <div className="px-4 pt-[calc(var(--space-safe-top)+16px)] pb-3 flex items-center gap-3">
+          <motion.button
+            onClick={() => router.replace("/")}
+            aria-label="Back to home"
+            className="flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
+            style={{ background: "rgba(180,170,158,0.18)" }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ChevronLeftIcon />
+          </motion.button>
+          <div className="flex-1 min-w-0">
+            <motion.p
+              variants={itemVariants}
+              className="text-xs font-semibold uppercase tracking-widest truncate"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {restaurantName ?? (isMenu ? "Menu scan" : "Dish scan")}
+            </motion.p>
+          </div>
+        </div>
+
+        {/* Dish selector chips (menu scans with multiple dishes) */}
+        {isMenu && (
+          <motion.div variants={itemVariants} className="pb-3">
+            <div className="flex gap-2 overflow-x-auto px-4 pb-1 no-scrollbar">
+              {allDishes.map((d, i) => (
+                <button
+                  key={d.id ?? i}
+                  onClick={() => router.replace(`/recipe/${id}?dish=${i}`)}
+                  aria-label={`View ${d.name}`}
+                  aria-current={i === dishIndex ? "true" : undefined}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
+                  style={{
+                    background: i === dishIndex ? "var(--color-accent)" : "rgba(180,170,158,0.18)",
+                    color: i === dishIndex ? "#fff" : "var(--color-text-secondary)",
+                    maxWidth: 120,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Dish hero */}
+        <motion.div variants={itemVariants} className="px-4 pb-4">
+          <h1
+            className="text-[2rem] leading-tight tracking-[-0.01em] mb-1.5"
+            style={{ fontFamily: "var(--font-display), Georgia, serif", color: "var(--color-text-primary)" }}
+          >
+            {dish.name}
+          </h1>
+          {dish.description && dish.description !== "null" && (
+            <p className="text-sm leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+              {dish.description}
+            </p>
+          )}
+        </motion.div>
+
+        {/* Stats row */}
+        {(displayCalories || dish.servings) && (
+          <motion.div variants={itemVariants} className="px-4 pb-4">
+            <div className="flex flex-wrap gap-2">
+              {displayCalories && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium"
+                  style={{ background: "var(--color-accent-light)", color: "var(--color-accent)" }}
+                >
+                  <FlameIcon />
+                  {displayCalories} cal
+                </span>
+              )}
+              {dish.servings && dish.servings > 1 && (
+                <span
+                  className="inline-flex items-center px-3 py-1.5 rounded-full text-sm"
+                  style={{ background: "rgba(180,170,158,0.15)", color: "var(--color-text-tertiary)" }}
+                >
+                  {dish.servings} servings
+                </span>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Macros summary */}
+        {(dish.totalProtein || dish.totalFat || dish.totalCarbs) && (
+          <motion.div variants={itemVariants} className="px-4 pb-4">
+            <FrostedCard className="flex justify-around py-3 px-2">
+              <MacroStat label="Protein" value={dish.totalProtein} unit="g" />
+              <div style={{ width: 1, background: "rgba(180,170,158,0.22)" }} />
+              <MacroStat label="Fat" value={dish.totalFat} unit="g" />
+              <div style={{ width: 1, background: "rgba(180,170,158,0.22)" }} />
+              <MacroStat label="Carbs" value={dish.totalCarbs} unit="g" />
+            </FrostedCard>
+          </motion.div>
+        )}
+
+        {/* Ingredients */}
+        <motion.div variants={itemVariants} className="px-4 pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2
+              className="text-xs font-semibold uppercase tracking-widest"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Ingredients
+            </h2>
+            {!enriched && (
+              <span className="text-[10px] flex items-center gap-1" style={{ color: "var(--color-text-tertiary)" }}>
+                <SpinnerDot />
+                Loading nutrition data…
+              </span>
+            )}
+            {enriched && !hasRealMacros && (
+              <span className="text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
+                AI estimates
+              </span>
+            )}
+          </div>
+
+          {dish.ingredients.length > 0 ? (
+            <FrostedCard noPadding className="overflow-hidden">
+              {dish.ingredients.map((ing, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between px-4 py-3"
+                  style={{
+                    borderBottom:
+                      i < dish.ingredients.length - 1
+                        ? "1px solid rgba(180,170,158,0.15)"
+                        : undefined,
+                  }}
+                >
+                  <span className="text-sm flex-1 min-w-0 pr-2" style={{ color: "var(--color-text-primary)" }}>
+                    {ing.name}
+                  </span>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {(ing.quantity || ing.unit) && (
+                      <span className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
+                        {[ing.quantity, ing.unit].filter(Boolean).join(" ")}
+                      </span>
+                    )}
+                    {ing.calories_kcal !== null && ing.calories_kcal !== undefined && (
+                      <span className="text-xs font-medium" style={{ color: "var(--color-accent)" }}>
+                        {ing.calories_kcal} kcal
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </FrostedCard>
+          ) : (
+            <FrostedCard>
+              <p className="text-sm text-center py-2" style={{ color: "var(--color-text-tertiary)" }}>
+                {enriched ? "No ingredients identified" : "Identifying ingredients…"}
+              </p>
+            </FrostedCard>
+          )}
+        </motion.div>
+
+        {/* Add to Grocery CTA */}
+        {dish.ingredients.length > 0 && (
+          <motion.div variants={itemVariants} className="px-4 pb-4">
+            <motion.button
+              onClick={() => {
+                if (groceryAdded) return;
+                addIngredientsToGrocery(
+                  dish.ingredients,
+                  dish.name,
+                  restaurantName ?? null
+                );
+                setGroceryAdded(true);
+                setTimeout(() => setGroceryAdded(false), 2500);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-full text-sm font-semibold"
+              style={{
+                background: groceryAdded ? "var(--color-accent-light)" : "var(--color-accent)",
+                color: groceryAdded ? "var(--color-accent)" : "#fff",
+                transition: "background 0.25s ease, color 0.25s ease",
+              }}
+              whileTap={{ scale: 0.97 }}
+            >
+              {groceryAdded ? (
+                <>
+                  <CheckIcon />
+                  Added to Grocery
+                </>
+              ) : (
+                <>
+                  <GroceryBagIcon />
+                  Add to Grocery List
+                </>
+              )}
+            </motion.button>
+          </motion.div>
+        )}
+
+        {/* Other dishes on this menu — tappable */}
+        {isMenu && otherDishes.length > 0 && (
+          <motion.div variants={itemVariants} className="px-4 pb-4">
+            <h2
+              className="text-xs font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Other dishes on this menu
+            </h2>
+            <FrostedCard noPadding className="overflow-hidden">
+              {allDishes.map((d, i) => {
+                if (i === dishIndex) return null;
+                return (
+                  <motion.button
+                    key={d.id ?? i}
+                    onClick={() => router.replace(`/recipe/${id}?dish=${i}`)}
+                    aria-label={`View ${d.name}`}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left"
+                    style={{
+                      borderBottom:
+                        i < allDishes.length - 1
+                          ? "1px solid rgba(180,170,158,0.15)"
+                          : undefined,
+                    }}
+                    whileTap={{ backgroundColor: "rgba(180,170,158,0.1)" }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" style={{ color: "var(--color-text-primary)" }}>
+                        {d.name}
+                      </p>
+                      {d.description && d.description !== "null" && (
+                        <p className="text-xs truncate mt-0.5" style={{ color: "var(--color-text-tertiary)" }}>
+                          {d.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      {(d.totalCalories ?? d.calorieEstimate) && (
+                        <span className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
+                          {d.totalCalories ?? d.calorieEstimate} cal
+                        </span>
+                      )}
+                      <ChevronRightIcon />
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </FrostedCard>
+          </motion.div>
+        )}
+
+        {/* Bottom padding for tab bar */}
+        <div style={{ height: "calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)" }} />
+      </motion.div>
+    </AppShell>
+  );
+}
+
+// ─── Page wrapper (Suspense for useSearchParams) ───────────
+
+export default function RecipePage() {
+  return (
+    <Suspense fallback={<AppShell><div className="min-h-full" /></AppShell>}>
+      <RecipePageInner />
+    </Suspense>
+  );
+}
+
+// ─── Sub-components ────────────────────────────────────────
+
+function MacroStat({ label, value, unit }: { label: string; value: number | null | undefined; unit: string }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 px-2">
+      <span className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>
+        {value !== null && value !== undefined ? `${value}${unit}` : "—"}
+      </span>
+      <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function SpinnerDot() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ animation: "spin 1s linear infinite" }}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeDasharray="14 42" strokeLinecap="round" />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </svg>
+  );
+}
+
+/* ─── Icons ─── */
+
+function ChevronLeftIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M15 18l-6-6 6-6" stroke="var(--color-text-secondary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M9 18l6-6-6-6" stroke="var(--color-text-tertiary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function GroceryBagIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 7h12l-1.5 11H7.5L6 7Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+      <path d="M9 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FlameIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 2c0 0-4 4-4 9a5 5 0 0 0 10 0c0-3-2-5-2-5s-1 2-3 2c-1 0-2-1-2-2 0-1 1-4 1-4Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+    </svg>
+  );
+}

@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────
+   Plately v2 — Design Token System
+   Light-first · Warm · Editorial · Food-forward
+   ───────────────────────────────────────── */
+
+@theme inline {
+  /* Typography — matches @fontsource package family names */
+  --font-display: "Playfair Display";
+  --font-body: "DM Sans";
+
+  /* Background layers */
+  --color-base: #FAFAF7;
+  --color-surface: #F4F3EE;
+  --color-surface-raised: #EFEDE6;
+  --color-surface-sunken: #E8E6DF;
+
+  /* Frosted card */
+  --color-card: rgba(255, 252, 245, 0.88);
+  --color-card-border: rgba(180, 170, 158, 0.28);
+
+  /* Text */
+  --color-text-primary: #1A1612;
+  --color-text-secondary: #6B6458;
+  --color-text-tertiary: #9E9589;
+  --color-text-disabled: #C4BDB5;
+
+  /* Accent — terracotta */
+  --color-accent: #C4622D;
+  --color-accent-light: #FAEEE6;
+  --color-accent-dark: #9E4B1F;
+
+  /* Status */
+  --color-success: #3D7D5E;
+  --color-success-light: #E8F5EE;
+  --color-warning: #B07D2C;
+  --color-warning-light: #FBF3E2;
+  --color-error: #B83B3B;
+  --color-error-light: #FBEAEA;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* Shadows — warm-tinted */
+  --shadow-card: 0 2px 12px rgba(80, 60, 40, 0.08), 0 1px 3px rgba(80, 60, 40, 0.06);
+  --shadow-elevated: 0 8px 32px rgba(80, 60, 40, 0.12), 0 2px 8px rgba(80, 60, 40, 0.08);
+  --shadow-modal: 0 20px 60px rgba(60, 40, 20, 0.18), 0 8px 24px rgba(60, 40, 20, 0.10);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Spacing */
+  --space-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --space-safe-top: env(safe-area-inset-top, 0px);
+
+  /* Layout */
+  --tab-bar-height: 80px;
+  --processing-strip-height: 60px;
+}
+
+/* ─── Base ─── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  background: var(--color-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--color-base);
+  min-height: 100%;
+  /* Mobile PWA: prevent bounce scroll */
+  overscroll-behavior: none;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#__next,
+main {
+  height: 100%;
+}
+
+/* ─── Typography ─── */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+h4 { font-size: 1.0625rem; }
+
+p, li {
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+/* ─── Frosted glass utility ─── */
+
+.frosted {
+  background: var(--color-card);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--color-card-border);
+  box-shadow: var(--shadow-card);
+}
+
+.frosted-elevated {
+  background: rgba(255, 252, 245, 0.94);
+  backdrop-filter: blur(32px) saturate(1.5);
+  -webkit-backdrop-filter: blur(32px) saturate(1.5);
+  border: 1px solid rgba(180, 170, 158, 0.22);
+  box-shadow: var(--shadow-elevated);
+}
+
+/* ─── Touch targets ─── */
+
+button, [role="button"], a {
+  min-height: 44px;
+  min-width: 44px;
+  cursor: pointer;
+}
+
+/* ─── Scrollable content area (above tab bar) ─── */
+
+.scroll-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  height: 100%;
+  padding-bottom: calc(var(--tab-bar-height) + var(--space-safe-bottom) + 16px);
+}
+
+/* ─── Atmospheric background ─── */
+
+.atmospheric-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.atmospheric-bg__image {
+  position: absolute;
+  inset: -5%;
+  width: 110%;
+  height: 110%;
+  object-fit: cover;
+  filter: blur(40px) saturate(1.3);
+  transform: scale(1.05);
+  transition: opacity var(--duration-slow) var(--ease-out);
+}
+
+.atmospheric-bg__overlay {
+  position: absolute;
+  inset: 0;
+  /* Warm cream overlay — keeps text legible, lifts into light mode */
+  background: linear-gradient(
+    180deg,
+    rgba(250, 250, 247, 0.55) 0%,
+    rgba(244, 243, 238, 0.72) 60%,
+    rgba(239, 237, 230, 0.88) 100%
+  );
+}
+
+/* ─── Pill button ─── */
+
+.btn-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  padding: 0 28px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: transform var(--duration-fast) var(--ease-out),
+              opacity var(--duration-fast) ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.btn-pill:active {
+  transform: scale(0.96);
+  opacity: 0.88;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(196, 98, 45, 0.30);
+}
+
+.btn-primary:active {
+  background: var(--color-accent-dark);
+}
+
+.btn-secondary {
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-card-border);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-accent);
+}
+
+/* ─── Hide scrollbar (horizontal carousels) ─── */
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Reduce motion ─── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
