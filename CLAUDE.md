@@ -1,47 +1,22 @@
-# CLAUDE.md
+# Plately
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+_"Take home the food you love."_
 
-## Commands
+## Project Structure
 
-```bash
-npm run dev          # Dev server at localhost:8080
-npm run build        # Production build
-npm run lint         # ESLint check
-npm test             # Run tests once (Vitest)
-npm run test:watch   # Watch mode
-npx vitest src/path/to/file.test.ts  # Run a single test file
-```
+| Folder | What it is |
+|--------|-----------|
+| `v1/` | Completed app — Next.js 16, full codebase, 6 epics done |
+| `v2/` | Planning workspace for the v2 remix |
 
-## Architecture
+## BMAD Method
 
-**MacroLite** is a single-user (no auth) macro tracking app. Stack: React 18 + TypeScript + Vite, Supabase (PostgreSQL + Edge Functions), TanStack React Query v5, shadcn/ui + Tailwind CSS.
+BMAD is installed at `../../_bmad/`. All `/bmad-*` skills are available automatically.
 
-### Data Flow Pattern
+## Working on v1
 
-All pages follow the same pattern:
-1. **`useQuery`** — fetch from Supabase, keyed by `[entity, id/date]`
-2. **Dependent queries** — use `enabled: !!parentId` to chain queries
-3. **`useMutation`** — write to Supabase, then `qc.invalidateQueries()` to refresh cache
-4. **Toasts** — `sonner` for user feedback
+Open `v1/` in Claude Code. All source code, planning artifacts (`_bmad-output/`), and design references are there.
 
-### Key Directories
+## Starting v2
 
-- `src/pages/` — 5 feature pages (Today, Foods, Recipes, Groceries, Scan). Business logic lives here.
-- `src/components/ui/` — shadcn/ui primitives (generated, don't hand-edit)
-- `src/integrations/supabase/` — Supabase client singleton and auto-generated DB types
-- `src/lib/units.ts` — unit conversion (`convertToGrams()`); used wherever macro math happens
-
-### External API
-
-USDA FoodData Central is accessed via Supabase Edge Functions (not directly from the client):
-- `supabase.functions.invoke('fdc-search', { body })` — search foods
-- `supabase.functions.invoke('fdc-ingest', { body })` — cache a food into the `foods` table
-
-### Path Alias
-
-`@/` maps to `./src` (configured in `vite.config.ts` and `tsconfig.app.json`).
-
-### Database Types
-
-[src/integrations/supabase/types.ts](src/integrations/supabase/types.ts) is auto-generated. Re-generate with the Supabase CLI after schema changes; don't manually edit it.
+Open `v2/` in Claude Code. Run `/bmad-create-prd` pointing at `v2/_context/prd.md` as the v1 baseline.
