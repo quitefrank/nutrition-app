@@ -19,16 +19,23 @@ import type { Database } from "@/types/database";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-if (process.env.NODE_ENV !== "production" && (!supabaseUrl || !supabaseAnonKey)) {
+if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
     "[supabase] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is not set. " +
-    "Data persistence will not work. Add both to your .env.local file."
+    "Data persistence will not work. Add both to your .env.local (dev) or Vercel environment variables (prod)."
   );
 }
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-});
+// Guard: createClient throws if the URL is falsy, which crashes the build
+// when env vars are absent. Use placeholder values so the module loads
+// cleanly; all DB calls will fail gracefully at runtime without real config.
+export const supabase = createClient<Database>(
+  supabaseUrl || "https://unconfigured.supabase.co",
+  supabaseAnonKey || "unconfigured-anon-key",
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  }
+);
