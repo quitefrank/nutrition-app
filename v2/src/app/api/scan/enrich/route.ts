@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import { getApiKeys } from "@/lib/api-keys";
+import { getRestaurantPhotos } from "@/lib/placesPhotos";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
@@ -18,17 +21,19 @@ const GRAM_CONVERSIONS: Record<string, number> = {
   ml: 1, l: 1000,
 };
 
-function resolveScale(quantity: string | null, unit: string | null, usdaServingSize?: number | null, usdaServingSizeUnit?: string | null): number {
+/** Returns the gram-based scale factor (portionGrams / 100) for USDA per-100g values,
+ *  or null when no usable quantity can be determined. */
+function resolveScale(quantity: string | null, unit: string | null, usdaServingSize?: number | null, usdaServingSizeUnit?: string | null): number | null {
   const qNum = quantity ? parseFloat(quantity) : NaN;
   const validQty = Number.isFinite(qNum) && qNum > 0;
   const unitLower = unit?.toLowerCase().trim() ?? "";
 
-  // Tier 1: gram-convertible units
+  // Tier 1: gram-convertible units (e.g. "150 g", "2 tbsp", "1 cup")
   if (unitLower in GRAM_CONVERSIONS && validQty) {
     return (qNum * GRAM_CONVERSIONS[unitLower]) / 100;
   }
 
-  // Tier 2: count units — use USDA serving size if available
+  // Tier 2: count units with a known USDA serving size in grams (e.g. "1 egg")
   if (validQty && usdaServingSize && usdaServingSize > 0) {
     const servingUnitLower = usdaServingSizeUnit?.toLowerCase().trim() ?? "";
     if (["g", "gram", "grams"].includes(servingUnitLower)) {
@@ -36,8 +41,16 @@ function resolveScale(quantity: string | null, unit: string | null, usdaServingS
     }
   }
 
-  // Tier 3: fallback — use per-100g reference value
-  return 1;
+  // Tier 3: no quantity from Gemini — use USDA's own serving size as a single-serving default
+  if (usdaServingSize && usdaServingSize > 0) {
+    const servingUnitLower = usdaServingSizeUnit?.toLowerCase().trim() ?? "";
+    if (["g", "gram", "grams"].includes(servingUnitLower)) {
+      return usdaServingSize / 100;
+    }
+  }
+
+  // No usable quantity — caller should omit macros rather than use 100g
+  return null;
 }
 
 // ─── USDA macro lookup ─────────────────────────────────────
@@ -89,6 +102,9 @@ async function lookupUsdaMacros(
     };
 
     const scale = resolveScale(quantity, unit, food.servingSize ?? null, food.servingSizeUnit ?? null);
+    // If no usable quantity could be determined, omit macros rather than return inflated 100g values
+    if (scale === null) return nullResult;
+
     const round = (v: number | null) => v !== null ? Math.round(v * scale * 10) / 10 : null;
 
     return {
@@ -113,31 +129,40 @@ interface InferredIngredient {
   unit: string | null;
 }
 
-const INFER_PROMPT = (dishName: string) =>
-  `You are a culinary expert. List the typical ingredients for the dish: "${dishName}".
-
+const INFER_PROMPT = (dishName: string, description?: string) =>
+  `You are a culinary expert and nutritionist. List the ingredients for a single restaurant serving of: "${dishName}".
+${description ? `\nThe menu describes it as: "${description}"\nUse this description to identify the exact ingredients — do not substitute or add ingredients not implied by the description.\n` : ""}
 Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 {
-  "servings": 4,
+  "servings": 1,
   "ingredients": [
-    { "name": "string", "quantity": "string or null", "unit": "string or null" }
+    { "name": "string", "quantity": "string", "unit": "g" }
   ]
 }
 
 Rules:
-- servings: the number of people the quantities below serve (integer 1–12)
-- List 5–12 ingredients for a standard recipe preparation (quantities for all servings combined)
-- quantity: numeric string for the full recipe amount (e.g. "400"), or null if uncertain
-- unit: unit of measure (e.g. "g", "ml", "tbsp", "clove") or null if count/unknown
-- Include spices, aromatics, sauces, and condiments — be specific
+- servings: always 1 (a single restaurant plate)
+- List only the ingredients present in this dish (5–12 max)
+- quantity: ALWAYS provide a realistic gram weight for a single serving — never null or zero
+  - Base your estimate on how the ingredient functions in the dish:
+    - Primary protein (chicken, beef, fish): typically 150–200 g
+    - Grains/starches (rice, pasta, quinoa): typically 80–150 g cooked
+    - Leafy greens (lettuce, spinach, mixed greens): typically 60–90 g
+    - Sauces and dressings: typically 30–50 g (restaurant pour)
+    - Cheeses: typically 20–40 g
+    - Garnishes, herbs, wedges (lemon, lime, parsley): typically 5–15 g
+    - Nuts/seeds: typically 10–20 g
+  - Scale proportionately so the total dish weight is plausible (400–800 g for most mains)
+- unit: always "g" — convert everything to grams
+- If a menu description is provided, use ONLY those ingredients — do not invent extras
 - If the dish name is not a recognisable food, return { "servings": 1, "ingredients": [] }
 - Return valid JSON only`;
 
-async function inferIngredients(dishName: string, geminiKey: string): Promise<{ servings: number; ingredients: InferredIngredient[] }> {
+async function inferIngredients(dishName: string, geminiKey: string, description?: string): Promise<{ servings: number; ingredients: InferredIngredient[] }> {
   try {
     const genAI = new GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    const result = await model.generateContent(INFER_PROMPT(dishName));
+    const result = await model.generateContent(INFER_PROMPT(dishName, description));
     const text = result.response.text();
     const clean = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
     const parsed = JSON.parse(clean) as { servings?: unknown; ingredients: unknown[] };
@@ -160,63 +185,7 @@ async function inferIngredients(dishName: string, geminiKey: string): Promise<{ 
   }
 }
 
-// ─── Google Places photo resolution ───────────────────────
-
-async function getRestaurantPhotos(restaurantName: string, placesKey: string, maxPhotos = 10): Promise<string[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    // Step 1: Text Search → placeId
-    const searchRes = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": placesKey,
-        "X-Goog-FieldMask": "places.id",
-      },
-      body: JSON.stringify({ textQuery: restaurantName, pageSize: 1 }),
-      signal: controller.signal,
-    });
-    if (!searchRes.ok) return [];
-    const searchData = await searchRes.json() as { places?: Array<{ id?: string }> };
-    const placeId = searchData?.places?.[0]?.id;
-    if (!placeId) return [];
-
-    // Step 2: Fetch photo references
-    const detailsRes = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
-      headers: { "X-Goog-Api-Key": placesKey, "X-Goog-FieldMask": "photos" },
-      signal: controller.signal,
-    });
-    if (!detailsRes.ok) return [];
-    const details = await detailsRes.json() as { photos?: Array<{ name: string }> };
-    const photoRefs = (details?.photos ?? []).slice(0, maxPhotos);
-    if (photoRefs.length === 0) return [];
-
-    // Step 3: Resolve photo references → CDN URLs in parallel
-    const photoUrls = await Promise.all(
-      photoRefs.map(async ({ name }) => {
-        try {
-          const photoRes = await fetch(
-            `https://places.googleapis.com/v1/${name}/media?maxWidthPx=800&skipHttpRedirect=true`,
-            { headers: { "X-Goog-Api-Key": placesKey }, signal: controller.signal }
-          );
-          if (!photoRes.ok) return null;
-          const photoJson = await photoRes.json() as { photoUri?: string };
-          const uri = photoJson?.photoUri;
-          // SEC-SEC-1.00: validate scheme before returning
-          return typeof uri === "string" && uri.startsWith("https://") ? uri : null;
-        } catch {
-          return null;
-        }
-      })
-    );
-    return photoUrls.filter((u): u is string => u !== null);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// ─── Google Custom Search fallback ────────────────────────
 
 async function getDishPhoto(dishName: string, cseKey: string, cseCx: string): Promise<string | null> {
   const controller = new AbortController();
@@ -251,6 +220,10 @@ const RequestDishSchema = z.object({
 const RequestSchema = z.object({
   dishes: z.array(RequestDishSchema).catch([]),
   restaurantName: z.string().nullable().optional().catch(null),
+  // Optional map of Gemini dish ID → Supabase recipe UUID.
+  // When provided, enriched ingredient macros are written back to Supabase
+  // after enrichment completes (fire-and-forget).
+  dishToRecipeMap: z.record(z.string(), z.string().uuid()).optional().catch(undefined),
 });
 
 // ─── Handler ───────────────────────────────────────────────
@@ -287,19 +260,19 @@ export async function POST(req: NextRequest) {
     // Return empty success rather than an error — enrichment is optional
     return NextResponse.json({ data: { dishes: [] } });
   }
-  const { restaurantName } = parsed.data;
+  const { restaurantName, dishToRecipeMap } = parsed.data;
 
   // Resolve restaurant photos once for all dishes
   let restaurantPhotos: string[] = [];
   if (placesKey && restaurantName) {
-    restaurantPhotos = await getRestaurantPhotos(restaurantName, placesKey);
+    restaurantPhotos = await getRestaurantPhotos({ name: restaurantName }, placesKey);
   }
 
   // Enrich each dish in parallel
   const enrichedDishes = await Promise.all(
     dishes.map(async (dish, i) => {
       // Step A: Gemini inference — get full ingredient list
-      const { servings, ingredients: inferredIngredients } = await inferIngredients(dish.name, geminiKey);
+      const { servings, ingredients: inferredIngredients } = await inferIngredients(dish.name, geminiKey, dish.description);
 
       // Step B: USDA macro lookup for each ingredient (parallel)
       let enrichedIngredients: Array<InferredIngredient & UsdaMacros> = [];
@@ -348,6 +321,63 @@ export async function POST(req: NextRequest) {
       };
     })
   );
+
+  // ─── Persist enriched macros back to Supabase (fire-and-forget) ──────────
+  // If the caller provided a dishToRecipeMap, write the USDA-enriched macro
+  // values back to each recipe_ingredients row. This runs after the response
+  // is ready so it never delays the enrichment result.
+  if (dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0) {
+    void (async () => {
+      try {
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+        if (!url || !key) return;
+
+        const sb = createClient<Database>(url, key);
+
+        for (const enrichedDish of enrichedDishes) {
+          const recipeId = enrichedDish.id ? dishToRecipeMap[enrichedDish.id] : undefined;
+          if (!recipeId) continue;
+
+          // Update each ingredient row that has USDA data
+          for (const ing of enrichedDish.ingredients as Array<{
+            name: string;
+            calories_kcal: number | null;
+            protein_g: number | null;
+            fat_g: number | null;
+            carbs_g: number | null;
+          }>) {
+            if (
+              ing.calories_kcal === null &&
+              ing.protein_g === null &&
+              ing.fat_g === null &&
+              ing.carbs_g === null
+            ) {
+              continue; // Skip ingredients with no USDA data
+            }
+
+            const { error } = await sb
+              .from("recipe_ingredients")
+              .update({
+                calories_per_serving: ing.calories_kcal,
+                protein_g: ing.protein_g,
+                fat_g: ing.fat_g,
+                carbs_g: ing.carbs_g,
+              })
+              .eq("recipe_id", recipeId)
+              .eq("name", ing.name);
+
+            if (error) {
+              console.warn("[enrich] ingredient update failed:", ing.name, error.message);
+              // Continue — best-effort, don't bail out of the loop
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[enrich] Supabase write-back error (non-blocking):", err instanceof Error ? err.message : err);
+      }
+    })();
+  }
 
   return NextResponse.json({ data: { dishes: enrichedDishes } });
 }

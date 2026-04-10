@@ -9,6 +9,9 @@ import "@fontsource/dm-sans/400.css";
 import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";
 import "./globals.css";
+import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
+import { InstallPromptBanner } from "@/components/pwa/InstallPromptBanner";
+import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
   title: "Plately",
@@ -27,7 +30,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#FAFAF7",
+  // Terracotta accent matches manifest theme_color and meta theme-color below
+  themeColor: "#C4622D",
 };
 
 export default function RootLayout({
@@ -37,7 +41,23 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full">
-      <body className="h-full antialiased">{children}</body>
+      <head>
+        {/* PWA: explicit theme-color for browsers that read it from the <head> directly */}
+        <meta name="theme-color" content="#C4622D" />
+        {/* Apple-specific PWA meta — Next.js appleWebApp in metadata handles most,
+            but these are required for full-screen mode on older iOS */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      </head>
+      <body className="h-full antialiased">
+        {/* Service worker registration (client-only, renders null) */}
+        <ServiceWorkerRegistrar />
+        <Providers>
+          {children}
+          {/* PWA install prompt banner — floats above content, respects dismissed state */}
+          <InstallPromptBanner />
+        </Providers>
+      </body>
     </html>
   );
 }

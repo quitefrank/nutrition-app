@@ -52,7 +52,7 @@ function ScanDishContent() {
 
       {dish.ingredients.length === 0 ? (
         <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-          Ingredient details are available when scanning a single dish.
+          No ingredient details were listed on the menu.
         </p>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>

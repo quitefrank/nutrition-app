@@ -2,15 +2,23 @@ import withPWA from '@ducanh2912/next-pwa'
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  // Badge surfaced in bottom nav instead — see glass-tab-bar.tsx
-  devIndicators: {},
+  devIndicators: { position: 'bottom-right' },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
+    ],
+  },
 }
 
 export default withPWA({
+  disable: process.env.NODE_ENV === 'development',
   dest: 'public',
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: false,
-  reloadOnOnline: true,
+  reloadOnOnline: false,
   customWorkerSrc: 'src/sw',
   workboxOptions: {
     runtimeCaching: [

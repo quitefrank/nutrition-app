@@ -307,8 +307,8 @@ export function CameraModal({ onClose, onCapture }: CameraModalProps) {
         />
       </motion.div>
 
-      {/* Dismiss button — top right */}
-      <div style={{ position: 'relative', zIndex: 20, display: 'flex', justifyContent: 'flex-end', padding: '16px' }}>
+      {/* Dismiss button — top right, above denied overlay (zIndex 30) */}
+      <div style={{ position: 'relative', zIndex: 40, display: 'flex', justifyContent: 'flex-end', padding: '16px' }}>
         <button
           onClick={onClose}
           aria-label="Close camera"
@@ -429,14 +429,14 @@ export function CameraModal({ onClose, onCapture }: CameraModalProps) {
         </div>
       )}
 
-      {/* Bottom controls */}
+      {/* Bottom controls — zIndex 40 so they sit above the denied overlay (zIndex 30) */}
       <div
         style={{
           position: 'absolute',
           bottom: 'calc(env(safe-area-inset-bottom, 0px) + 40px)',
           left: 0,
           right: 0,
-          zIndex: 20,
+          zIndex: 40,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

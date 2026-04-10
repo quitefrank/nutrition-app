@@ -5,7 +5,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/AppShell";
 import { FrostedCard } from "@/components/ui/FrostedCard";
-import { addIngredientsToGrocery } from "@/lib/grocery-store";
+import { useAddToGrocery } from "@/hooks/useGrocery";
+import { RestaurantConfirmation } from "@/components/scan/RestaurantConfirmation";
+import type { RestaurantInfo } from "@/components/scan/RestaurantConfirmation";
+import { useRecipe, useRemoveRecipe } from "@/hooks/useRecipes";
+import type { DomainRecipe } from "@/types/database";
 
 interface Ingredient {
   name: string;
@@ -36,6 +40,8 @@ interface Dish {
 interface ScanResult {
   type: "menu" | "dish";
   restaurantName?: string | null;
+  restaurantPlaceId?: string | null;
+  restaurantAddress?: string | null;
   allDishes: Dish[];
   enriched?: boolean;
 }
@@ -50,6 +56,59 @@ const containerVariants = {
   show: { transition: { staggerChildren: 0.06 } },
 };
 
+// ─── UUID detection ────────────────────────────────────────
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUUID(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
+/**
+ * Map a DomainRecipe (from Supabase) to the ScanResult shape used by the
+ * existing render layer. A Supabase recipe is treated as a single-dish
+ * "dish" scan — no multi-dish selector chip is shown.
+ */
+function domainRecipeToScanResult(recipe: DomainRecipe): ScanResult {
+  const ingredients: Ingredient[] = (recipe.ingredients ?? []).map((ing) => ({
+    name: ing.name,
+    quantity: ing.quantity,
+    unit: ing.unit,
+    calories_kcal: ing.caloriesPerServing,
+    protein_g: ing.proteinG,
+    fat_g: ing.fatG,
+    carbs_g: ing.carbsG,
+    confidenceLevel: ing.confidence,
+  }));
+
+  const sumNutrient = (fn: (i: Ingredient) => number | null | undefined): number | null => {
+    const vals = ingredients.map(fn).filter((v): v is number => v != null);
+    return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) * 10) / 10 : null;
+  };
+
+  const dish: Dish = {
+    id: recipe.id,
+    name: recipe.name,
+    description: recipe.description ?? undefined,
+    calorieEstimate: recipe.estimatedCalories,
+    photoUrl: recipe.dishImageUrl,
+    ingredients,
+    totalCalories: sumNutrient(i => i.calories_kcal) ?? recipe.estimatedCalories,
+    totalProtein: sumNutrient(i => i.protein_g),
+    totalFat: sumNutrient(i => i.fat_g),
+    totalCarbs: sumNutrient(i => i.carbs_g),
+  };
+
+  return {
+    type: "dish",
+    restaurantName: recipe.restaurant?.name ?? null,
+    restaurantPlaceId: recipe.restaurant?.placeId ?? null,
+    restaurantAddress: recipe.restaurant?.address ?? null,
+    allDishes: [dish],
+    enriched: true,
+  };
+}
+
 // ─── Inner page (uses useSearchParams) ────────────────────
 
 function RecipePageInner() {
@@ -60,12 +119,38 @@ function RecipePageInner() {
   const id = typeof params.id === "string" ? params.id : params.id?.[0] ?? "";
   const dishIndex = Math.max(0, Number(searchParams.get("dish") ?? "0"));
 
+  // Detect the ID type:
+  // - UUID → Supabase recipe (direct-link or cross-session navigation)
+  // - "plately_scan_*" or "plately_supabase_*" → sessionStorage key
+  const idIsUUID = isUUID(id);
+
   const [result, setResult] = useState<ScanResult | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [groceryAdded, setGroceryAdded] = useState(false);
+  const [confirmationDismissed, setConfirmationDismissed] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const removeRecipe = useRemoveRecipe();
+  const addToGroceryMutation = useAddToGrocery();
+
+  // ── Supabase path (UUID ids only) ──────────────────────────
+  const { data: supabaseRecipe, isError: supabaseError, isLoading: supabaseLoading } =
+    useRecipe(idIsUUID ? id : null);
+
+  // Map Supabase recipe into ScanResult when it arrives
+  useEffect(() => {
+    if (!idIsUUID) return;
+    if (supabaseRecipe) {
+      setResult(domainRecipeToScanResult(supabaseRecipe));
+      setNotFound(false);
+    } else if (supabaseError && !supabaseLoading) {
+      setNotFound(true);
+    }
+  }, [idIsUUID, supabaseRecipe, supabaseError, supabaseLoading]);
+
+  // ── SessionStorage path (non-UUID ids) ────────────────────
 
   const loadFromStorage = useCallback(() => {
-    if (!id) { setNotFound(true); return; }
+    if (!id || idIsUUID) return;
     const raw = sessionStorage.getItem(id);
     if (!raw) { setNotFound(true); return; }
     try {
@@ -73,25 +158,54 @@ function RecipePageInner() {
     } catch {
       setNotFound(true);
     }
-  }, [id]);
+  }, [id, idIsUUID]);
+
+  /** Persist the confirmed restaurant into sessionStorage and re-render */
+  const handleRestaurantConfirm = useCallback(
+    (restaurant: RestaurantInfo) => {
+      if (!id || idIsUUID) return;
+      const raw = sessionStorage.getItem(id);
+      if (!raw) return;
+      try {
+        const parsed: ScanResult = JSON.parse(raw);
+        const updated: ScanResult = {
+          ...parsed,
+          restaurantName: restaurant.name,
+          restaurantPlaceId: restaurant.placeId,
+          restaurantAddress: restaurant.address ?? null,
+        };
+        sessionStorage.setItem(id, JSON.stringify(updated));
+        setResult(updated);
+      } catch {
+        // ignore
+      }
+      setConfirmationDismissed(true);
+    },
+    [id, idIsUUID]
+  );
+
+  const handleRestaurantSkip = useCallback(() => {
+    setConfirmationDismissed(true);
+  }, []);
 
   useEffect(() => {
-    loadFromStorage();
-  }, [loadFromStorage]);
+    if (!idIsUUID) loadFromStorage();
+  }, [loadFromStorage, idIsUUID]);
 
-  // Listen for enrichment updates — CustomEvent from same tab
+  // Listen for enrichment updates — CustomEvent from same tab (sessionStorage only)
   useEffect(() => {
+    if (idIsUUID) return;
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ key: string }>).detail;
       if (detail?.key === id) loadFromStorage();
     };
     window.addEventListener("plately:enriched", handler);
     return () => window.removeEventListener("plately:enriched", handler);
-  }, [id, loadFromStorage]);
+  }, [id, idIsUUID, loadFromStorage]);
 
-  // Polling fallback: check every 3s until enriched (max 45s)
+  // Polling fallback: check every 3s until enriched (max 45s) — sessionStorage only
   useEffect(() => {
-    if (!id) return;
+    if (!id || idIsUUID) return;
     let attempts = 0;
     const interval = setInterval(() => {
       attempts++;
@@ -109,7 +223,20 @@ function RecipePageInner() {
       if (attempts >= 15) clearInterval(interval); // stop after 45s
     }, 3000);
     return () => clearInterval(interval);
-  }, [id, loadFromStorage]);
+  }, [id, idIsUUID, loadFromStorage]);
+
+  // ── Delete handler (UUID recipes only, two-tap confirmation) ─────────────────
+
+  function handleDeleteTap() {
+    if (!deleteConfirm) {
+      setDeleteConfirm(true);
+      setTimeout(() => setDeleteConfirm(false), 3000);
+      return;
+    }
+    void removeRecipe.mutateAsync(id).then(() => router.replace('/'));
+  }
+
+  // ── Not-found state ───────────────────────────────────────
 
   if (notFound) {
     return (
@@ -130,25 +257,39 @@ function RecipePageInner() {
     );
   }
 
+  // Loading state — shown while waiting for Supabase or sessionStorage
   if (!result) {
     return (
       <AppShell>
-        <div className="min-h-full" />
+        <RecipeDetailSkeleton />
       </AppShell>
     );
   }
 
-  const { type, restaurantName, allDishes, enriched } = result;
+  const { type, restaurantName, restaurantPlaceId, allDishes, enriched } = result;
   const dish = allDishes[dishIndex] ?? allDishes[0];
   const isMenu = type === "menu" && allDishes.length > 1;
   const otherDishes = allDishes.filter((_, i) => i !== dishIndex);
   const atmosphericUrl = dish?.photoUrl ?? null;
 
+  // When viewing a Supabase-backed recipe the restaurant ID is available
+  // directly; pass it through so AtmosphericBackground can persist the
+  // extracted palette without re-running extraction on every page load.
+  const atmosphericRestaurantId = idIsUUID ? (supabaseRecipe?.restaurantId ?? undefined) : undefined;
+
+  // Show the restaurant confirmation panel when no restaurant is identified.
+  // Not shown for Supabase recipes (they already have restaurant context).
+  const showConfirmation =
+    !idIsUUID &&
+    !confirmationDismissed &&
+    !restaurantName &&
+    !restaurantPlaceId;
+
   const hasRealMacros = dish?.ingredients?.some((i) => i.calories_kcal !== null && i.calories_kcal !== undefined);
   const displayCalories = dish?.totalCalories ?? dish?.calorieEstimate ?? null;
 
   return (
-    <AppShell atmosphericImageUrl={atmosphericUrl}>
+    <AppShell atmosphericImageUrl={atmosphericUrl} atmosphericRestaurantId={atmosphericRestaurantId}>
       <motion.div
         className="min-h-full flex flex-col"
         variants={containerVariants}
@@ -159,8 +300,8 @@ function RecipePageInner() {
         {/* Header */}
         <div className="px-4 pt-[calc(var(--space-safe-top)+16px)] pb-3 flex items-center gap-3">
           <motion.button
-            onClick={() => router.replace("/")}
-            aria-label="Back to home"
+            onClick={() => router.back()}
+            aria-label="Back"
             className="flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
             style={{ background: "rgba(180,170,158,0.18)" }}
             whileTap={{ scale: 0.9 }}
@@ -176,6 +317,35 @@ function RecipePageInner() {
               {restaurantName ?? (isMenu ? "Menu scan" : "Dish scan")}
             </motion.p>
           </div>
+          {/* Edit link */}
+          <motion.button
+            onClick={() => router.push(`/recipe/${id}/edit?dish=${dishIndex}`)}
+            aria-label="Edit recipe"
+            className="flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
+            style={{ background: "rgba(180,170,158,0.18)" }}
+            whileTap={{ scale: 0.9 }}
+            variants={itemVariants}
+          >
+            <PencilIcon />
+          </motion.button>
+          {/* Delete button — UUID (Supabase) recipes only; two-tap confirmation */}
+          {idIsUUID && (
+            <motion.button
+              onClick={handleDeleteTap}
+              disabled={removeRecipe.isPending}
+              aria-label={deleteConfirm ? "Confirm delete" : "Delete recipe"}
+              className="flex items-center justify-center h-9 rounded-full flex-shrink-0 px-3 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: deleteConfirm ? "rgba(220,38,38,0.12)" : "rgba(180,170,158,0.18)",
+                color: deleteConfirm ? "rgb(220,38,38)" : "var(--color-text-tertiary)",
+                minWidth: deleteConfirm ? undefined : 36,
+              }}
+              whileTap={{ scale: 0.9 }}
+              variants={itemVariants}
+            >
+              {deleteConfirm ? "Delete?" : <TrashIcon />}
+            </motion.button>
+          )}
         </div>
 
         {/* Dish selector chips (menu scans with multiple dishes) */}
@@ -219,6 +389,16 @@ function RecipePageInner() {
             </p>
           )}
         </motion.div>
+
+        {/* Restaurant confirmation — shown when no restaurant is linked (sessionStorage scans only) */}
+        {showConfirmation && (
+          <motion.div variants={itemVariants} className="px-4 pb-4">
+            <RestaurantConfirmation
+              onConfirm={handleRestaurantConfirm}
+              onSkip={handleRestaurantSkip}
+            />
+          </motion.div>
+        )}
 
         {/* Stats row */}
         {(displayCalories || dish.servings) && (
@@ -326,11 +506,14 @@ function RecipePageInner() {
             <motion.button
               onClick={() => {
                 if (groceryAdded) return;
-                addIngredientsToGrocery(
-                  dish.ingredients,
-                  dish.name,
-                  restaurantName ?? null
-                );
+                addToGroceryMutation.mutate({
+                  items: dish.ingredients.map((ing) => ({
+                    name: ing.name,
+                    quantity: ing.quantity ?? null,
+                    unit: ing.unit ?? null,
+                    recipeId: dish.id,
+                  })),
+                });
                 setGroceryAdded(true);
                 setTimeout(() => setGroceryAdded(false), 2500);
               }}
@@ -425,6 +608,59 @@ export default function RecipePage() {
   );
 }
 
+// ─── Loading skeleton ───────────────────────────────────────
+
+function RecipeDetailSkeleton() {
+  return (
+    <div
+      className="min-h-full flex flex-col animate-pulse"
+      aria-busy="true"
+      aria-label="Loading"
+    >
+      {/* Header row */}
+      <div className="px-4 pt-[calc(var(--space-safe-top)+16px)] pb-3 flex items-center gap-3">
+        <div
+          className="flex-shrink-0 w-9 h-9 rounded-full"
+          style={{ background: "rgba(180,170,158,0.12)" }}
+          aria-hidden="true"
+        />
+        <div
+          className="flex-1 h-4 rounded"
+          style={{ background: "rgba(180,170,158,0.10)", maxWidth: 160 }}
+          aria-hidden="true"
+        />
+      </div>
+
+      {/* Dish name */}
+      <div className="px-4 pb-4 flex flex-col gap-2">
+        <div style={{ height: 38, width: "80%", background: "rgba(180,170,158,0.10)", borderRadius: 8 }} aria-hidden="true" />
+        <div style={{ height: 16, width: "55%", background: "rgba(180,170,158,0.07)", borderRadius: 6 }} aria-hidden="true" />
+      </div>
+
+      {/* Stats pill */}
+      <div className="px-4 pb-4">
+        <div style={{ height: 34, width: 100, background: "rgba(180,170,158,0.10)", borderRadius: 999 }} aria-hidden="true" />
+      </div>
+
+      {/* Macros card */}
+      <div className="px-4 pb-4">
+        <div style={{ height: 60, background: "rgba(180,170,158,0.08)", borderRadius: 12 }} aria-hidden="true" />
+      </div>
+
+      {/* Ingredients list */}
+      <div className="px-4 pb-4 flex flex-col gap-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            style={{ height: 44, background: "rgba(180,170,158,0.07)", borderRadius: 8 }}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Sub-components ────────────────────────────────────────
 
 function MacroStat({ label, value, unit }: { label: string; value: number | null | undefined; unit: string }) {
@@ -459,6 +695,27 @@ function ChevronLeftIcon() {
   );
 }
 
+function PencilIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+        stroke="var(--color-text-secondary)"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+        stroke="var(--color-text-secondary)"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function ChevronRightIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -480,6 +737,14 @@ function GroceryBagIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M6 7h12l-1.5 11H7.5L6 7Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
       <path d="M9 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

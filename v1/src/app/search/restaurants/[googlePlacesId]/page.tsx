@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { PageHeader } from '@/components/layout/page-header'
 import { DishCard } from '@/components/scan/scan-results'
 import { DishDetailSheet } from '@/components/scan/dish-detail-sheet'
-import { useRestaurantDishes } from '@/hooks/use-search'
+import { useRestaurantDishStream } from '@/hooks/use-search'
 import { useSaveRecipe, useDeleteRecipe, useRecipes } from '@/hooks/use-recipes'
 import { useOnlineStatus } from '@/hooks/use-online-status'
 import type { DishResult, RecipeSaveRequest } from '@/types/api'
@@ -14,6 +14,87 @@ import type { DishResult, RecipeSaveRequest } from '@/types/api'
 interface PageProps {
   params: Promise<{ googlePlacesId: string }>
 }
+
+// ─── Scanning progress indicator ──────────────────────────────────────────────
+
+function ScanProgressIndicator({ message }: { message: string | null }) {
+  return (
+    <div
+      role="status"
+      aria-label={message ?? 'Scanning menu…'}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 'var(--spacing-4)',
+        padding: 'var(--spacing-8) var(--spacing-4)',
+      }}
+    >
+      {/* Animated scan ring */}
+      <div style={{ position: 'relative', width: 56, height: 56 }}>
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            border: '2px solid var(--glass-card-border)',
+          }}
+        />
+        <div
+          className="animate-spin"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            border: '2px solid transparent',
+            borderTopColor: 'var(--text-primary)',
+          }}
+        />
+        {/* Camera icon dot */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="4" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Status text */}
+      <p
+        style={{
+          fontSize: 'var(--text-sm)',
+          color: 'var(--text-secondary)',
+          textAlign: 'center',
+          maxWidth: 240,
+          lineHeight: 1.4,
+          transition: 'opacity 0.3s ease',
+        }}
+      >
+        {message ?? 'Scanning photos…'}
+      </p>
+    </div>
+  )
+}
+
+// ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function RestaurantDishListPage({ params }: PageProps) {
   const { googlePlacesId } = use(params)
@@ -25,9 +106,11 @@ export default function RestaurantDishListPage({ params }: PageProps) {
   const [selectedDish, setSelectedDish] = useState<DishResult | null>(null)
   const [savedDishIds, setSavedDishIds] = useState<Record<string, string>>({})
 
-  const { data: dishes, isLoading, error, refetch } = useRestaurantDishes(
-    isOnline ? googlePlacesId : null
+  const { dishes, statusMessage, isStreaming, error, retry } = useRestaurantDishStream(
+    isOnline ? googlePlacesId : null,
+    restaurantName,
   )
+
   const { data: allRecipes = [] } = useRecipes()
 
   // Recipes saved from this restaurant
@@ -51,7 +134,7 @@ export default function RestaurantDishListPage({ params }: PageProps) {
         visitedAt: Date.now(),
       }))
     } catch {
-      // localStorage unavailable (e.g. private/incognito quota) — non-fatal
+      // localStorage unavailable — non-fatal
     }
   }, [savedAtThisRestaurant.length, googlePlacesId, restaurantName]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -119,26 +202,11 @@ export default function RestaurantDishListPage({ params }: PageProps) {
     <div style={{ padding: '0 var(--spacing-4)', paddingBottom: '80px' }}>
       <PageHeader title={restaurantName ?? 'Restaurant'} showBack />
 
-      {isLoading && (
-        <div
-          role="status"
-          aria-label="Loading dishes"
-          style={{ display: 'flex', justifyContent: 'center', padding: 'var(--spacing-6)' }}
-        >
-          <div
-            className="animate-spin"
-            style={{
-              width: 32,
-              height: 32,
-              border: '3px solid var(--glass-border)',
-              borderTopColor: 'var(--text-primary)',
-              borderRadius: '50%',
-            }}
-          />
-        </div>
-      )}
+      {/* Progressive scan indicator */}
+      {isStreaming && <ScanProgressIndicator message={statusMessage} />}
 
-      {error && !isLoading && (
+      {/* Error state */}
+      {error && !isStreaming && (
         <div
           role="alert"
           data-testid="error-state"
@@ -151,10 +219,10 @@ export default function RestaurantDishListPage({ params }: PageProps) {
               marginBottom: 'var(--spacing-3)',
             }}
           >
-            Could not load dishes. Please try again.
+            {error}
           </p>
           <button
-            onClick={() => void refetch()}
+            onClick={retry}
             style={{
               width: '100%',
               height: '56px',
@@ -211,6 +279,7 @@ export default function RestaurantDishListPage({ params }: PageProps) {
         </div>
       )}
 
+      {/* Dish list — shown once streaming completes */}
       {dishes && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
           {dishes.map((dish, i) => (

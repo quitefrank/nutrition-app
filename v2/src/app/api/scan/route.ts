@@ -2,8 +2,10 @@ import 'server-only'
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
+import { getCachedMenu, cacheMenu } from "@/lib/menuCache";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -77,15 +79,38 @@ const GeminiResponseSchema = z.object({
 
 // ─── Request schema ───────────────────────────────────────
 
-const RequestSchema = z.object({
-  imageBase64: z.string().min(1),
-  mimeType: z.string().min(1),
-});
+// Accepts either:
+//   { imageBase64, mimeType, ...}  — direct base64 upload (existing path)
+//   { photoUrl, ... }              — server fetches the URL (new path for Places photos)
+const RequestSchema = z
+  .object({
+    imageBase64: z.string().min(1).optional(),
+    mimeType: z.string().min(1).optional(),
+    // SEC-INJ-1.00: photoUrl validated as HTTPS at parse time and again before fetch
+    photoUrl: z.string().url().optional(),
+    // Optional restaurant identifiers for menu cache lookup
+    restaurantPlaceId: z.string().optional().catch(undefined),
+    restaurantName: z.string().optional().catch(undefined),
+  })
+  .refine(
+    (d) => (d.imageBase64 && d.mimeType) || d.photoUrl,
+    { message: 'Either imageBase64+mimeType or photoUrl is required' }
+  );
 
 export async function POST(req: NextRequest) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    // ── Resolve API key: user-provided BYOAK takes precedence over env key ──
+    // SEC-DAT-1.00: never log the key value; log only that a user key is in use
+    const userKeyHeader = req.headers.get("X-User-Gemini-Key") ?? "";
+    const envKey = process.env.GEMINI_API_KEY ?? "";
+
+    let apiKey: string;
+    if (userKeyHeader && userKeyHeader.startsWith("AI") && userKeyHeader.length >= 39) {
+      console.log("[scan] using user-provided API key");
+      apiKey = userKeyHeader;
+    } else if (envKey) {
+      apiKey = envKey;
+    } else {
       return NextResponse.json(
         { error: "Scan service not configured", code: "SCAN_SERVICE_UNAVAILABLE" },
         { status: 503 }
@@ -110,34 +135,137 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { imageBase64, mimeType } = parsed.data;
+    const { restaurantPlaceId, restaurantName } = parsed.data;
 
-    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-      return NextResponse.json(
-        { error: "Unsupported image format", code: "INVALID_REQUEST" },
-        { status: 400 }
-      );
+    // ─── Menu cache lookup (chain restaurant fast-path) ────────────────────
+    // If we have a restaurant identifier, check whether we already have a
+    // scanned menu for this location that's within the 30-day TTL. If so,
+    // return the cached dishes immediately — no Gemini call needed.
+    if (restaurantPlaceId || restaurantName) {
+      try {
+        const cached = await getCachedMenu({
+          placeId: restaurantPlaceId,
+          name: restaurantName,
+        });
+
+        if (cached) {
+          const dishesWithIds = cached.dishes
+            .filter((d) => d.name.trim().length > 0)
+            .map((dish) => ({
+              name: dish.name,
+              description: dish.description ?? "",
+              calorieEstimate: dish.calorieEstimate ?? null,
+              confidence: 0.9, // Cache hits are treated as high confidence
+              ingredients: [],
+              id: crypto.randomUUID(),
+            }));
+
+          if (dishesWithIds.length > 0) {
+            return NextResponse.json({
+              data: {
+                type: "menu" as const,
+                restaurantName: restaurantName ?? null,
+                dishes: dishesWithIds,
+              },
+              cached: true,
+            });
+          }
+        }
+      } catch (err) {
+        // Cache lookup failed — fall through to Gemini (non-blocking)
+        console.warn("[scan] menu cache lookup failed:", err instanceof Error ? err.message : err);
+      }
     }
 
-    if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
-      return NextResponse.json(
-        { error: "Image too large", code: "INVALID_REQUEST" },
-        { status: 400 }
-      );
+    // ─── Resolve image: direct base64 or fetch from photoUrl ─────────────
+    let imageBase64: string;
+    let mimeType: string;
+
+    if (parsed.data.photoUrl) {
+      const photoUrl = parsed.data.photoUrl;
+      // SEC-INJ-1.00 / SEC-SEC-1.00: reject non-HTTPS URLs
+      if (!photoUrl.startsWith('https://')) {
+        return NextResponse.json(
+          { error: 'photoUrl must be an HTTPS URL', code: 'INVALID_REQUEST' },
+          { status: 400 }
+        );
+      }
+      const fetchController = new AbortController();
+      const fetchTimer = setTimeout(() => fetchController.abort(), 8000);
+      try {
+        const photoRes = await fetch(photoUrl, { signal: fetchController.signal });
+        if (!photoRes.ok) {
+          return NextResponse.json(
+            { error: 'Failed to fetch photo', code: 'PHOTO_FETCH_FAILED' },
+            { status: 400 }
+          );
+        }
+        const contentType = photoRes.headers.get('content-type') ?? 'image/jpeg';
+        mimeType = contentType.split(';')[0].trim();
+        if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+          return NextResponse.json(
+            { error: 'Unsupported image format', code: 'INVALID_REQUEST' },
+            { status: 400 }
+          );
+        }
+        const buffer = await photoRes.arrayBuffer();
+        if (buffer.byteLength * 1.34 > MAX_IMAGE_BASE64_LENGTH) {
+          return NextResponse.json(
+            { error: 'Image too large', code: 'INVALID_REQUEST' },
+            { status: 400 }
+          );
+        }
+        imageBase64 = Buffer.from(buffer).toString('base64');
+      } catch (err) {
+        console.warn('[scan] photoUrl fetch failed:', err instanceof Error ? err.message : err);
+        return NextResponse.json(
+          { error: 'Could not retrieve photo', code: 'PHOTO_FETCH_FAILED' },
+          { status: 400 }
+        );
+      } finally {
+        clearTimeout(fetchTimer);
+      }
+    } else {
+      imageBase64 = parsed.data.imageBase64!;
+      mimeType = parsed.data.mimeType!;
+
+      if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+        return NextResponse.json(
+          { error: 'Unsupported image format', code: 'INVALID_REQUEST' },
+          { status: 400 }
+        );
+      }
+      if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+        return NextResponse.json(
+          { error: 'Image too large', code: 'INVALID_REQUEST' },
+          { status: 400 }
+        );
+      }
     }
 
-    // ─── Call Gemini ───────────────────────────────────────
+    // ─── Call Gemini (with 2.0-flash fallback on 503) ─────────
 
     let rawText: string;
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
-      // SEC-DAT-1.00: image data only exists in memory during this call; never persisted
-      const result = await model.generateContent([
+      const parts = [
         { inlineData: { data: imageBase64, mimeType } },
         { text: SCAN_PROMPT },
-      ]);
+      ];
+
+      // SEC-DAT-1.00: image data only exists in memory during this call; never persisted
+      let result;
+      try {
+        result = await genAI.getGenerativeModel({ model: GEMINI_MODEL }).generateContent(parts);
+      } catch (primaryErr) {
+        const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+        if (msg.includes("503")) {
+          console.warn("[scan] gemini-2.5-flash 503 — retrying with gemini-2.0-flash");
+          result = await genAI.getGenerativeModel({ model: GEMINI_FALLBACK_MODEL }).generateContent(parts);
+        } else {
+          throw primaryErr;
+        }
+      }
 
       rawText = result.response.text();
     } catch (err) {
@@ -187,6 +315,59 @@ export async function POST(req: NextRequest) {
       ingredients: dish.ingredients.filter((i) => i.name.trim().length > 0),
       id: crypto.randomUUID(),
     }));
+
+    // ─── Populate menu cache (fire-and-forget) ────────────────────────────
+    // If we have a restaurant name or place ID, attempt to look up or create
+    // the restaurant row and persist the dishes JSON for future cache hits.
+    if (restaurantName || validated.data.restaurantName) {
+      const nameForCache = (restaurantName ?? validated.data.restaurantName) as string;
+      void (async () => {
+        try {
+          const { createClient } = await import("@supabase/supabase-js");
+          const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+          const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+          if (!url || !key) return;
+
+          const sb = createClient(url, key);
+
+          // Find or create the restaurant
+          let restaurantId: string | null = null;
+
+          if (restaurantPlaceId) {
+            const { data } = await sb
+              .from("restaurants")
+              .select("id")
+              .eq("place_id", restaurantPlaceId)
+              .limit(1)
+              .single();
+            restaurantId = (data as { id: string } | null)?.id ?? null;
+          }
+
+          if (!restaurantId) {
+            const { data } = await sb
+              .from("restaurants")
+              .select("id")
+              .eq("name", nameForCache)
+              .limit(1)
+              .single();
+            restaurantId = (data as { id: string } | null)?.id ?? null;
+          }
+
+          if (restaurantId) {
+            const dishesJson = JSON.stringify(
+              dishesWithIds.map((d) => ({
+                name: d.name,
+                description: d.description,
+                calorieEstimate: d.calorieEstimate,
+              }))
+            );
+            await cacheMenu(restaurantId, dishesJson);
+          }
+        } catch (err) {
+          console.warn("[scan] cacheMenu fire-and-forget failed:", err instanceof Error ? err.message : err);
+        }
+      })();
+    }
 
     return NextResponse.json({
       data: {

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- Rounded square background: #C4622D terracotta -->
+  <rect width="192" height="192" rx="42" ry="42" fill="#C4622D"/>
+
+  <!-- Plate: white circle, centered -->
+  <circle cx="96" cy="96" r="41" fill="#FAFAF7"/>
+
+  <!-- Fork (left of plate center) -->
+  <!-- Handle -->
+  <rect x="73" y="77" width="4" height="41" rx="2" fill="#C4622D"/>
+  <!-- Tines -->
+  <rect x="69" y="63" width="2.5" height="17" rx="1.25" fill="#C4622D"/>
+  <rect x="73" y="63" width="2.5" height="17" rx="1.25" fill="#C4622D"/>
+  <rect x="77" y="63" width="2.5" height="17" rx="1.25" fill="#C4622D"/>
+  <!-- Tine connector bar -->
+  <rect x="69" y="78" width="11" height="2.5" rx="1.25" fill="#C4622D"/>
+
+  <!-- Knife (right of plate center) -->
+  <!-- Handle -->
+  <rect x="115" y="77" width="4" height="41" rx="2" fill="#C4622D"/>
+  <!-- Blade -->
+  <path d="M114 63 L120 63 L119 78 L115 78 Z" fill="#C4622D"/>
+</svg>

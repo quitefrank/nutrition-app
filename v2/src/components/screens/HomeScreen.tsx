@@ -4,6 +4,13 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, type Variants } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
+import { SwipeToDelete } from "@/components/ui/SwipeToDelete";
+import { SmartBanner } from "@/components/banners/SmartBanner";
+import { TipBanner } from "@/components/scan/TipBanner";
+import { PartialResultsBanner } from "@/components/scan/PartialResultsBanner";
+import { useRecipes, useRemoveRecipe } from "@/hooks/useRecipes";
+import { useRestaurantsWithRecipes } from "@/hooks/useRestaurants";
+import type { DomainRecipe, DomainRestaurant } from "@/types/database";
 
 // ─── Animation variants ────────────────────────────────────
 
@@ -30,12 +37,16 @@ interface Dish {
   calorieEstimate?: number | null;
   totalCalories?: number | null;
   photoUrl?: string | null;
+  /** Set when the dish came from Supabase — lets navigation use UUID path */
+  supabaseId?: string;
 }
 
 interface ScanGroup {
   scanKey: string;
   label: string;
   dishes: Dish[];
+  restaurantName?: string | null;
+  partialResults?: boolean;
 }
 
 interface DishEntry {
@@ -49,6 +60,8 @@ interface RestaurantEntry {
   label: string;
   scanKey: string;
   photoUrl: string | null;
+  /** Set when the entry came from Supabase */
+  supabaseId?: string;
 }
 
 // ─── Helpers ───────────────────────────────────────────────
@@ -81,12 +94,18 @@ function readScanGroups(): ScanGroup[] {
       const raw = sessionStorage.getItem(scanKey);
       if (!raw) return [];
       try {
-        const result = JSON.parse(raw) as { restaurantName?: string | null; allDishes: Dish[] };
+        const result = JSON.parse(raw) as {
+          restaurantName?: string | null;
+          allDishes: Dish[];
+          partialResults?: boolean;
+        };
         if (!Array.isArray(result.allDishes) || result.allDishes.length === 0) return [];
         return [{
           scanKey,
           label: formatScanLabel(scanKey, result.restaurantName),
           dishes: result.allDishes,
+          restaurantName: result.restaurantName ?? null,
+          partialResults: result.partialResults ?? false,
         }];
       } catch {
         return [];
@@ -97,14 +116,137 @@ function readScanGroups(): ScanGroup[] {
   }
 }
 
+/**
+ * Map a DomainRecipe from Supabase to the local Dish interface.
+ */
+function domainRecipeToDish(recipe: DomainRecipe): Dish {
+  return {
+    id: recipe.id,
+    supabaseId: recipe.id,
+    name: recipe.name,
+    description: recipe.description ?? undefined,
+    calorieEstimate: recipe.estimatedCalories,
+    photoUrl: recipe.dishImageUrl,
+  };
+}
+
+/**
+ * Merge sessionStorage scan groups with Supabase recipes.
+ *
+ * Strategy:
+ * 1. Start with all sessionStorage groups (current session, always fast).
+ * 2. For each Supabase recipe, check if a dish with the same name already
+ *    exists in the session groups (case-insensitive).
+ *    - If it exists, replace the dish entry to bring in richer fields
+ *      (persisted image URL, supabaseId for linking).
+ *    - If it does not exist, create a synthetic ScanGroup for it so it
+ *      appears in the collection.
+ */
+function mergeWithSupabaseRecipes(
+  sessionGroups: ScanGroup[],
+  supabaseRecipes: DomainRecipe[],
+  restaurantsWithRecipes: Array<DomainRestaurant & { recipes: DomainRecipe[] }>,
+): ScanGroup[] {
+  if (supabaseRecipes.length === 0) return sessionGroups;
+
+  // Build a lookup of restaurant id → name for labelling synthetic groups
+  const restaurantNameById = new Map<string, string>(
+    restaurantsWithRecipes.map((r) => [r.id, r.name])
+  );
+
+  // Build a set of lowercase dish names already in session
+  const sessionDishNames = new Set(
+    sessionGroups.flatMap((g) => g.dishes.map((d) => d.name.toLowerCase().trim()))
+  );
+
+  // Enrich existing session dishes where a Supabase counterpart exists
+  const enrichedGroups: ScanGroup[] = sessionGroups.map((group) => ({
+    ...group,
+    dishes: group.dishes.map((dish) => {
+      const match = supabaseRecipes.find(
+        (r) => r.name.toLowerCase().trim() === dish.name.toLowerCase().trim()
+      );
+      if (!match) return dish;
+      return {
+        ...dish,
+        supabaseId: match.id,
+        // Prefer persisted image URL if the local dish has none
+        photoUrl: dish.photoUrl ?? match.dishImageUrl,
+        calorieEstimate: dish.calorieEstimate ?? match.estimatedCalories,
+      };
+    }),
+  }));
+
+  // Collect Supabase recipes that have no session equivalent — group by restaurant
+  const newRecipesByRestaurant = new Map<string, DomainRecipe[]>();
+  for (const recipe of supabaseRecipes) {
+    if (sessionDishNames.has(recipe.name.toLowerCase().trim())) continue;
+    const existing = newRecipesByRestaurant.get(recipe.restaurantId) ?? [];
+    existing.push(recipe);
+    newRecipesByRestaurant.set(recipe.restaurantId, existing);
+  }
+
+  // Create synthetic ScanGroups for Supabase-only recipes (oldest-first so
+  // the newest appears at the top when sorted by scanKey timestamp below)
+  const syntheticGroups: ScanGroup[] = [];
+  for (const [restaurantId, recipes] of newRecipesByRestaurant) {
+    const label = restaurantNameById.get(restaurantId) ?? "Saved restaurant";
+    // Use a synthetic scanKey that sorts before real session keys
+    const syntheticKey = `plately_supabase_${restaurantId}`;
+    syntheticGroups.push({
+      scanKey: syntheticKey,
+      label,
+      restaurantName: label,
+      dishes: recipes.map(domainRecipeToDish),
+      partialResults: false,
+    });
+  }
+
+  // Supabase-only groups go after session groups (session data is fresher)
+  return [...enrichedGroups, ...syntheticGroups];
+}
+
+/**
+ * Build the RestaurantEntry list, supplementing sessionStorage entries with
+ * Supabase restaurant reference images where available.
+ */
+function buildRestaurantEntries(
+  groups: ScanGroup[],
+  restaurantsWithRecipes: Array<DomainRestaurant & { recipes: DomainRecipe[] }>,
+): RestaurantEntry[] {
+  const sessionEntries = groups.reduce<RestaurantEntry[]>((acc, g) => {
+    if (!acc.some((r) => r.label === g.label)) {
+      acc.push({ label: g.label, scanKey: g.scanKey, photoUrl: g.dishes[0]?.photoUrl ?? null });
+    }
+    return acc;
+  }, []);
+
+  if (restaurantsWithRecipes.length === 0) return sessionEntries;
+
+  // Build a name → referenceImageUrl lookup from Supabase
+  const supabaseImageByName = new Map(
+    restaurantsWithRecipes.map((r) => [r.name.toLowerCase().trim(), r.referenceImageUrl])
+  );
+
+  return sessionEntries.map((entry) => {
+    if (entry.photoUrl) return entry;
+    const supabaseImage = supabaseImageByName.get(entry.label.toLowerCase().trim());
+    return { ...entry, photoUrl: supabaseImage ?? null };
+  });
+}
+
 // ─── HomeScreen ────────────────────────────────────────────
 
 export function HomeScreen() {
-  const [groups, setGroups] = useState<ScanGroup[]>([]);
+  const [sessionGroups, setSessionGroups] = useState<ScanGroup[]>([]);
   const [showAll, setShowAll] = useState(false);
 
+  // Supabase data layers — degrade gracefully when not configured
+  const { data: supabaseRecipes, isPending: recipesPending } = useRecipes();
+  const { data: restaurantsWithRecipes } = useRestaurantsWithRecipes();
+
   const refresh = useCallback(() => {
-    setGroups(readScanGroups());
+    setSessionGroups(readScanGroups());
   }, []);
 
   useEffect(() => {
@@ -118,7 +260,24 @@ export function HomeScreen() {
     };
   }, [refresh]);
 
+  // Merge sessionStorage + Supabase data
+  const groups = mergeWithSupabaseRecipes(
+    sessionGroups,
+    supabaseRecipes ?? [],
+    restaurantsWithRecipes ?? [],
+  );
+
   const isEmpty = groups.length === 0;
+
+  // Derived banner data — uses merged groups but excludes synthetic entries
+  const realSessionGroups = groups.filter((g) => g.scanKey.startsWith("plately_scan_"));
+  const scanCount = realSessionGroups.reduce((acc, g) => acc + g.dishes.length, 0);
+  const mostRecentPartial = realSessionGroups[0]?.partialResults ?? false;
+  const scansForBanner = realSessionGroups.map((g) => ({
+    restaurantName: g.restaurantName ?? null,
+    allDishes: g.dishes,
+    partialResults: g.partialResults,
+  }));
 
   // Derived data
   const heroDish = groups[0]?.dishes[0] ?? null;
@@ -131,12 +290,8 @@ export function HomeScreen() {
   const collectionEntries = allDishEntries.slice(1); // exclude hero
   const displayedEntries = showAll ? collectionEntries : collectionEntries.slice(0, 6);
 
-  const restaurants = groups.reduce<RestaurantEntry[]>((acc, g) => {
-    if (!acc.some((r) => r.label === g.label)) {
-      acc.push({ label: g.label, scanKey: g.scanKey, photoUrl: g.dishes[0]?.photoUrl ?? null });
-    }
-    return acc;
-  }, []);
+  const restaurants = buildRestaurantEntries(groups, restaurantsWithRecipes ?? []);
+  const removeRecipe = useRemoveRecipe();
 
   return (
     <div className="min-h-full flex flex-col">
@@ -153,8 +308,21 @@ export function HomeScreen() {
         </motion.h1>
       </div>
 
+      {/* Banners — shown between header and content */}
+      {!isEmpty && realSessionGroups.length > 0 && (
+        <>
+          <SmartBanner scans={scansForBanner} />
+          <TipBanner scanCount={scanCount} />
+          <PartialResultsBanner hasPartialResults={mostRecentPartial} />
+        </>
+      )}
+
       {/* Content */}
-      {isEmpty ? (
+      {isEmpty && recipesPending && sessionGroups.length === 0 ? (
+        <div className="flex-1 px-4">
+          <HomeScreenSkeleton />
+        </div>
+      ) : isEmpty ? (
         <div className="flex-1 px-4">
           <EmptyState />
         </div>
@@ -192,7 +360,10 @@ export function HomeScreen() {
                   </button>
                 )}
               </div>
-              <CollectionGrid entries={displayedEntries} />
+              <CollectionGrid
+                entries={displayedEntries}
+                onDeleteById={(id) => void removeRecipe.mutate(id)}
+              />
             </motion.div>
           )}
 
@@ -219,9 +390,13 @@ export function HomeScreen() {
 function HeroCard({ dish, restaurant, scanKey }: { dish: Dish; restaurant: string | null; scanKey: string }) {
   const router = useRouter();
 
+  const href = dish.supabaseId
+    ? `/recipe/${dish.supabaseId}?dish=0`
+    : `recipe/${scanKey}?dish=0`;
+
   return (
     <motion.button
-      onClick={() => router.push(`/recipe/${scanKey}?dish=0`)}
+      onClick={() => router.push(href)}
       aria-label={`View ${dish.name}`}
       className="relative w-full overflow-hidden text-left"
       style={{ height: 240, background: "#1A1612" }}
@@ -268,7 +443,13 @@ function HeroCard({ dish, restaurant, scanKey }: { dish: Dish; restaurant: strin
 
 // ─── Collection grid ───────────────────────────────────────
 
-function CollectionGrid({ entries }: { entries: DishEntry[] }) {
+function CollectionGrid({
+  entries,
+  onDeleteById,
+}: {
+  entries: DishEntry[];
+  onDeleteById: (id: string) => void;
+}) {
   const router = useRouter();
 
   return (
@@ -276,20 +457,36 @@ function CollectionGrid({ entries }: { entries: DishEntry[] }) {
       className="px-4"
       style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}
     >
-      {entries.map(({ dish, scanKey, dishIndex, restaurant }) => (
-        <CollectionCard
-          key={`${scanKey}-${dishIndex}`}
-          dish={dish}
-          restaurant={restaurant}
-          onClick={() => router.push(`/recipe/${scanKey}?dish=${dishIndex}`)}
-        />
-      ))}
+      {entries.map(({ dish, scanKey, dishIndex, restaurant }) => {
+        const href = dish.supabaseId
+          ? `/recipe/${dish.supabaseId}?dish=0`
+          : `/recipe/${scanKey}?dish=${dishIndex}`;
+        return (
+          <CollectionCard
+            key={dish.supabaseId ?? `${scanKey}-${dishIndex}`}
+            dish={dish}
+            restaurant={restaurant}
+            onClick={() => router.push(href)}
+            onDelete={dish.supabaseId ? () => onDeleteById(dish.supabaseId!) : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function CollectionCard({ dish, restaurant, onClick }: { dish: Dish; restaurant: string; onClick: () => void }) {
-  return (
+function CollectionCard({
+  dish,
+  restaurant,
+  onClick,
+  onDelete,
+}: {
+  dish: Dish;
+  restaurant: string;
+  onClick: () => void;
+  onDelete?: () => void;
+}) {
+  const card = (
     <motion.button
       onClick={onClick}
       aria-label={`View ${dish.name}`}
@@ -338,6 +535,11 @@ function CollectionCard({ dish, restaurant, onClick }: { dish: Dish; restaurant:
       </div>
     </motion.button>
   );
+
+  if (onDelete) {
+    return <SwipeToDelete onDelete={onDelete}>{card}</SwipeToDelete>;
+  }
+  return card;
 }
 
 // ─── Recent Restaurants row ────────────────────────────────
@@ -415,6 +617,50 @@ function RestaurantPlaceholderIcon() {
         stroke="rgba(196,98,45,0.5)" strokeWidth="1.5" strokeLinejoin="round" />
       <circle cx="12" cy="13" r="3" stroke="rgba(196,98,45,0.5)" strokeWidth="1.5" />
     </svg>
+  );
+}
+
+// ─── Loading skeleton ───────────────────────────────────────
+
+function SkeletonBlock({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <div
+      className={className}
+      style={{ background: "rgba(180,170,158,0.10)", borderRadius: 8, ...style }}
+      aria-hidden="true"
+    />
+  );
+}
+
+function HomeScreenSkeleton() {
+  return (
+    <div className="flex flex-col gap-8 pb-8 animate-pulse" aria-busy="true" aria-label="Loading">
+      {/* Hero skeleton */}
+      <SkeletonBlock style={{ height: 240, borderRadius: 0 }} />
+
+      {/* Collection section */}
+      <div className="flex flex-col gap-3">
+        <SkeletonBlock className="mx-1" style={{ height: 18, width: 130 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonBlock key={i} style={{ aspectRatio: "3/4", borderRadius: 12 }} />
+          ))}
+        </div>
+      </div>
+
+      {/* Restaurants section */}
+      <div className="flex flex-col gap-3">
+        <SkeletonBlock className="mx-1" style={{ height: 18, width: 160 }} />
+        <div className="flex gap-3 overflow-hidden px-1">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex-shrink-0 flex flex-col gap-2" style={{ width: 88 }}>
+              <SkeletonBlock style={{ width: 88, height: 88, borderRadius: 10 }} />
+              <SkeletonBlock style={{ height: 12, width: 70 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

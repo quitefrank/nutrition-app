@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils'
 
 export type TabId = 'home' | 'search' | 'grocery'
 
-const IS_DEV = process.env.NODE_ENV === 'development'
 
 interface Tab {
   id: TabId
@@ -76,26 +75,6 @@ export function GlassTabBar({ activeTab, onTabChange, fabSlot, className }: Glas
           </button>
         ))}
 
-        {IS_DEV && (
-          <button
-            data-testid="tab-dev"
-            onClick={() => { document.querySelector<HTMLButtonElement>('button#next-logo')?.click() }}
-            aria-label="Open Next.js Dev Tools"
-            className="flex flex-col items-center gap-[2px] transition-colors duration-200 min-w-[44px] min-h-[44px] justify-center"
-            style={{
-              color: 'var(--text-tertiary)',
-              background: 'transparent',
-              borderRadius: 'var(--radius-full)',
-              border: '0.5px solid transparent',
-              padding: '4px 10px',
-            }}
-          >
-            <span className="text-[22px] leading-none" aria-hidden="true">
-              <NextJsIcon />
-            </span>
-            <span style={{ fontSize: 'var(--text-2xs)', fontWeight: 500 }}>Dev</span>
-          </button>
-        )}
 
         {fabSlot && (
           <div className="flex items-center justify-center" data-testid="tab-bar-fab">
@@ -133,16 +112,6 @@ function GroceryIcon() {
       <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
       <line x1="3" y1="6" x2="21" y2="6" />
       <path d="M16 10a4 4 0 0 1-8 0" />
-    </svg>
-  )
-}
-
-function NextJsIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="4" y1="18" x2="4" y2="6" />
-      <line x1="4" y1="6" x2="20" y2="18" />
-      <line x1="20" y1="18" x2="20" y2="6" />
     </svg>
   )
 }

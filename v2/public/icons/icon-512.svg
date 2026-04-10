@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Rounded square background: #C4622D terracotta -->
+  <rect width="512" height="512" rx="112" ry="112" fill="#C4622D"/>
+
+  <!-- Plate: white circle, centered -->
+  <circle cx="256" cy="256" r="110" fill="#FAFAF7"/>
+
+  <!-- Fork (left of plate center):
+       Vertical handle, 3 tines at top -->
+  <!-- Handle -->
+  <rect x="196" y="206" width="10" height="110" rx="5" fill="#C4622D"/>
+  <!-- Tines: left, center, right -->
+  <rect x="186" y="170" width="6" height="44" rx="3" fill="#C4622D"/>
+  <rect x="196" y="170" width="6" height="44" rx="3" fill="#C4622D"/>
+  <rect x="206" y="170" width="6" height="44" rx="3" fill="#C4622D"/>
+  <!-- Tine connector bar (at base of tines) -->
+  <rect x="186" y="210" width="26" height="6" rx="3" fill="#C4622D"/>
+
+  <!-- Knife (right of plate center):
+       Vertical handle, slightly wider blade top -->
+  <!-- Handle -->
+  <rect x="306" y="206" width="10" height="110" rx="5" fill="#C4622D"/>
+  <!-- Blade: tapers from wider at top to handle width -->
+  <path d="M304 170 L318 170 L316 210 L306 210 Z" fill="#C4622D" rx="3"/>
+</svg>
