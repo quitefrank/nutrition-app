@@ -54,9 +54,10 @@ interface StoredDish {
  * Persist a completed scan to Supabase.
  *
  * @param scanKey  sessionStorage key holding the ScanResult JSON
- * @returns        Supabase UUID of the first recipe, or null if Supabase is not configured
+ * @returns        Map of Gemini dish ID → Supabase recipe UUID for all saved dishes,
+ *                 or null if Supabase is not configured or no dishes were saved.
  */
-export async function autoSaveToSupabase(scanKey: string): Promise<string | null> {
+export async function autoSaveToSupabase(scanKey: string): Promise<Record<string, string> | null> {
   const supabase = getClient();
   if (!supabase) {
     // Offline-first: silently no-op when env vars are absent
@@ -168,13 +169,29 @@ export async function autoSaveToSupabase(scanKey: string): Promise<string | null
     const visitId = visitData?.id ?? null;
 
     // 4. Insert recipe + ingredients for every dish ───────────────────────────
-    let firstRecipeId: string | null = null;
+    const dishToRecipeMap: Record<string, string> = {};
 
     for (const dish of dishes) {
       const estimatedCalories =
         typeof dish.calorieEstimate === "number" && dish.calorieEstimate > 0
           ? Math.round(dish.calorieEstimate)
           : null;
+
+      // Dedup: if the same dish name already exists at this restaurant (and hasn't been removed),
+      // reuse the existing recipe UUID rather than inserting a duplicate row.
+      const { data: existingRecipe } = await supabase
+        .from("recipes")
+        .select("id")
+        .eq("restaurant_id", restaurantId)
+        .eq("name", dish.name)
+        .neq("status", "removed")
+        .limit(1)
+        .single();
+
+      if (existingRecipe) {
+        if (dish.id) dishToRecipeMap[dish.id] = existingRecipe.id;
+        continue;
+      }
 
       const { data: recipeData, error: recipeError } = await supabase
         .from("recipes")
@@ -196,7 +213,7 @@ export async function autoSaveToSupabase(scanKey: string): Promise<string | null
       }
 
       const recipeId = recipeData.id;
-      if (!firstRecipeId) firstRecipeId = recipeId;
+      if (dish.id) dishToRecipeMap[dish.id] = recipeId;
 
       // Insert ingredients (if any exist on this dish)
       const ingredientsToInsert = (dish.ingredients ?? [])
@@ -226,6 +243,7 @@ export async function autoSaveToSupabase(scanKey: string): Promise<string | null
     }
 
     // 5. Notify the recipe page of the real Supabase ID ───────────────────────
+    const firstRecipeId = Object.values(dishToRecipeMap)[0] ?? null;
     if (firstRecipeId) {
       window.dispatchEvent(
         new CustomEvent("plately:supabase-saved", {
@@ -234,7 +252,7 @@ export async function autoSaveToSupabase(scanKey: string): Promise<string | null
       );
     }
 
-    return firstRecipeId;
+    return Object.keys(dishToRecipeMap).length > 0 ? dishToRecipeMap : null;
   } catch (err) {
     // Never crash the UX — auto-save is best-effort
     console.warn(

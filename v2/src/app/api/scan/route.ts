@@ -259,8 +259,10 @@ export async function POST(req: NextRequest) {
         result = await genAI.getGenerativeModel({ model: GEMINI_MODEL }).generateContent(parts);
       } catch (primaryErr) {
         const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-        if (msg.includes("503")) {
-          console.warn("[scan] gemini-2.5-flash 503 — retrying with gemini-2.0-flash");
+        // Fall back on any transient server-side error (503 overload, 429 quota, 500 internal)
+        const isTransient = msg.includes("503") || msg.includes("429") || msg.includes("500") || msg.includes("overloaded") || msg.includes("quota");
+        if (isTransient) {
+          console.warn("[scan] gemini-2.5-flash transient error — retrying with gemini-2.0-flash:", msg);
           result = await genAI.getGenerativeModel({ model: GEMINI_FALLBACK_MODEL }).generateContent(parts);
         } else {
           throw primaryErr;

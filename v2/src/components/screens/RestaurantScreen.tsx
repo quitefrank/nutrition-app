@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
 import { useRestaurants } from "@/hooks/useRestaurants";
-import { useRecipesByRestaurant } from "@/hooks/useRecipes";
+import { useRecipesByRestaurant, useRemoveRecipe } from "@/hooks/useRecipes";
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 import { supabase } from "@/lib/supabase";
 import type { DomainRestaurant, DomainRecipe } from "@/types/database";
@@ -127,11 +127,101 @@ function domainRecipeToSaved(
   };
 }
 
+/**
+ * Fire-and-forget enrichment after an auto-save completes.
+ * Calls /api/scan/enrich so Gemini infers ingredients + USDA macros for
+ * every dish in the scan. Writes the enriched result back to sessionStorage
+ * (enriched: true) and dispatches plately:enriched so the recipe page
+ * stops polling and renders the updated data.
+ */
+function fireEnrichment(
+  scanKey: string,
+  dishToRecipeMap: Record<string, string> | null
+) {
+  void (async () => {
+    try {
+      const raw = sessionStorage.getItem(scanKey);
+      if (!raw) return;
+      const scanData = JSON.parse(raw) as {
+        allDishes: Array<{ id?: string; name: string; description?: string }>;
+        restaurantName?: string | null;
+      };
+      const dishes = (scanData.allDishes ?? []).map((d) => ({
+        id: d.id,
+        name: d.name,
+        description: d.description,
+      }));
+      if (dishes.length === 0) return;
+
+      const enrichRes = await fetch("/api/scan/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dishes,
+          restaurantName: scanData.restaurantName ?? null,
+          ...(dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0
+            ? { dishToRecipeMap }
+            : {}),
+        }),
+      });
+
+      if (!enrichRes.ok) return;
+
+      const enrichData = await enrichRes.json() as {
+        data?: {
+          dishes: Array<{
+            id?: string;
+            name: string;
+            servings: number;
+            ingredients: unknown[];
+            photoUrl: string | null;
+            totalCalories: number | null;
+            totalProtein: number | null;
+            totalFat: number | null;
+            totalCarbs: number | null;
+          }>;
+        };
+      };
+
+      const enrichedDishes = enrichData?.data?.dishes;
+      if (!Array.isArray(enrichedDishes)) return;
+
+      // Re-read sessionStorage in case it was updated since we started
+      const currentRaw = sessionStorage.getItem(scanKey);
+      const currentData = currentRaw
+        ? (JSON.parse(currentRaw) as { allDishes: Array<Record<string, unknown>> })
+        : scanData;
+
+      const mergedDishes = (currentData.allDishes ?? []).map((dish) => {
+        const enriched = enrichedDishes.find((e) =>
+          e.id ? e.id === dish.id : e.name === dish.name
+        );
+        if (!enriched) return dish;
+        return { ...dish, ...enriched };
+      });
+
+      sessionStorage.setItem(
+        scanKey,
+        JSON.stringify({ ...currentData, allDishes: mergedDishes, enriched: true })
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("plately:enriched", { detail: { key: scanKey } })
+      );
+    } catch {
+      // Non-blocking — enrichment is best-effort
+    }
+  })();
+}
+
 // ─── RestaurantScreen ──────────────────────────────────────
 
 export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nameFromUrl = searchParams.get("name") ?? null;
   const queryClient = useQueryClient();
+  const removeRecipe = useRemoveRecipe();
   const [sessionRecipes, setSessionRecipes] = useState<SavedRecipe[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -140,13 +230,11 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const [autoScanError, setAutoScanError] = useState<string | null>(null);
   const [fallbackDishPhotos, setFallbackDishPhotos] = useState<Array<{ name: string; url: string }>>([]);
 
-  // ── Scanning a single fallback dish photo ───────────────────
-  const [scanningPhotoUrl, setScanningPhotoUrl] = useState<string | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
-
   // ── Visit tracking ──────────────────────────────────────────
   // Guards against creating more than one visit record per page load.
   const visitCreatedRef = useRef(false);
+  // Guards against scanning fallback photos more than once per page load.
+  const fallbackScannedRef = useRef(false);
 
   // ── SessionStorage ─────────────────────────────────────────
   useEffect(() => {
@@ -259,6 +347,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   // Prefer Supabase restaurant name/address; fall back to sessionStorage data
   const restaurantName =
     supabaseRestaurant?.name ??
+    nameFromUrl ??
     recipes[0]?.restaurantName ??
     "Restaurant";
 
@@ -351,9 +440,10 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
 
       setSessionRecipes(loadRecipesForRestaurant(placeId));
       setAutoScanStep('done');
-      autoSaveToSupabase(scanKey).then(() => {
+      autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
         void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
         void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+        fireEnrichment(scanKey, dishToRecipeMap);
       });
     } catch {
       clearTimeout(stepTimer);
@@ -363,11 +453,9 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     }
   }, [placeId, restaurantName]);
 
-  // ── Scan a single dish photo from the fallback grid ────────
+  // ── Scan a single dish photo (auto-triggered, not user-driven) ──
   const handleScanPhoto = useCallback(
     async (photoUrl: string) => {
-      setScanningPhotoUrl(photoUrl);
-      setScanError(null);
       try {
         const res = await fetch('/api/scan', {
           method: 'POST',
@@ -379,11 +467,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           }),
         });
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({})) as { error?: string };
-          setScanError(err.error ?? 'Scan failed. Try another photo.');
-          return;
-        }
+        if (!res.ok) return;
 
         const json = await res.json() as {
           data: {
@@ -400,31 +484,44 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           };
         };
 
-        const scanKey = `plately_scan_${Date.now()}`;
+        if (json.data.dishes.length === 0) return;
+
+        const scanKey = `plately_scan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
         sessionStorage.setItem(
           scanKey,
           JSON.stringify({
             type: json.data.type,
             restaurantName: json.data.restaurantName ?? restaurantName,
             restaurantPlaceId: placeId,
-            allDishes: json.data.dishes,
+            allDishes: json.data.dishes.map((d, i) => ({
+              ...d,
+              photoUrl: i === 0 ? photoUrl : null,
+            })),
             enriched: false,
           })
         );
 
         setSessionRecipes(loadRecipesForRestaurant(placeId));
-        autoSaveToSupabase(scanKey).then(() => {
+        autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
           void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
           void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+          fireEnrichment(scanKey, dishToRecipeMap);
         });
       } catch {
-        setScanError('Something went wrong. Try another photo.');
-      } finally {
-        setScanningPhotoUrl(null);
+        // Non-blocking — best-effort dish photo scan
       }
     },
     [placeId, restaurantName]
   );
+
+  // ── Auto-scan fallback dish photos (no user interaction needed) ──
+  useEffect(() => {
+    if (fallbackDishPhotos.length === 0) return;
+    if (fallbackScannedRef.current) return;
+    fallbackScannedRef.current = true;
+    const toScan = fallbackDishPhotos.slice(0, 5);
+    void Promise.allSettled(toScan.map((photo) => handleScanPhoto(photo.url)));
+  }, [fallbackDishPhotos, handleScanPhoto]);
 
   return (
     <motion.div
@@ -480,17 +577,6 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           </div>
         </motion.div>
       </div>
-
-      {/* Recipe count */}
-      {loaded && (
-        <motion.p
-          variants={itemVariants}
-          className="px-4 pb-3 text-xs"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          {recipes.length} saved {recipes.length === 1 ? "recipe" : "recipes"}
-        </motion.p>
-      )}
 
       {/* Empty state */}
       {recipes.length === 0 && (
@@ -569,75 +655,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
             </div>
           )}
 
-          {/* Fallback: no menu found, show dish photos grid */}
-          {autoScanStep === 'done' && fallbackDishPhotos.length > 0 && (
-            <div className="px-4">
-              <p className="text-xs mb-3" style={{ color: "var(--color-text-tertiary)" }}>
-                No menu found in photos. Here are dishes we found:
+          {/* Fallback: no menu found — auto-scanning dish photos in background */}
+          {autoScanStep === 'done' && fallbackDishPhotos.length > 0 && sessionRecipes.length === 0 && (
+            <div className="flex flex-col items-center justify-center flex-1 gap-3">
+              <SpinnerIcon size={28} />
+              <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                Scanning dish photos…
               </p>
-
-              <AnimatePresence>
-                {scanError && (
-                  <motion.p
-                    key="scan-error"
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="text-xs mb-3 px-3 py-2 rounded-lg"
-                    style={{
-                      background: "rgba(200,60,60,0.1)",
-                      color: "var(--color-text-secondary)",
-                    }}
-                  >
-                    {scanError}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-
-              <motion.div
-                variants={containerVariants}
-                className="grid grid-cols-2 gap-3"
-              >
-                {fallbackDishPhotos.map((photo, idx) => (
-                  <motion.button
-                    key={`${idx}-${photo.url}`}
-                    variants={itemVariants}
-                    onClick={() => {
-                      if (!scanningPhotoUrl) void handleScanPhoto(photo.url);
-                    }}
-                    disabled={scanningPhotoUrl !== null}
-                    className="text-left overflow-hidden rounded-[var(--radius-md)] relative"
-                    style={{ background: "var(--color-surface)" }}
-                    aria-label={`Scan ${photo.name}`}
-                  >
-                    <div className="relative" style={{ height: 100 }}>
-                      <img
-                        src={photo.url}
-                        alt={photo.name}
-                        className="w-full h-full object-cover"
-                        style={{
-                          opacity: scanningPhotoUrl && scanningPhotoUrl !== photo.url ? 0.4 : 1,
-                          transition: "opacity 0.2s",
-                        }}
-                      />
-                      {scanningPhotoUrl === photo.url && (
-                        <div
-                          className="absolute inset-0 flex items-center justify-center"
-                          style={{ background: "rgba(0,0,0,0.35)" }}
-                        >
-                          <SpinnerIcon size={24} color="#fff" />
-                        </div>
-                      )}
-                    </div>
-                    <p
-                      className="px-3 py-2 text-xs font-medium leading-snug"
-                      style={{ color: "var(--color-text-primary)" }}
-                    >
-                      {photo.name}
-                    </p>
-                  </motion.button>
-                ))}
-              </motion.div>
             </div>
           )}
         </motion.div>
@@ -654,6 +678,17 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
                 recipe={recipe}
                 onTap={() =>
                   router.push(`/recipe/${recipe.scanKey}?dish=${recipe.dishIndex}`)
+                }
+                onDelete={
+                  recipe.isSupabase
+                    ? () => void removeRecipe.mutate(recipe.scanKey)
+                    : () =>
+                        setSessionRecipes((prev) =>
+                          prev.filter(
+                            (r) =>
+                              !(r.scanKey === recipe.scanKey && r.dishIndex === recipe.dishIndex)
+                          )
+                        )
                 }
               />
             </motion.div>
@@ -677,63 +712,83 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
 function RecipeCard({
   recipe,
   onTap,
+  onDelete,
 }: {
   recipe: SavedRecipe;
   onTap: () => void;
+  onDelete?: () => void;
 }) {
   const { dish } = recipe;
 
   return (
-    <FrostedCard
-      noPadding
-      className="overflow-hidden cursor-pointer"
-      onClick={onTap}
-      role="button"
-      tabIndex={0}
-      aria-label={`View ${dish.name}`}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onTap();
-        }
-      }}
-    >
-      {/* Photo */}
-      {dish.photoUrl ? (
-        <img
-          src={dish.photoUrl}
-          alt={dish.name}
-          className="w-full object-cover"
-          style={{ height: 100 }}
-        />
-      ) : (
-        <div
-          className="w-full flex items-center justify-center"
-          style={{
-            height: 100,
-            background: "var(--color-surface)",
-          }}
-          aria-hidden="true"
-        >
-          <PlateIcon dim />
-        </div>
-      )}
-
-      {/* Info */}
-      <div className="p-3">
-        <p
-          className="text-sm font-medium leading-snug line-clamp-2"
-          style={{ color: "var(--color-text-primary)" }}
-        >
-          {dish.name}
-        </p>
-        {dish.calorieEstimate && (
-          <p className="text-xs mt-1" style={{ color: "var(--color-text-tertiary)" }}>
-            {dish.calorieEstimate} cal
-          </p>
+    <div className="relative">
+      <FrostedCard
+        noPadding
+        className="overflow-hidden cursor-pointer"
+        onClick={onTap}
+        role="button"
+        tabIndex={0}
+        aria-label={`View ${dish.name}`}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onTap();
+          }
+        }}
+      >
+        {/* Photo */}
+        {dish.photoUrl ? (
+          <img
+            src={dish.photoUrl}
+            alt={dish.name}
+            className="w-full object-cover"
+            style={{ height: 100 }}
+          />
+        ) : (
+          <div
+            className="w-full flex items-center justify-center"
+            style={{
+              height: 100,
+              background: "var(--color-surface)",
+            }}
+            aria-hidden="true"
+          >
+            <PlateIcon dim />
+          </div>
         )}
-      </div>
-    </FrostedCard>
+
+        {/* Info */}
+        <div className="p-3">
+          <p
+            className="text-sm font-medium leading-snug line-clamp-2"
+            style={{ color: "var(--color-text-primary)" }}
+          >
+            {dish.name}
+          </p>
+          {dish.calorieEstimate && (
+            <p className="text-xs mt-1" style={{ color: "var(--color-text-tertiary)" }}>
+              {dish.calorieEstimate} cal
+            </p>
+          )}
+        </div>
+      </FrostedCard>
+
+      {onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label={`Remove ${dish.name}`}
+          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(255,252,247,0.88)", boxShadow: "0 1px 4px rgba(80,60,40,0.12)" }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M1 1l8 8M9 1l-8 8" stroke="var(--color-text-secondary)" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 

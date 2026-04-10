@@ -163,7 +163,7 @@ export function SearchScreen() {
   const handleCardTap = (result: RestaurantResult) => {
     saveRecent(debouncedQuery.trim());
     recordSearchVisit(result.name, 0);
-    router.push(`/restaurants/${encodeURIComponent(result.placeId)}`);
+    router.push(`/restaurants/${encodeURIComponent(result.placeId)}?name=${encodeURIComponent(result.name)}`);
   };
 
   const handleRecentTap = (term: string) => {
@@ -201,7 +201,7 @@ export function SearchScreen() {
             <SearchInputIcon />
             <input
               ref={inputRef}
-              type="search"
+              type="text"
               placeholder="Restaurant name or address…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}

@@ -275,28 +275,24 @@ export function CameraModal({
       //     a dish→recipe map so the enrich route can write USDA macros back to DB.
       const autoSavePromise = autoSaveToSupabase(scanKey);
 
-      // Build a promise that resolves to a dishId→recipeId map once autoSave completes.
-      // The first dish's recipeId comes back from autoSave; map all dishes to it for now
-      // (multi-dish Supabase IDs require a richer return type, deferred to a future epic).
+      // autoSaveToSupabase now returns a full dishId→recipeId map for all dishes.
       const dishToRecipeMapPromise: Promise<Record<string, string> | null> = autoSavePromise.then(
-        (recipeId) => {
-          if (!recipeId) return null;
+        (map) => {
+          if (!map) return null;
 
-          // Upload the captured photo to Supabase Storage
-          void fetch("/api/scan/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64: base64, mimeType, recipeId }),
-          }).catch((err: unknown) => {
-            console.warn("[CameraModal] photo upload failed (non-blocking):", err instanceof Error ? err.message : err);
-          });
+          // Upload the captured photo linked to the first recipe
+          const firstRecipeId = Object.values(map)[0];
+          if (firstRecipeId) {
+            void fetch("/api/scan/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageBase64: base64, mimeType, recipeId: firstRecipeId }),
+            }).catch((err: unknown) => {
+              console.warn("[CameraModal] photo upload failed (non-blocking):", err instanceof Error ? err.message : err);
+            });
+          }
 
-          // Build the dish→recipe map for enrich write-back
-          const map: Record<string, string> = {};
-          data.dishes.forEach((d) => {
-            if (d.id) map[d.id] = recipeId;
-          });
-          return Object.keys(map).length > 0 ? map : null;
+          return map;
         }
       ).catch(() => null);
 

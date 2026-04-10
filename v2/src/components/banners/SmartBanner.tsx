@@ -293,30 +293,43 @@ export function SmartBanner({ scans }: SmartBannerProps) {
     setVisible(false)
   }
 
+  // Auto-dismiss after 5 seconds
+  useEffect(() => {
+    if (!visible) return
+    const timer = setTimeout(() => {
+      if (bannerData) setSessionDismissed(bannerData.type)
+      setVisible(false)
+    }, 5000)
+    return () => clearTimeout(timer)
+  }, [visible, bannerData])
+
   return (
     <AnimatePresence>
       {visible && bannerData && (
         <motion.div
-          initial={{ opacity: 0, y: -8, scale: 0.98 }}
+          initial={{ opacity: 0, y: -10, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -8, scale: 0.98 }}
+          exit={{ opacity: 0, y: -10, scale: 0.97 }}
           transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-          className="mx-5 mb-1"
           role="status"
           aria-live="polite"
+          style={{
+            position: 'fixed',
+            top: 'calc(var(--space-safe-top, 0px) + 68px)',
+            left: 20,
+            right: 20,
+            zIndex: 40,
+            borderRadius: 16,
+            background: 'rgba(255,252,247,0.96)',
+            backdropFilter: 'blur(24px) saturate(1.4)',
+            WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
+            border: '1px solid rgba(180,170,158,0.28)',
+            boxShadow: '0 4px 24px rgba(80,60,40,0.12), 0 1px 4px rgba(80,60,40,0.08)',
+          }}
         >
-          <div
-            className="flex items-start gap-3 p-3 rounded-[var(--radius-md)]"
-            style={{
-              background: 'var(--color-accent-light)',
-              borderLeft: '3px solid var(--color-accent)',
-            }}
-          >
+          <div className="flex items-center gap-3 px-4 py-3">
             {/* Icon */}
-            <div
-              className="flex-shrink-0 flex items-center justify-center mt-0.5"
-              aria-hidden="true"
-            >
+            <div className="flex-shrink-0 flex items-center justify-center" aria-hidden="true">
               <BannerIcon type={bannerData.type} />
             </div>
 

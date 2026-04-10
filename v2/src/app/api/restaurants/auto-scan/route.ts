@@ -284,12 +284,22 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // ── Step 3: Multi-image Gemini classification ────────────────────────────
+    // ── Step 3: Multi-image Gemini classification (batched for reliability) ──
+    // Sending all photos in one call can cause Gemini to miss menu photos.
+    // We split into batches of 8, run in parallel, then merge results.
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL })
 
     const labelName = restaurantName ? `"${restaurantName}"` : 'this restaurant'
-    const classifyPrompt = `Here are ${photos.length} photos from ${labelName}. For each photo (0-indexed):
+    const BATCH_SIZE = 8
+    const batches: PhotoData[][] = []
+    for (let i = 0; i < photos.length; i += BATCH_SIZE) {
+      batches.push(photos.slice(i, i + BATCH_SIZE))
+    }
+
+    const batchResults = await Promise.allSettled(
+      batches.map(async (batch, batchIdx) => {
+        const offset = batchIdx * BATCH_SIZE
+        const batchPrompt = `Here are ${batch.length} photos from ${labelName}. For each photo (0-indexed):
 - If it shows a printed or digital MENU (a list of dish names, possibly with prices or descriptions), classify it as a menu.
 - If it shows a plated food dish, identify the dish name.
 Return ONLY valid JSON, no markdown:
@@ -297,31 +307,48 @@ Return ONLY valid JSON, no markdown:
   "menuIndices": [0-based indices of menu photos],
   "dishPhotos": [{ "index": N, "name": "dish name" }]
 }`
+        const result = await generateWithFallback(genAI, [
+          ...batch.map((p) => ({ inlineData: { data: p.base64, mimeType: p.mimeType } })),
+          { text: batchPrompt },
+        ])
+        const json = parseGeminiJson(result.response.text())
+        const validated = ClassifySchema.safeParse(json ?? {})
+        if (!validated.success) {
+          return {
+            menuIndices: [] as number[],
+            dishPhotos: [] as Array<{ index: number; name: string }>,
+          }
+        }
+        return {
+          menuIndices: validated.data.menuIndices
+            .filter((i) => i < batch.length)
+            .map((i) => i + offset),
+          dishPhotos: validated.data.dishPhotos
+            .filter((dp) => dp.index < batch.length)
+            .map((dp) => ({ ...dp, index: dp.index + offset })),
+        }
+      })
+    )
 
-    let classifyRaw: string
-    try {
-      const classifyResult = await generateWithFallback(genAI, [
-        ...photos.map((p) => ({ inlineData: { data: p.base64, mimeType: p.mimeType } })),
-        { text: classifyPrompt },
-      ])
-      classifyRaw = classifyResult.response.text()
-    } catch (err) {
-      console.error('[auto-scan] Gemini classification error:', err instanceof Error ? err.message : err)
+    // Merge results from all batches
+    const menuIndices: number[] = []
+    const dishPhotos: Array<{ index: number; name: string }> = []
+    for (const r of batchResults) {
+      if (r.status === 'fulfilled') {
+        menuIndices.push(...r.value.menuIndices)
+        dishPhotos.push(...r.value.dishPhotos)
+      } else {
+        console.warn('[auto-scan] batch classification failed:', r.reason instanceof Error ? r.reason.message : r.reason)
+      }
+    }
+
+    if (menuIndices.length === 0 && dishPhotos.length === 0) {
+      console.error('[auto-scan] all classification batches failed')
       return NextResponse.json(
         { error: 'Photo classification failed', code: 'SCAN_UNAVAILABLE' },
         { status: 503 }
       )
     }
-
-    const classifyJson = parseGeminiJson(classifyRaw)
-    if (!classifyJson) {
-      console.error('[auto-scan] classification non-JSON:', classifyRaw.slice(0, 200))
-    }
-
-    const classifyValidated = ClassifySchema.safeParse(classifyJson ?? {})
-    const { menuIndices, dishPhotos } = classifyValidated.success
-      ? classifyValidated.data
-      : { menuIndices: [], dishPhotos: [] }
 
     // Build indexed dish photos list (used for matching and fallback)
     const indexedDishPhotos = dishPhotos
