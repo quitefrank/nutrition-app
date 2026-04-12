@@ -1,6 +1,8 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getRestaurantPhotos } from "@/lib/placesPhotos";
+import { getApiKeys } from "@/lib/api-keys";
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -16,10 +18,25 @@ const RequestSchema = z.object({
   radius: z.number().positive().max(MAX_RADIUS_M).optional(),
 });
 
+// ─── Places API response schema ──────────────────────────────
+// Lenient: .catch([]) so a malformed response degrades to empty results.
+
+const PlacesResponseSchema = z.object({
+  places: z.array(
+    z.object({
+      id: z.string(),
+      displayName: z.object({ text: z.string() }).optional().catch(undefined),
+      formattedAddress: z.string().optional().catch(undefined),
+      rating: z.number().optional().catch(undefined),
+      userRatingCount: z.number().optional().catch(undefined),
+    })
+  ).catch([]),
+});
+
 // ─── Handler ────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = getApiKeys().places;
 
   if (!apiKey) {
     return NextResponse.json(
@@ -64,7 +81,7 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress",
+            "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
         },
         body: JSON.stringify({
           includedTypes: [
@@ -95,21 +112,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const data = (await res.json()) as {
-      places?: Array<{
-        id?: string;
-        displayName?: { text?: string };
-        formattedAddress?: string;
-      }>;
-    };
+    const { places } = PlacesResponseSchema.parse(await res.json());
 
-    const results = (data.places ?? [])
+    const baseResults = places
       .filter((p) => p.id && p.displayName?.text)
       .map((p) => ({
-        placeId: p.id!,
-        name: p.displayName!.text!,
+        placeId: p.id,
+        name: p.displayName?.text ?? "",
         address: p.formattedAddress ?? "",
+        rating: p.rating ?? null,
+        userRatingCount: p.userRatingCount ?? null,
       }));
+
+    // Resolve one photo per result in parallel — best-effort, degrades to null
+    const results = await Promise.all(
+      baseResults.map(async (r) => {
+        const photos = await getRestaurantPhotos({ placeId: r.placeId }, apiKey, 1).catch(() => []);
+        return { ...r, photoUrl: photos[0] ?? null };
+      })
+    );
 
     return NextResponse.json({ data: results });
   } catch (error) {

@@ -2,6 +2,7 @@ import 'server-only'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getRestaurantPhotos } from '@/lib/placesPhotos'
+import { getApiKeys } from '@/lib/api-keys'
 
 const QuerySchema = z.object({
   placeId: z.string().min(1).max(300),
@@ -14,7 +15,7 @@ const QuerySchema = z.object({
  * Used by RestaurantScreen to show a photo strip in the empty state.
  */
 export async function GET(req: NextRequest) {
-  const placesKey = process.env.GOOGLE_PLACES_API_KEY
+  const placesKey = getApiKeys().places
 
   if (!placesKey) {
     return NextResponse.json(

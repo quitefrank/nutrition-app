@@ -2,6 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
+import { getApiKeys } from "@/lib/api-keys";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
     // ── Resolve API key (BYOAK first, then env) ──────────────────────────────
     // SEC-DAT-1.00: never log the key value itself
     const userKey = req.headers.get("X-User-Gemini-Key") ?? "";
-    const envKey = process.env.GEMINI_API_KEY ?? "";
+    const envKey = getApiKeys().gemini ?? "";
 
     let apiKey: string;
     if (userKey && userKey.startsWith("AI") && userKey.length >= 39) {

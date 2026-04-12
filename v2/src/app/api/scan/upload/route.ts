@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { Database } from "@/types/database";
+import { getApiKeys } from "@/lib/api-keys";
 
 const BUCKET = "dish-photos";
 
@@ -36,7 +37,7 @@ const RequestSchema = z.object({
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const serviceKey = getApiKeys().supabaseServiceRole ?? "";
   if (!url || !serviceKey) return null;
   return createClient<Database>(url, serviceKey, {
     auth: { persistSession: false },

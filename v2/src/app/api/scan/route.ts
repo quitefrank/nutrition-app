@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import { getCachedMenu, cacheMenu } from "@/lib/menuCache";
+import { supabase } from "@/lib/supabase";
+import { getApiKeys } from "@/lib/api-keys";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
     // ── Resolve API key: user-provided BYOAK takes precedence over env key ──
     // SEC-DAT-1.00: never log the key value; log only that a user key is in use
     const userKeyHeader = req.headers.get("X-User-Gemini-Key") ?? "";
-    const envKey = process.env.GEMINI_API_KEY ?? "";
+    const envKey = getApiKeys().gemini ?? "";
 
     let apiKey: string;
     if (userKeyHeader && userKeyHeader.startsWith("AI") && userKeyHeader.length >= 39) {
@@ -325,12 +327,7 @@ export async function POST(req: NextRequest) {
       const nameForCache = (restaurantName ?? validated.data.restaurantName) as string;
       void (async () => {
         try {
-          const { createClient } = await import("@supabase/supabase-js");
-          const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-          const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-          if (!url || !key) return;
-
-          const sb = createClient(url, key);
+          const sb = supabase;
 
           // Find or create the restaurant
           let restaurantId: string | null = null;

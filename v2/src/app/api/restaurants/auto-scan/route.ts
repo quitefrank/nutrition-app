@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { z } from 'zod'
 import { getRestaurantPhotos } from '@/lib/placesPhotos'
 import { getCachedMenu } from '@/lib/menuCache'
+import { getApiKeys } from '@/lib/api-keys'
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
 const GEMINI_FALLBACK_MODEL = 'gemini-2.0-flash'
@@ -177,7 +178,7 @@ interface PhotoData {
 export async function POST(req: NextRequest) {
   try {
     // ── Resolve API keys ─────────────────────────────────────────────────────
-    const placesKey = process.env.GOOGLE_PLACES_API_KEY
+    const { places: placesKey, gemini: geminiEnvKey } = getApiKeys()
     if (!placesKey) {
       return NextResponse.json(
         { error: 'Places service not configured', code: 'PLACES_SERVICE_UNAVAILABLE' },
@@ -187,7 +188,7 @@ export async function POST(req: NextRequest) {
 
     // SEC-DAT-1.00: never log the key value
     const userKeyHeader = req.headers.get('X-User-Gemini-Key') ?? ''
-    const envKey = process.env.GEMINI_API_KEY ?? ''
+    const envKey = geminiEnvKey ?? ''
     let apiKey: string
     if (userKeyHeader && userKeyHeader.startsWith('AI') && userKeyHeader.length >= 39) {
       apiKey = userKeyHeader

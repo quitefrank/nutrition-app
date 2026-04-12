@@ -29,6 +29,11 @@ const Uuid = z.string().uuid();
 export const RecipeStatusEnum = z.enum(["auto_captured", "kept", "removed"]);
 export type RecipeStatus = z.infer<typeof RecipeStatusEnum>;
 
+// ─── Photo status enum ────────────────────────────────────────────────────────
+
+export const PhotoStatusEnum = z.enum(["confirmed", "placeholder", "suppressed"]);
+export type PhotoStatus = z.infer<typeof PhotoStatusEnum>;
+
 // ─── Ingredient confidence enum ───────────────────────────────────────────────
 
 export const ConfidenceEnum = z.enum(["high", "medium", "low"]);
@@ -44,6 +49,8 @@ export const RestaurantRowSchema = z.object({
   cuisine_type: z.string().nullable(),
   reference_image_url: z.string().url().nullable(),
   atmospheric_palette_json: z.string().nullable(),
+  rating: z.number().nullable().optional(),
+  user_ratings_total: z.number().int().nullable().optional(),
   created_at: IsoDateString,
 });
 
@@ -58,6 +65,8 @@ export const RestaurantInsertSchema = RestaurantRowSchema.omit({
   cuisine_type: true,
   reference_image_url: true,
   atmospheric_palette_json: true,
+  rating: true,
+  user_ratings_total: true,
 });
 
 export type RestaurantInsert = z.infer<typeof RestaurantInsertSchema>;
@@ -97,7 +106,10 @@ export const RecipeRowSchema = z.object({
   dish_image_url: z.string().url().nullable(),
   estimated_calories: z.number().int().nullable(),
   status: RecipeStatusEnum,
+  photo_status: PhotoStatusEnum.default("placeholder"),
   gemini_confidence: z.number().min(0).max(1).nullable(),
+  dish_rating: z.number().nullable().optional(),
+  dish_review_snippet: z.string().nullable().optional(),
   created_at: IsoDateString,
 });
 
@@ -112,7 +124,10 @@ export const RecipeInsertSchema = RecipeRowSchema.omit({
   dish_image_url: true,
   estimated_calories: true,
   status: true,
+  photo_status: true,
   gemini_confidence: true,
+  dish_rating: true,
+  dish_review_snippet: true,
 });
 
 export type RecipeInsert = z.infer<typeof RecipeInsertSchema>;
@@ -123,6 +138,15 @@ export const RecipeUpdateSchema = RecipeRowSchema.omit({
   restaurant_id: true,
   visit_id: true,
 }).partial();
+
+// ─── Recipe rating update (targeted subset) ───────────────────────────────────
+
+export const RecipeRatingUpdateSchema = z.object({
+  dish_rating: z.number().nullable(),
+  dish_review_snippet: z.string().nullable(),
+});
+
+export type RecipeRatingUpdate = z.infer<typeof RecipeRatingUpdateSchema>;
 
 export type RecipeUpdate = z.infer<typeof RecipeUpdateSchema>;
 
@@ -167,6 +191,7 @@ export const GroceryItemRowSchema = z.object({
   unit: z.string().nullable(),
   checked: z.boolean(),
   recipe_ids: z.array(Uuid),
+  dish_name: z.string().nullable(),
   created_at: IsoDateString,
 });
 
@@ -179,6 +204,7 @@ export const GroceryItemInsertSchema = GroceryItemRowSchema.omit({
   quantity: true,
   unit: true,
   recipe_ids: true,
+  dish_name: true,
 });
 
 export type GroceryItemInsert = z.infer<typeof GroceryItemInsertSchema>;
@@ -246,6 +272,8 @@ export interface DomainRestaurant {
   cuisineType: string | null;
   referenceImageUrl: string | null;
   atmosphericPaletteJson: Record<string, unknown> | null;
+  rating: number | null;
+  userRatingsTotal: number | null;
   createdAt: string;
 }
 
@@ -258,7 +286,10 @@ export interface DomainRecipe {
   dishImageUrl: string | null;
   estimatedCalories: number | null;
   status: RecipeStatus;
+  photoStatus: PhotoStatus;
   geminiConfidence: number | null;
+  dishRating: number | null;
+  dishReviewSnippet: string | null;
   createdAt: string;
   /** Populated by join queries — not always present */
   ingredients?: DomainIngredient[];
@@ -287,6 +318,7 @@ export interface DomainGroceryItem {
   unit: string | null;
   checked: boolean;
   recipeIds: string[];
+  dishName: string | null;
   createdAt: string;
 }
 
@@ -309,6 +341,8 @@ export function mapRestaurant(row: Restaurant): DomainRestaurant {
     cuisineType: row.cuisine_type,
     referenceImageUrl: row.reference_image_url,
     atmosphericPaletteJson: palette,
+    rating: row.rating ?? null,
+    userRatingsTotal: row.user_ratings_total ?? null,
     createdAt: row.created_at,
   };
 }
@@ -323,7 +357,10 @@ export function mapRecipe(row: Recipe): DomainRecipe {
     dishImageUrl: row.dish_image_url,
     estimatedCalories: row.estimated_calories,
     status: row.status,
+    photoStatus: row.photo_status,
     geminiConfidence: row.gemini_confidence,
+    dishRating: row.dish_rating ?? null,
+    dishReviewSnippet: row.dish_review_snippet ?? null,
     createdAt: row.created_at,
   };
 }
@@ -352,6 +389,7 @@ export function mapGroceryItem(row: GroceryItem): DomainGroceryItem {
     unit: row.unit,
     checked: row.checked,
     recipeIds: row.recipe_ids,
+    dishName: row.dish_name ?? null,
     createdAt: row.created_at,
   };
 }
