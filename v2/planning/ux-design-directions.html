@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plately v2 — Design Directions</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: #E8E5DC;
+    color: #1A1612;
+    padding: 48px 32px 80px;
+    min-height: 100vh;
+  }
+
+  /* === Page header === */
+  .page-header { text-align: center; margin-bottom: 56px; }
+  .page-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 30px; font-weight: 600;
+    color: #1A1612; letter-spacing: -0.01em;
+    margin-bottom: 8px;
+  }
+  .page-subtitle { font-size: 15px; color: #6B6458; }
+
+  /* === Section === */
+  .section { margin-bottom: 72px; }
+  .section-header { margin-bottom: 28px; }
+  .section-title { font-size: 19px; font-weight: 600; color: #1A1612; margin-bottom: 6px; }
+  .section-desc { font-size: 14px; color: #6B6458; line-height: 1.55; max-width: 680px; }
+
+  /* === Mockup row === */
+  .mockup-row { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+  .mockup-wrap { display: flex; flex-direction: column; gap: 14px; }
+  .mockup-label { font-size: 14px; font-weight: 600; color: #1A1612; }
+  .mockup-desc { font-size: 13px; color: #6B6458; line-height: 1.5; max-width: 280px; }
+
+  /* === Phone shell === */
+  .phone {
+    width: 300px;
+    height: 640px;
+    border-radius: 44px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+    background: #FAFAF7;
+    box-shadow:
+      0 0 0 8px #1C1714,
+      0 0 0 10px rgba(28,23,20,0.5),
+      0 28px 72px rgba(60,40,20,0.28);
+  }
+  .phone-inner {
+    width: 100%; height: 100%;
+    overflow-y: auto; overflow-x: hidden;
+    position: relative;
+    scrollbar-width: none;
+  }
+  .phone-inner::-webkit-scrollbar { display: none; }
+
+  /* === Atmospheric backgrounds === */
+  .bg-thai {
+    background:
+      radial-gradient(ellipse at 72% 28%, rgba(218,155,52,0.65) 0%, transparent 52%),
+      radial-gradient(ellipse at 22% 72%, rgba(175,95,28,0.48) 0%, transparent 48%),
+      radial-gradient(ellipse at 48% 52%, rgba(196,136,48,0.38) 0%, transparent 58%),
+      #FAFAF7;
+  }
+  .bg-curry {
+    background:
+      radial-gradient(ellipse at 62% 38%, rgba(208,138,38,0.75) 0%, transparent 52%),
+      radial-gradient(ellipse at 32% 62%, rgba(158,78,18,0.48) 0%, transparent 48%),
+      #FAFAF7;
+  }
+  .bg-indian {
+    background:
+      radial-gradient(ellipse at 52% 38%, rgba(188,118,48,0.65) 0%, transparent 48%),
+      radial-gradient(ellipse at 72% 68%, rgba(218,158,58,0.48) 0%, transparent 44%),
+      #FAFAF7;
+  }
+  .bg-empty {
+    background:
+      radial-gradient(ellipse at 50% 38%, rgba(196,158,98,0.22) 0%, transparent 58%),
+      radial-gradient(ellipse at 30% 68%, rgba(178,138,78,0.15) 0%, transparent 48%),
+      #FAFAF7;
+  }
+
+  /* Atmospheric overlay */
+  .atm-overlay {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: linear-gradient(180deg,
+      rgba(250,250,247,0.52) 0%,
+      rgba(244,243,238,0.70) 58%,
+      rgba(239,237,230,0.86) 100%);
+  }
+
+  .screen-content {
+    position: relative; z-index: 2;
+    min-height: 100%;
+    padding-bottom: 104px;
+  }
+
+  /* === Status bar === */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 22px 6px;
+    font-size: 12px; font-weight: 600; color: #1A1612;
+  }
+  .status-icons { display: flex; gap: 5px; align-items: center; font-size: 11px; }
+
+  /* === Floating pill nav bar === */
+  .nav-bar {
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding: 0 16px 20px;
+    gap: 12px;
+  }
+  .nav-pill {
+    flex: 1;
+    display: flex; align-items: center; justify-content: space-around;
+    height: 62px; border-radius: 9999px;
+    background: rgba(255,252,245,0.94);
+    backdrop-filter: blur(32px) saturate(1.5);
+    border: 1px solid rgba(180,170,158,0.22);
+    box-shadow: 0 8px 32px rgba(80,60,40,0.12), 0 2px 8px rgba(80,60,40,0.08);
+    padding: 0 6px;
+  }
+  .nav-tab {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; flex: 1; padding: 0 8px;
+  }
+  .nav-icon { font-size: 18px; line-height: 1; }
+  .nav-label { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; color: #9E9589; }
+  .nav-tab.active .nav-label { color: #C4622D; }
+  .nav-camera {
+    width: 62px; height: 62px; border-radius: 9999px;
+    background: #C4622D;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0;
+    box-shadow: 0 0 0 3px rgba(250,242,237,1), 0 4px 14px rgba(196,98,45,0.40);
+  }
+
+  /* ======================= */
+  /* RESTAURANT SCREEN PARTS */
+  /* ======================= */
+
+  .restaurant-header { padding: 10px 20px 10px; }
+  .back-link {
+    font-size: 13px; color: #C4622D; font-weight: 500;
+    display: flex; align-items: center; gap: 3px;
+    margin-bottom: 10px;
+  }
+  .restaurant-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 24px; font-weight: 600;
+    color: #1A1612; letter-spacing: -0.01em; margin-bottom: 4px;
+  }
+  .restaurant-meta {
+    font-size: 13px; color: #6B6458;
+    display: flex; gap: 7px; align-items: center;
+  }
+  .meta-dot { width: 3px; height: 3px; border-radius: 50%; background: #9E9589; display: inline-block; }
+
+  .filter-row {
+    display: flex; gap: 7px;
+    padding: 0 20px 14px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .filter-row::-webkit-scrollbar { display: none; }
+  .filter-pill {
+    height: 30px; padding: 0 12px;
+    border-radius: 9999px; font-size: 12px; font-weight: 500;
+    white-space: nowrap; display: flex; align-items: center;
+    background: rgba(255,252,247,0.82);
+    border: 1px solid rgba(180,170,158,0.28);
+    color: #6B6458; flex-shrink: 0;
+  }
+  .filter-pill.active { background: #C4622D; color: white; border-color: #C4622D; }
+
+  .dishes-label {
+    padding: 2px 20px 8px;
+    font-size: 11px; font-weight: 600;
+    color: #9E9589; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+
+  /* Compact dish row */
+  .dish-row { margin: 0 14px 9px; border-radius: 18px; overflow: hidden; }
+  .dish-row-inner {
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 11px 9px 9px;
+    background: rgba(255,252,247,0.88);
+    backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid rgba(180,170,158,0.28);
+    box-shadow: 0 2px 10px rgba(80,60,40,0.07), 0 1px 3px rgba(80,60,40,0.05);
+    border-radius: 18px;
+  }
+
+  /* Food photo thumbnails */
+  .dish-thumb {
+    width: 72px; height: 72px; border-radius: 11px;
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  .thumb-noodle { background: linear-gradient(135deg, rgba(210,155,50,0.7), rgba(185,110,30,0.6), rgba(165,85,20,0.5)); }
+  .thumb-curry  { background: linear-gradient(135deg, rgba(220,165,40,0.8), rgba(190,125,25,0.7), rgba(155,85,15,0.5)); }
+  .thumb-mango  { background: linear-gradient(135deg, rgba(225,175,45,0.8), rgba(200,150,30,0.6), rgba(175,120,20,0.4)); }
+  .thumb-soup   { background: linear-gradient(135deg, rgba(195,130,55,0.7), rgba(165,95,35,0.6), rgba(140,70,20,0.5)); }
+  .thumb-salad  { background: linear-gradient(135deg, rgba(130,175,80,0.6), rgba(100,150,55,0.5), rgba(75,125,40,0.4)); }
+
+  .dish-info { flex: 1; min-width: 0; }
+  .dish-name { font-size: 14px; font-weight: 600; color: #1A1612; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dish-tags { font-size: 11px; color: #9E9589; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dish-macros-inline { display: flex; align-items: center; gap: 5px; }
+  .dish-cal { font-size: 14px; font-weight: 600; color: #C4622D; letter-spacing: -0.01em; }
+  .macro-chips { display: flex; gap: 3px; }
+  .macro-chip { font-size: 10px; color: #9E9589; background: rgba(180,170,158,0.12); padding: 1px 5px; border-radius: 5px; }
+  .dish-chevron { font-size: 14px; color: #C4BDB5; flex-shrink: 0; }
+
+  /* Expanded dish card */
+  .dish-expanded {
+    margin: 0 14px 9px;
+    border-radius: 20px; overflow: hidden;
+    background: rgba(255,252,247,0.94);
+    backdrop-filter: blur(32px) saturate(1.5);
+    border: 1px solid rgba(180,170,158,0.32);
+    box-shadow: 0 6px 24px rgba(80,60,40,0.13), 0 2px 6px rgba(80,60,40,0.07);
+  }
+  .expanded-photo {
+    width: 100%; height: 156px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 56px;
+    background: linear-gradient(145deg, rgba(218,155,50,0.85) 0%, rgba(192,118,30,0.75) 40%, rgba(162,85,18,0.65) 100%);
+  }
+  .expanded-content { padding: 14px 15px 15px; }
+  .expanded-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .expanded-name { font-family: 'Playfair Display', serif; font-size: 19px; font-weight: 600; color: #1A1612; letter-spacing: -0.01em; }
+  .expanded-cal { font-size: 19px; font-weight: 600; color: #C4622D; letter-spacing: -0.01em; white-space: nowrap; margin-left: 8px; }
+  .expanded-desc { font-size: 12px; color: #6B6458; line-height: 1.5; margin-bottom: 12px; }
+
+  .macro-bar { display: flex; border-radius: 11px; overflow: hidden; border: 1px solid rgba(180,170,158,0.22); margin-bottom: 12px; }
+  .macro-bar-cell { flex: 1; padding: 7px 4px; text-align: center; background: rgba(244,242,238,0.5); border-right: 1px solid rgba(180,170,158,0.14); }
+  .macro-bar-cell:last-child { border-right: none; }
+  .macro-bar-label { font-size: 9px; color: #9E9589; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 2px; }
+  .macro-bar-val { font-size: 14px; font-weight: 600; color: #1A1612; letter-spacing: -0.01em; }
+
+  .ingredients-label { font-size: 10px; font-weight: 600; color: #9E9589; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 5px; }
+  .ingredients-text { font-size: 12px; color: #6B6458; line-height: 1.6; margin-bottom: 13px; }
+
+  .add-btn {
+    width: 100%; height: 42px; border-radius: 9999px;
+    background: #C4622D; color: white;
+    font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+
+  /* ================== */
+  /* HOME SCREEN PARTS  */
+  /* ================== */
+
+  .home-header { padding: 8px 20px 14px; display: flex; justify-content: space-between; align-items: center; }
+  .home-logo { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 600; color: #1A1612; letter-spacing: -0.01em; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #EFEDE6; border: 1px solid rgba(180,170,158,0.3); display: flex; align-items: center; justify-content: center; font-size: 14px; color: #6B6458; }
+
+  .home-section { padding: 0 20px 14px; }
+  .home-section-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .home-section-title { font-size: 16px; font-weight: 600; color: #1A1612; }
+  .home-section-link { font-size: 12px; color: #C4622D; font-weight: 500; }
+
+  /* Hero card */
+  .hero-card {
+    margin: 0 14px 18px;
+    border-radius: 22px; overflow: hidden;
+    background: rgba(255,252,247,0.88);
+    backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid rgba(180,170,158,0.28);
+    box-shadow: 0 4px 22px rgba(80,60,40,0.12), 0 2px 6px rgba(80,60,40,0.07);
+  }
+  .hero-photo { width: 100%; position: relative; display: flex; align-items: flex-end; overflow: hidden; }
+  .hero-photo-bg { position: absolute; inset: 0; }
+  .hero-photo-gradient { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(20,14,8,0.58) 0%, rgba(20,14,8,0.12) 55%, transparent 100%); }
+  .hero-photo-text { position: relative; z-index: 2; padding: 12px 14px; width: 100%; }
+  .hero-rest-name { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 600; color: white; letter-spacing: -0.01em; text-shadow: 0 1px 4px rgba(0,0,0,0.3); margin-bottom: 2px; }
+  .hero-rest-meta { font-size: 11px; color: rgba(255,255,255,0.72); }
+  .hero-card-body { padding: 11px 14px 14px; }
+
+  .dish-thumb-row { display: flex; gap: 7px; margin-bottom: 11px; overflow-x: auto; scrollbar-width: none; }
+  .dish-thumb-row::-webkit-scrollbar { display: none; }
+  .dish-thumb-mini { width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+
+  .hero-card-footer { display: flex; justify-content: space-between; align-items: center; }
+  .hero-dish-count { font-size: 12px; color: #9E9589; }
+  .hero-view-all { font-size: 12px; font-weight: 600; color: #C4622D; }
+
+  /* 2-col grid */
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; padding: 0 14px 14px; }
+  .grid-card { border-radius: 16px; overflow: hidden; background: rgba(255,252,247,0.88); backdrop-filter: blur(20px) saturate(1.3); border: 1px solid rgba(180,170,158,0.26); box-shadow: 0 2px 8px rgba(80,60,40,0.07); }
+  .grid-card-photo { height: 68px; width: 100%; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .grid-card-body { padding: 7px 9px 9px; }
+  .grid-card-name { font-size: 12px; font-weight: 600; color: #1A1612; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid-card-meta { font-size: 11px; color: #9E9589; }
+  .grid-card-cal { font-size: 12px; font-weight: 600; color: #C4622D; }
+
+  /* Full-width single card */
+  .full-card { margin: 0 14px 14px; border-radius: 18px; overflow: hidden; background: rgba(255,252,247,0.88); backdrop-filter: blur(24px) saturate(1.4); border: 1px solid rgba(180,170,158,0.28); box-shadow: 0 2px 10px rgba(80,60,40,0.07); display: flex; align-items: center; gap: 10px; padding: 9px 12px 9px 9px; }
+  .full-card-photo { width: 68px; height: 68px; border-radius: 11px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .full-card-info { flex: 1; min-width: 0; }
+  .full-card-name { font-size: 14px; font-weight: 600; color: #1A1612; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .full-card-meta { font-size: 12px; color: #9E9589; }
+
+  /* Empty placeholder */
+  .empty-placeholder { margin: 0 14px 16px; border-radius: 18px; border: 1.5px dashed rgba(180,170,158,0.35); padding: 18px 16px; text-align: center; }
+  .empty-placeholder-text { font-size: 12px; color: #C4BDB5; line-height: 1.5; }
+
+  /* Empty state screen */
+  .empty-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; padding: 60px 28px 120px; text-align: center; }
+  .empty-icon { font-size: 52px; margin-bottom: 18px; }
+  .empty-screen-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 600; color: #1A1612; letter-spacing: -0.01em; line-height: 1.28; margin-bottom: 10px; }
+  .empty-screen-body { font-size: 13px; color: #6B6458; line-height: 1.6; margin-bottom: 28px; max-width: 210px; }
+  .empty-cta { height: 50px; padding: 0 26px; border-radius: 9999px; background: #C4622D; color: white; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="page-title">Plately v2 — Design Directions</div>
+  <div class="page-subtitle">Refined directions for restaurant screen &amp; home screen progressive layout</div>
+</div>
+
+
+<!-- ================================= -->
+<!-- SECTION 1: RESTAURANT SCREEN      -->
+<!-- ================================= -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-title">Restaurant Screen — Compact Row with Expandable Dish</div>
+    <div class="section-desc">Default view shows all dishes as scannable compact rows. Tapping any dish expands it in-place: full hero photo, macro breakdown, ingredient highlights, and a save CTA. Everything else in the list stays put and visible above and below the expanded card.</div>
+  </div>
+
+  <div class="mockup-row">
+
+    <!-- Mockup R1: All collapsed (default) -->
+    <div class="mockup-wrap">
+      <div class="mockup-label">Default — all rows collapsed</div>
+      <div class="phone">
+        <div class="phone-inner bg-thai">
+          <div class="atm-overlay"></div>
+          <div class="screen-content">
+            <div class="status-bar">
+              <span style="font-size:13px;font-weight:600">9:41</span>
+              <span class="status-icons">●●● WiFi ▮▮▮</span>
+            </div>
+            <div class="restaurant-header">
+              <div class="back-link">‹ Restaurants</div>
+              <div class="restaurant-name">Sala Thai</div>
+              <div class="restaurant-meta">
+                <span>Thai</span><span class="meta-dot"></span>
+                <span>Silom</span><span class="meta-dot"></span>
+                <span>★ 4.6</span>
+              </div>
+            </div>
+            <div class="filter-row">
+              <div class="filter-pill active">All</div>
+              <div class="filter-pill">Noodles</div>
+              <div class="filter-pill">Curries</div>
+              <div class="filter-pill">Soups</div>
+              <div class="filter-pill">Desserts</div>
+            </div>
+            <div class="dishes-label">6 DISHES</div>
+
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-noodle">🍜</div>
+              <div class="dish-info">
+                <div class="dish-name">Pad See Ew</div>
+                <div class="dish-tags">Noodles · Egg · Tofu · Gai Lan</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">680 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 24g</span><span class="macro-chip">C 72g</span><span class="macro-chip">F 18g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-curry">🍛</div>
+              <div class="dish-info">
+                <div class="dish-name">Green Curry</div>
+                <div class="dish-tags">Coconut milk · Vegetables</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">890 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 38g</span><span class="macro-chip">C 84g</span><span class="macro-chip">F 32g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-mango">🥭</div>
+              <div class="dish-info">
+                <div class="dish-name">Mango Sticky Rice</div>
+                <div class="dish-tags">Glutinous rice · Coconut cream</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">420 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 8g</span><span class="macro-chip">C 88g</span><span class="macro-chip">F 12g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-noodle" style="background:linear-gradient(135deg,rgba(198,140,42,0.7),rgba(168,100,22,0.6),rgba(145,72,14,0.5))">🍝</div>
+              <div class="dish-info">
+                <div class="dish-name">Pad Thai</div>
+                <div class="dish-tags">Rice noodles · Peanuts · Tamarind</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">720 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 32g</span><span class="macro-chip">C 78g</span><span class="macro-chip">F 22g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-soup">🍲</div>
+              <div class="dish-info">
+                <div class="dish-name">Tom Yum</div>
+                <div class="dish-tags">Lemongrass · Mushroom · Lime</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">180 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 18g</span><span class="macro-chip">C 12g</span><span class="macro-chip">F 4g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-salad">🌿</div>
+              <div class="dish-info">
+                <div class="dish-name">Larb Gai</div>
+                <div class="dish-tags">Chicken · Mint · Chilli · Lime</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">340 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 28g</span><span class="macro-chip">C 18g</span><span class="macro-chip">F 14g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+          </div>
+        </div>
+        <div class="nav-bar">
+          <div class="nav-pill">
+            <div class="nav-tab active"><span class="nav-icon">⌂</span><span class="nav-label" style="color:#C4622D">Home</span></div>
+            <div class="nav-tab"><span class="nav-icon">⊹</span><span class="nav-label">Recipes</span></div>
+            <div class="nav-tab"><span class="nav-icon">☰</span><span class="nav-label">Grocery</span></div>
+          </div>
+          <div class="nav-camera">⊕</div>
+        </div>
+      </div>
+      <div class="mockup-desc">All 6 dishes visible before any scrolling. Calorie in terracotta reads at a glance. Macro chips give protein/carb/fat without expanding.</div>
+    </div>
+
+    <!-- Mockup R2: One dish expanded in-place -->
+    <div class="mockup-wrap">
+      <div class="mockup-label">Tap a dish — expands in-place</div>
+      <div class="phone">
+        <div class="phone-inner bg-thai">
+          <div class="atm-overlay"></div>
+          <div class="screen-content">
+            <div class="status-bar">
+              <span style="font-size:13px;font-weight:600">9:41</span>
+              <span class="status-icons">●●● WiFi ▮▮▮</span>
+            </div>
+            <div class="restaurant-header">
+              <div class="back-link">‹ Restaurants</div>
+              <div class="restaurant-name">Sala Thai</div>
+              <div class="restaurant-meta">
+                <span>Thai</span><span class="meta-dot"></span>
+                <span>Silom</span><span class="meta-dot"></span>
+                <span>★ 4.6</span>
+              </div>
+            </div>
+            <div class="filter-row">
+              <div class="filter-pill active">All</div>
+              <div class="filter-pill">Noodles</div>
+              <div class="filter-pill">Curries</div>
+              <div class="filter-pill">Soups</div>
+              <div class="filter-pill">Desserts</div>
+            </div>
+            <div class="dishes-label">6 DISHES</div>
+
+            <!-- Row above expanded -->
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-curry">🍛</div>
+              <div class="dish-info">
+                <div class="dish-name">Green Curry</div>
+                <div class="dish-tags">Coconut milk · Vegetables</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">890 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 38g</span><span class="macro-chip">C 84g</span><span class="macro-chip">F 32g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+
+            <!-- EXPANDED: Pad See Ew -->
+            <div class="dish-expanded">
+              <div class="expanded-photo">🍜</div>
+              <div class="expanded-content">
+                <div class="expanded-header">
+                  <div class="expanded-name">Pad See Ew</div>
+                  <div class="expanded-cal">680 cal</div>
+                </div>
+                <div class="expanded-desc">Wide rice noodles stir-fried with egg, Chinese broccoli, and tofu in savoury oyster sauce</div>
+                <div class="macro-bar">
+                  <div class="macro-bar-cell"><div class="macro-bar-label">Protein</div><div class="macro-bar-val">24g</div></div>
+                  <div class="macro-bar-cell"><div class="macro-bar-label">Carbs</div><div class="macro-bar-val">72g</div></div>
+                  <div class="macro-bar-cell"><div class="macro-bar-label">Fat</div><div class="macro-bar-val">18g</div></div>
+                  <div class="macro-bar-cell"><div class="macro-bar-label">Fibre</div><div class="macro-bar-val">4g</div></div>
+                </div>
+                <div class="ingredients-label">Ingredients</div>
+                <div class="ingredients-text">Rice noodles · Egg · Tofu · Gai lan · Oyster sauce · Fish sauce · White pepper · Sesame oil</div>
+                <div class="add-btn">+ Add to My Recipes</div>
+              </div>
+            </div>
+
+            <!-- Rows below expanded -->
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-mango">🥭</div>
+              <div class="dish-info">
+                <div class="dish-name">Mango Sticky Rice</div>
+                <div class="dish-tags">Glutinous rice · Coconut cream</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">420 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 8g</span><span class="macro-chip">C 88g</span><span class="macro-chip">F 12g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+            <div class="dish-row"><div class="dish-row-inner">
+              <div class="dish-thumb thumb-soup">🍲</div>
+              <div class="dish-info">
+                <div class="dish-name">Tom Yum</div>
+                <div class="dish-tags">Lemongrass · Mushroom · Lime</div>
+                <div class="dish-macros-inline">
+                  <span class="dish-cal">180 cal</span>
+                  <div class="macro-chips"><span class="macro-chip">P 18g</span><span class="macro-chip">C 12g</span><span class="macro-chip">F 4g</span></div>
+                </div>
+              </div>
+              <span class="dish-chevron">›</span>
+            </div></div>
+          </div>
+        </div>
+        <div class="nav-bar">
+          <div class="nav-pill">
+            <div class="nav-tab active"><span class="nav-icon">⌂</span><span class="nav-label" style="color:#C4622D">Home</span></div>
+            <div class="nav-tab"><span class="nav-icon">⊹</span><span class="nav-label">Recipes</span></div>
+            <div class="nav-tab"><span class="nav-icon">☰</span><span class="nav-label">Grocery</span></div>
+          </div>
+          <div class="nav-camera">⊕</div>
+        </div>
+      </div>
+      <div class="mockup-desc">Hero photo + full macros + ingredients revealed on tap. Rows above and below remain visible. Tap expanded card again to collapse.</div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ============================= -->
+<!-- SECTION 2: HOME SCREEN STATES -->
+<!-- ============================= -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-title">Home Screen — Progressive Layout States</div>
+    <div class="section-desc">Two independent sections: <strong>Restaurants</strong> (auto-captured from every scan) and <strong>My Recipes</strong> (dishes you explicitly save). Each scales independently: empty → single full-width card → two side by side → expanding grid. The hero is always your most recent restaurant visit.</div>
+  </div>
+
+  <div class="mockup-row">
+
+    <!-- Mockup H1: Empty state -->
+    <div class="mockup-wrap">
+      <div class="mockup-label">State 0 — No scans yet</div>
+      <div class="phone">
+        <div class="phone-inner bg-empty">
+          <div class="atm-overlay"></div>
+          <div class="screen-content">
+            <div class="status-bar">
+              <span style="font-size:13px;font-weight:600">9:41</span>
+              <span class="status-icons">●●● WiFi ▮▮▮</span>
+            </div>
+            <div class="home-header">
+              <div class="home-logo">Plately</div>
+              <div class="avatar">F</div>
+            </div>
+            <div class="empty-screen">
+              <div class="empty-icon">🍽️</div>
+              <div class="empty-screen-title">Take home the food you love</div>
+              <div class="empty-screen-body">Scan a restaurant menu and every dish lands in your collection — instantly.</div>
+              <div class="empty-cta">📷 Scan a menu</div>
+            </div>
+          </div>
+        </div>
+        <div class="nav-bar">
+          <div class="nav-pill">
+            <div class="nav-tab active"><span class="nav-icon">⌂</span><span class="nav-label" style="color:#C4622D">Home</span></div>
+            <div class="nav-tab"><span class="nav-icon">⊹</span><span class="nav-label">Recipes</span></div>
+            <div class="nav-tab"><span class="nav-icon">☰</span><span class="nav-label">Grocery</span></div>
+          </div>
+          <div class="nav-camera">⊕</div>
+        </div>
+      </div>
+      <div class="mockup-desc">No grids, no empty cards. Atmospheric background suggests a food-filled future. Single CTA makes the next action obvious.</div>
+    </div>
+
+    <!-- Mockup H2: First scan -->
+    <div class="mockup-wrap">
+      <div class="mockup-label">State 1 — First restaurant scanned</div>
+      <div class="phone">
+        <div class="phone-inner bg-thai">
+          <div class="atm-overlay"></div>
+          <div class="screen-content">
+            <div class="status-bar">
+              <span style="font-size:13px;font-weight:600">9:41</span>
+              <span class="status-icons">●●● WiFi ▮▮▮</span>
+            </div>
+            <div class="home-header">
+              <div class="home-logo">Plately</div>
+              <div class="avatar">F</div>
+            </div>
+
+            <!-- Hero: full prominence when only one restaurant exists -->
+            <div class="hero-card">
+              <div class="hero-photo" style="height:148px;">
+                <div class="hero-photo-bg bg-thai"></div>
+                <div class="hero-photo-gradient"></div>
+                <div class="hero-photo-text">
+                  <div class="hero-rest-name">Sala Thai</div>
+                  <div class="hero-rest-meta">Thai · Silom · visited just now</div>
+                </div>
+              </div>
+              <div class="hero-card-body">
+                <div class="dish-thumb-row">
+                  <div class="dish-thumb-mini thumb-noodle">🍜</div>
+                  <div class="dish-thumb-mini thumb-curry">🍛</div>
+                  <div class="dish-thumb-mini thumb-mango">🥭</div>
+                  <div class="dish-thumb-mini" style="background:linear-gradient(135deg,rgba(198,140,42,0.7),rgba(168,100,22,0.6))">🍝</div>
+                  <div class="dish-thumb-mini thumb-soup">🍲</div>
+                  <div class="dish-thumb-mini thumb-salad">🌿</div>
+                </div>
+                <div class="hero-card-footer">
+                  <span class="hero-dish-count">6 dishes captured</span>
+                  <span class="hero-view-all">View all ›</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Restaurants: 1 = full-width card -->
+            <div class="home-section"><div class="home-section-header">
+              <span class="home-section-title">Restaurants</span>
+              <span class="home-section-link">See all (1)</span>
+            </div></div>
+            <div class="full-card">
+              <div class="full-card-photo thumb-noodle">🍜</div>
+              <div class="full-card-info">
+                <div class="full-card-name">Sala Thai</div>
+                <div class="full-card-meta">Thai · Silom · 6 dishes</div>
+              </div>
+              <span style="font-size:14px;color:#C4BDB5">›</span>
+            </div>
+
+            <!-- Recipes: empty -->
+            <div class="home-section" style="padding-bottom:4px;"><div class="home-section-header">
+              <span class="home-section-title">My Recipes</span>
+            </div></div>
+            <div class="empty-placeholder">
+              <div class="empty-placeholder-text">Expand any dish and tap "Add to My Recipes" to save it here</div>
+            </div>
+          </div>
+        </div>
+        <div class="nav-bar">
+          <div class="nav-pill">
+            <div class="nav-tab active"><span class="nav-icon">⌂</span><span class="nav-label" style="color:#C4622D">Home</span></div>
+            <div class="nav-tab"><span class="nav-icon">⊹</span><span class="nav-label">Recipes</span></div>
+            <div class="nav-tab"><span class="nav-icon">☰</span><span class="nav-label">Grocery</span></div>
+          </div>
+          <div class="nav-camera">⊕</div>
+        </div>
+      </div>
+      <div class="mockup-desc">First scan feels like a moment. Hero takes full prominence — dish thumbnails make the collection feel rich immediately. Recipes waits quietly below.</div>
+    </div>
+
+    <!-- Mockup H3: Growing collection -->
+    <div class="mockup-wrap">
+      <div class="mockup-label">State 2 — Growing collection</div>
+      <div class="phone">
+        <div class="phone-inner bg-curry">
+          <div class="atm-overlay"></div>
+          <div class="screen-content">
+            <div class="status-bar">
+              <span style="font-size:13px;font-weight:600">9:41</span>
+              <span class="status-icons">●●● WiFi ▮▮▮</span>
+            </div>
+            <div class="home-header">
+              <div class="home-logo">Plately</div>
+              <div class="avatar">F</div>
+            </div>
+
+            <!-- Hero: slightly smaller as collection grows -->
+            <div class="hero-card">
+              <div class="hero-photo" style="height:112px;">
+                <div class="hero-photo-bg bg-indian"></div>
+                <div class="hero-photo-gradient"></div>
+                <div class="hero-photo-text">
+                  <div class="hero-rest-name">Naan &amp; Co</div>
+                  <div class="hero-rest-meta">Indian · Chinatown · visited today</div>
+                </div>
+              </div>
+              <div class="hero-card-body">
+                <div class="dish-thumb-row">
+                  <div class="dish-thumb-mini thumb-curry">🍛</div>
+                  <div class="dish-thumb-mini" style="background:linear-gradient(135deg,rgba(210,168,80,0.7),rgba(182,138,50,0.6))">🫓</div>
+                  <div class="dish-thumb-mini thumb-salad">🥗</div>
+                  <div class="dish-thumb-mini thumb-soup">🍲</div>
+                </div>
+                <div class="hero-card-footer">
+                  <span class="hero-dish-count">4 dishes captured</span>
+                  <span class="hero-view-all">View all ›</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Restaurants: 2 = 2-col grid -->
+            <div class="home-section"><div class="home-section-header">
+              <span class="home-section-title">Restaurants</span>
+              <span class="home-section-link">See all (2)</span>
+            </div></div>
+            <div class="card-grid">
+              <div class="grid-card">
+                <div class="grid-card-photo thumb-noodle">🍜</div>
+                <div class="grid-card-body">
+                  <div class="grid-card-name">Sala Thai</div>
+                  <div class="grid-card-meta">6 dishes</div>
+                </div>
+              </div>
+              <div class="grid-card">
+                <div class="grid-card-photo bg-indian" style="display:flex;align-items:center;justify-content:center;font-size:26px;">🫓</div>
+                <div class="grid-card-body">
+                  <div class="grid-card-name">Naan &amp; Co</div>
+                  <div class="grid-card-meta">4 dishes</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recipes: 2 = 2-col grid -->
+            <div class="home-section" style="padding-bottom:6px;"><div class="home-section-header">
+              <span class="home-section-title">My Recipes</span>
+              <span class="home-section-link">See all (2)</span>
+            </div></div>
+            <div class="card-grid">
+              <div class="grid-card">
+                <div class="grid-card-photo thumb-soup">🍲</div>
+                <div class="grid-card-body">
+                  <div class="grid-card-name">Tom Yum</div>
+                  <div class="grid-card-meta grid-card-cal">180 cal</div>
+                </div>
+              </div>
+              <div class="grid-card">
+                <div class="grid-card-photo thumb-curry">🍛</div>
+                <div class="grid-card-body">
+                  <div class="grid-card-name">Green Curry</div>
+                  <div class="grid-card-meta grid-card-cal">890 cal</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="nav-bar">
+          <div class="nav-pill">
+            <div class="nav-tab active"><span class="nav-icon">⌂</span><span class="nav-label" style="color:#C4622D">Home</span></div>
+            <div class="nav-tab"><span class="nav-icon">⊹</span><span class="nav-label">Recipes</span></div>
+            <div class="nav-tab"><span class="nav-icon">☰</span><span class="nav-label">Grocery</span></div>
+          </div>
+          <div class="nav-camera">⊕</div>
+        </div>
+      </div>
+      <div class="mockup-desc">Hero shrinks as more context arrives. Both sections fill in parallel — each at the same 1→2→grid progression. Hero always stays as the most recent visit.</div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
