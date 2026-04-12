@@ -28,7 +28,7 @@ import {
 async function fetchGroceryItems(): Promise<DomainGroceryItem[]> {
   const { data, error } = await supabase
     .from('grocery_items')
-    .select('id, name, quantity, unit, checked, recipe_ids, created_at')
+    .select('id, name, quantity, unit, checked, recipe_ids, dish_name, created_at')
     .order('checked', { ascending: true })
     .order('created_at', { ascending: true })
 
@@ -59,6 +59,7 @@ export interface AddGroceryItemsPayload {
     quantity: string | null
     unit: string | null
     recipeId?: string
+    dishName?: string
   }>
 }
 
@@ -118,6 +119,7 @@ export function useAddToGrocery() {
                 unit: item.unit ?? null,
                 checked: false,
                 recipe_ids: item.recipeId ? [item.recipeId] : [],
+                dish_name: item.dishName ?? null,
               })
 
               const { error } = await supabase
@@ -134,6 +136,9 @@ export function useAddToGrocery() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['grocery-items'] })
+    },
+    onError: (error) => {
+      console.error('[useAddToGrocery] failed:', error.message)
     },
   })
 }

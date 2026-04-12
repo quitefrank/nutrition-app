@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/AppShell";
 import { FrostedCard } from "@/components/ui/FrostedCard";
-import { useAddToGrocery } from "@/hooks/useGrocery";
+import { useAddToGrocery, useGroceryItems } from "@/hooks/useGrocery";
 import { RestaurantConfirmation } from "@/components/scan/RestaurantConfirmation";
 import type { RestaurantInfo } from "@/components/scan/RestaurantConfirmation";
 import { useRecipe, useRemoveRecipe } from "@/hooks/useRecipes";
@@ -42,6 +42,8 @@ interface ScanResult {
   restaurantName?: string | null;
   restaurantPlaceId?: string | null;
   restaurantAddress?: string | null;
+  restaurantRating?: number | null;
+  restaurantUserRatingsTotal?: number | null;
   allDishes: Dish[];
   enriched?: boolean;
 }
@@ -126,11 +128,11 @@ function RecipePageInner() {
 
   const [result, setResult] = useState<ScanResult | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [groceryAdded, setGroceryAdded] = useState(false);
   const [confirmationDismissed, setConfirmationDismissed] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const removeRecipe = useRemoveRecipe();
   const addToGroceryMutation = useAddToGrocery();
+  const { data: groceryItems } = useGroceryItems();
 
   // ── Supabase path (UUID ids only) ──────────────────────────
   const { data: supabaseRecipe, isError: supabaseError, isLoading: supabaseLoading } =
@@ -173,6 +175,8 @@ function RecipePageInner() {
           restaurantName: restaurant.name,
           restaurantPlaceId: restaurant.placeId,
           restaurantAddress: restaurant.address ?? null,
+          restaurantRating: restaurant.rating ?? null,
+          restaurantUserRatingsTotal: restaurant.userRatingsTotal ?? null,
         };
         sessionStorage.setItem(id, JSON.stringify(updated));
         setResult(updated);
@@ -287,6 +291,11 @@ function RecipePageInner() {
 
   const hasRealMacros = dish?.ingredients?.some((i) => i.calories_kcal !== null && i.calories_kcal !== undefined);
   const displayCalories = dish?.totalCalories ?? dish?.calorieEstimate ?? null;
+  // Derive from the grocery list query so state persists across navigation.
+  // Resets automatically if the user removes all items tied to this recipe.
+  const groceryAdded = dish?.id
+    ? (groceryItems ?? []).some((item) => item.recipeIds.includes(dish.id!))
+    : false;
 
   return (
     <AppShell atmosphericImageUrl={atmosphericUrl} atmosphericRestaurantId={atmosphericRestaurantId}>
@@ -502,25 +511,37 @@ function RecipePageInner() {
 
         {/* Add to Grocery CTA */}
         {dish.ingredients.length > 0 && (
-          <motion.div variants={itemVariants} className="px-4 pb-4">
+          <motion.div variants={itemVariants} className="px-4 pb-4 flex flex-col gap-2">
             <motion.button
               onClick={() => {
-                if (groceryAdded) return;
+                if (groceryAdded || addToGroceryMutation.isPending) return;
                 addToGroceryMutation.mutate({
                   items: dish.ingredients.map((ing) => ({
                     name: ing.name,
                     quantity: ing.quantity ?? null,
                     unit: ing.unit ?? null,
                     recipeId: dish.id,
+                    dishName: dish.name,
                   })),
                 });
-                setGroceryAdded(true);
-                setTimeout(() => setGroceryAdded(false), 2500);
               }}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-full text-sm font-semibold"
+              disabled={addToGroceryMutation.isPending}
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-full text-sm font-semibold disabled:opacity-70"
               style={{
-                background: groceryAdded ? "var(--color-accent-light)" : "var(--color-accent)",
-                color: groceryAdded ? "var(--color-accent)" : "#fff",
+                background: groceryAdded
+                  ? "var(--color-accent-light)"
+                  : addToGroceryMutation.isError
+                  ? "rgba(251,234,234,0.95)"
+                  : addToGroceryMutation.isPending
+                  ? "var(--color-accent-light)"
+                  : "var(--color-accent)",
+                color: groceryAdded
+                  ? "var(--color-accent)"
+                  : addToGroceryMutation.isError
+                  ? "#A03030"
+                  : addToGroceryMutation.isPending
+                  ? "var(--color-accent)"
+                  : "#fff",
                 transition: "background 0.25s ease, color 0.25s ease",
               }}
               whileTap={{ scale: 0.97 }}
@@ -529,6 +550,11 @@ function RecipePageInner() {
                 <>
                   <CheckIcon />
                   Added to Grocery
+                </>
+              ) : addToGroceryMutation.isError ? (
+                <>
+                  <GroceryBagIcon />
+                  Couldn&apos;t add — tap to retry
                 </>
               ) : (
                 <>

@@ -107,6 +107,17 @@ export function SearchScreen() {
   const [results, setResults] = useState<RestaurantResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Request location on mount — fires the native browser prompt once.
+  // Silently degrades to unbiased search if denied or unavailable.
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => { /* denied or unavailable — search works without it */ }
+    );
+  }, []);
 
   const debouncedQuery = useDebounced(query, DEBOUNCE_MS);
 
@@ -140,7 +151,7 @@ export function SearchScreen() {
     fetch("/api/places/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: trimmed }),
+      body: JSON.stringify({ query: trimmed, ...(coords ?? {}) }),
     })
       .then((res) => {
         if (!res.ok) throw new Error(`status ${res.status}`);
@@ -158,6 +169,9 @@ export function SearchScreen() {
       });
 
     return () => { cancelled = true; };
+  // coords is intentionally excluded: we don't want to re-fire the search
+  // just because location resolved. It will be included on the next keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
   const handleCardTap = (result: RestaurantResult) => {

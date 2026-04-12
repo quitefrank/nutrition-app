@@ -10,6 +10,8 @@ export interface RestaurantInfo {
   placeId: string;
   name: string;
   address?: string;
+  rating?: number | null;
+  userRatingsTotal?: number | null;
 }
 
 interface RestaurantConfirmationProps {
@@ -79,10 +81,12 @@ export function RestaurantConfirmation({
         if (cancelled) return;
         setTextResults(
           (json.data ?? []).map(
-            (r: { placeId: string; name: string; address?: string }) => ({
+            (r: { placeId: string; name: string; address?: string; rating?: number | null; userRatingsTotal?: number | null }) => ({
               placeId: r.placeId,
               name: r.name,
               address: r.address ?? "",
+              rating: r.rating ?? null,
+              userRatingsTotal: r.userRatingsTotal ?? null,
             })
           )
         );
@@ -114,10 +118,12 @@ export function RestaurantConfirmation({
           const json = await res.json();
           setNearbyPlaces(
             (json.data ?? []).map(
-              (p: { placeId: string; name: string; address?: string }) => ({
+              (p: { placeId: string; name: string; address?: string; rating?: number | null; userRatingsTotal?: number | null }) => ({
                 placeId: p.placeId,
                 name: p.name,
                 address: p.address ?? "",
+                rating: p.rating ?? null,
+                userRatingsTotal: p.userRatingsTotal ?? null,
               })
             )
           );

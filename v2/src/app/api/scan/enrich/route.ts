@@ -3,9 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import { getApiKeys } from "@/lib/api-keys";
-import { getRestaurantPhotos } from "@/lib/placesPhotos";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
+import { supabase } from "@/lib/supabase";
+import type { RecipeUpdate } from "@/types/database";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
@@ -80,7 +79,7 @@ async function lookupUsdaMacros(
     );
     if (!res.ok) return nullResult;
 
-    const data = await res.json();
+    const { foods } = UsdaSearchResponseSchema.parse(await res.json());
 
     // Calorie density guard — reject implausible matches (e.g. "avocado blossoms" → avocado oil).
     // Accept the first candidate whose cal/100g is within the whole-food ceiling.
@@ -89,24 +88,36 @@ async function lookupUsdaMacros(
     const isHighFatQuery = FAT_TERMS.some((t) => ingredientName.toLowerCase().includes(t));
     const CAL_DENSITY_LIMIT = 700; // kcal/100g — only pure fats/oils exceed this
 
-    const foods = Array.isArray(data?.foods) ? data.foods : [];
-    let food = null;
+    // Processed-form terms — deprioritize these in favour of raw/whole matches.
+    // e.g. USDA often ranks "Tomato paste" above "Tomatoes, raw" for query "tomato".
+    const PROCESSED_TERMS = ["paste", "sauce", "concentrate", "canned", "dried", "sun-dried", "powder", "juice", "puree", "extract"];
+    const isProcessed = (desc: string) => PROCESSED_TERMS.some((t) => desc.toLowerCase().includes(t));
+
+    // Collect all valid candidates (pass calorie density guard) + track their processed status
+    type Candidate = { food: typeof foods[0]; cal100g: number; processed: boolean };
+    const validCandidates: Candidate[] = [];
+    let noCalFallback = null; // accepted only if every candidate lacks calorie data
+
     for (const candidate of foods) {
-      const candidateNutrients: Array<{ nutrientId: number; value: number }> = Array.isArray(candidate.foodNutrients)
-        ? candidate.foodNutrients
-        : [];
-      const cal100g = candidateNutrients.find((n) => n.nutrientId === 1008)?.value ?? null;
-      if (cal100g === null || isHighFatQuery || cal100g <= CAL_DENSITY_LIMIT) {
-        food = candidate;
-        break;
+      const cal100g = candidate.foodNutrients.find((n) => n.nutrientId === 1008)?.value ?? null;
+      if (cal100g === null) {
+        if (!noCalFallback) noCalFallback = candidate;
+        continue;
       }
-      // cal100g > 700 and not a known fat/oil query → reject, try next candidate
+      if (isHighFatQuery || cal100g <= CAL_DENSITY_LIMIT) {
+        validCandidates.push({ food: candidate, cal100g, processed: isProcessed(candidate.description ?? "") });
+      }
     }
+
+    // Prefer non-processed (raw/whole) over processed forms; fall back to processed if nothing else
+    const food =
+      validCandidates.find((c) => !c.processed)?.food ??
+      validCandidates[0]?.food ??
+      noCalFallback;
+
     if (!food) return nullResult;
 
-    const nutrients: Array<{ nutrientId: number; value: number }> = Array.isArray(food.foodNutrients)
-      ? food.foodNutrients
-      : [];
+    const nutrients = food.foodNutrients;
 
     const find = (id: number): number | null => {
       const n = nutrients.find((n) => n.nutrientId === id);
@@ -221,20 +232,17 @@ async function inferIngredients(dishName: string, geminiKey: string, description
     const result = await model.generateContent(INFER_PROMPT(dishName, description, restaurantName));
     const text = result.response.text();
     const clean = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-    const parsed = JSON.parse(clean) as { servings?: unknown; ingredients: unknown[] };
-    const servings = typeof parsed?.servings === "number" && parsed.servings >= 1
-      ? Math.round(parsed.servings)
-      : 4;
-    if (!Array.isArray(parsed?.ingredients)) return { servings, ingredients: [] };
-    const ingredients = parsed.ingredients
-      .filter((i): i is Record<string, unknown> => typeof i === "object" && i !== null)
+    const { servings, ingredients: raw } = GeminiInferenceSchema.parse(JSON.parse(clean));
+    const ingredients: InferredIngredient[] = raw
+      .filter((i) => i.name.trim().length > 0)
       .map((i) => ({
-        name: typeof i.name === "string" && i.name.trim() ? i.name.trim() : null,
-        usda_name: typeof i.usda_name === "string" && i.usda_name.trim() ? i.usda_name.trim() : null,
-        quantity: typeof i.quantity === "string" ? i.quantity : null,
-        unit: typeof i.unit === "string" ? i.unit : null,
-      }))
-      .filter((i): i is InferredIngredient => i.name !== null);
+        name: i.name.trim(),
+        usda_name: i.usda_name ?? null,
+        quantity: typeof i.quantity === "number"
+          ? (Number.isFinite(i.quantity) && i.quantity > 0 ? String(i.quantity) : null)
+          : (i.quantity ?? null),
+        unit: i.unit ?? null,
+      }));
     return { servings, ingredients };
   } catch (err) {
     console.warn("[enrich/gemini] inference failed for:", dishName, err instanceof Error ? err.message : err);
@@ -242,7 +250,47 @@ async function inferIngredients(dishName: string, geminiKey: string, description
   }
 }
 
-// ─── Google Custom Search fallback ────────────────────────
+// ─── Gemini Search grounding — dish rating ────────────────
+
+interface DishRating {
+  dishRating: number | null;
+  dishReviewSnippet: string | null;
+}
+
+async function getDishRating(
+  dishName: string,
+  restaurantName: string | null,
+  geminiKey: string
+): Promise<DishRating> {
+  try {
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({
+      model: GEMINI_MODEL,
+      tools: [{ googleSearch: {} }] as never,
+    });
+
+    const context = restaurantName?.trim()
+      ? `"${dishName}" dish at "${restaurantName}" restaurant`
+      : `"${dishName}" dish`;
+
+    const prompt = `Search for customer reviews and ratings of ${context}. Based on what you find, reply with ONLY a JSON object and nothing else:
+{"rating": <number between 1.0 and 5.0, or null if insufficient data>, "snippet": "<one sentence summary of customer sentiment, or null>"}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    const jsonMatch = text.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) return { dishRating: null, dishReviewSnippet: null };
+
+    const { rating, snippet } = DishRatingSchema.parse(JSON.parse(jsonMatch[0]));
+    return { dishRating: rating, dishReviewSnippet: snippet };
+  } catch {
+    // Non-blocking — rating is best-effort
+    return { dishRating: null, dishReviewSnippet: null };
+  }
+}
+
+// ─── Google Custom Search photo ────────────────────────────
 
 async function getDishPhoto(dishName: string, cseKey: string, cseCx: string): Promise<string | null> {
   const controller = new AbortController();
@@ -265,6 +313,81 @@ async function getDishPhoto(dishName: string, cseKey: string, cseCx: string): Pr
     clearTimeout(timer);
   }
 }
+
+// ─── TheMealDB fallback (no API key required) ───────────────
+// Covers thousands of common dishes with stable, licensed photos.
+// Used when CSE keys are not configured.
+
+// Generic words that rarely match a meaningful meal in TheMealDB
+const MEAL_DB_SKIP_WORDS = new Set([
+  "spicy", "crispy", "fried", "grilled", "baked", "stuffed", "sauteed", "steamed",
+  "roll", "rolls", "bowl", "plate", "wrap", "special", "combo", "platter",
+  "with", "and", "the", "for", "in", "of", "a", "an",
+]);
+
+async function getDishPhotoFromMealDB(dishName: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    // Build a prioritised query list: full name, then each significant word
+    const words = dishName
+      .split(/\s+/)
+      .map((w) => w.toLowerCase().replace(/[^a-z]/g, ""))
+      .filter((w) => w.length >= 3 && !MEAL_DB_SKIP_WORDS.has(w));
+    const queries = [dishName, ...words].filter(Boolean);
+
+    for (const q of queries) {
+      const res = await fetch(
+        `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(q)}`,
+        { signal: controller.signal }
+      );
+      if (!res.ok) continue;
+      const data = await res.json() as { meals?: Array<{ strMealThumb?: string }> | null };
+      const photo = data?.meals?.[0]?.strMealThumb;
+      if (typeof photo === "string" && photo.startsWith("https://")) return photo;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── External API response schemas ────────────────────────
+// All lenient: .catch() fallbacks so partial data is always usable.
+
+const UsdaSearchResponseSchema = z.object({
+  foods: z.array(
+    z.object({
+      description: z.string().catch(""),
+      servingSize: z.number().nullable().catch(null),
+      servingSizeUnit: z.string().nullable().catch(null),
+      foodNutrients: z.array(
+        z.object({ nutrientId: z.number(), value: z.number() })
+      ).catch([]),
+    })
+  ).catch([]),
+});
+
+const GeminiInferenceSchema = z.object({
+  servings: z.number().positive().catch(1),
+  ingredients: z.array(
+    z.object({
+      name: z.string().catch(""),
+      usda_name: z.string().nullable().optional().catch(null),
+      quantity: z.union([z.string(), z.number()]).nullable().optional().catch(null),
+      unit: z.string().nullable().optional().catch(null),
+    })
+  ).catch([]),
+});
+
+const DishRatingSchema = z.object({
+  rating: z.number().min(1).max(5).nullable().catch(null)
+    .transform((v) => (v !== null ? Math.round(v * 10) / 10 : null)),
+  snippet: z.string().nullable().catch(null)
+    .transform((v) => (v?.trim().slice(0, 200) || null)),
+});
 
 // ─── Request / Response schemas ────────────────────────────
 
@@ -319,11 +442,6 @@ export async function POST(req: NextRequest) {
   }
   const { restaurantName, dishToRecipeMap } = parsed.data;
 
-  // Resolve restaurant photos once for all dishes
-  let restaurantPhotos: string[] = [];
-  if (placesKey && restaurantName) {
-    restaurantPhotos = await getRestaurantPhotos({ name: restaurantName }, placesKey);
-  }
 
   // Enrich each dish in parallel
   const enrichedDishes = await Promise.all(
@@ -351,13 +469,16 @@ export async function POST(req: NextRequest) {
         }));
       }
 
-      // Step C: Photo resolution
-      let photoUrl: string | null = null;
-      if (restaurantPhotos.length > 0) {
-        photoUrl = restaurantPhotos[i % restaurantPhotos.length];
-      } else if (cseKey && cseCx) {
-        photoUrl = await getDishPhoto(dish.name, cseKey, cseCx);
-      }
+      // Step C: Photo + rating in parallel
+      // Prefer CSE (stable web images) when configured; fall back to TheMealDB
+      // (free, no key, covers thousands of common dishes with stable photos).
+      const [photoUrl, ratingResult] = await Promise.all([
+        cseKey && cseCx
+          ? getDishPhoto(dish.name, cseKey, cseCx)
+          : getDishPhotoFromMealDB(dish.name),
+        getDishRating(dish.name, restaurantName ?? null, geminiKey),
+      ]);
+      const { dishRating, dishReviewSnippet } = ratingResult;
 
       // Compute totals
       const sumOrNull = (vals: (number | null)[]) => {
@@ -371,6 +492,8 @@ export async function POST(req: NextRequest) {
         servings,
         ingredients: enrichedIngredients,
         photoUrl,
+        dishRating,
+        dishReviewSnippet,
         totalCalories: sumOrNull(enrichedIngredients.map((i) => i.calories_kcal)),
         totalProtein: sumOrNull(enrichedIngredients.map((i) => i.protein_g)),
         totalFat: sumOrNull(enrichedIngredients.map((i) => i.fat_g)),
@@ -386,15 +509,29 @@ export async function POST(req: NextRequest) {
   if (dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0) {
     void (async () => {
       try {
-        const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-        if (!url || !key) return;
-
-        const sb = createClient<Database>(url, key);
+        const sb = supabase;
 
         for (const enrichedDish of enrichedDishes) {
           const recipeId = enrichedDish.id ? dishToRecipeMap[enrichedDish.id] : undefined;
           if (!recipeId) continue;
+
+          // Write dish photo independently so a missing rating column never
+          // blocks dish_image_url from being persisted.
+          if (enrichedDish.photoUrl) {
+            await sb
+              .from("recipes")
+              .update({ dish_image_url: enrichedDish.photoUrl })
+              .eq("id", recipeId);
+          }
+
+          // Rating + review — best-effort; skip when both are null
+          const ratingUpdates: RecipeUpdate = {};
+          if (enrichedDish.dishRating !== null) ratingUpdates.dish_rating = enrichedDish.dishRating;
+          if (enrichedDish.dishReviewSnippet !== null) ratingUpdates.dish_review_snippet = enrichedDish.dishReviewSnippet;
+          if (Object.keys(ratingUpdates).length > 0) {
+            const { error: ratingErr } = await sb.from("recipes").update(ratingUpdates).eq("id", recipeId);
+            if (ratingErr) console.warn("[enrich] rating update failed:", ratingErr.message);
+          }
 
           const ings = enrichedDish.ingredients as Array<{
             name: string;
@@ -409,53 +546,26 @@ export async function POST(req: NextRequest) {
 
           if (ings.length === 0) continue;
 
-          // Check whether ingredient rows already exist for this recipe.
-          // For menu scans the initial auto-save writes no ingredient rows
-          // (the scan prompt returns ingredients: [] for menu items), so we
-          // INSERT rather than UPDATE to avoid silently discarding all data.
-          const { data: existing } = await sb
+          // Upsert all ingredients in one call.
+          // The unique constraint on (recipe_id, name) ensures concurrent write-backs
+          // from parallel enrichment runs don't produce duplicate rows.
+          const rows = ings.map((ing) => ({
+            recipe_id: recipeId,
+            name: ing.name,
+            quantity: ing.quantity ?? null,
+            unit: ing.unit ?? null,
+            confidence: "medium" as const,
+            calories_per_serving: ing.calories_kcal,
+            protein_g: ing.protein_g,
+            fat_g: ing.fat_g,
+            carbs_g: ing.carbs_g,
+          }));
+
+          const { error } = await sb
             .from("recipe_ingredients")
-            .select("name")
-            .eq("recipe_id", recipeId);
+            .upsert(rows, { onConflict: "recipe_id,name" });
 
-          const existingNames = new Set((existing ?? []).map((r: { name: string }) => r.name));
-
-          for (const ing of ings) {
-            if (existingNames.has(ing.name)) {
-              // Row exists — UPDATE macros only (preserve user-edited name/quantity)
-              if (ing.calories_kcal === null && ing.protein_g === null && ing.fat_g === null && ing.carbs_g === null) continue;
-
-              const { error } = await sb
-                .from("recipe_ingredients")
-                .update({
-                  calories_per_serving: ing.calories_kcal,
-                  protein_g: ing.protein_g,
-                  fat_g: ing.fat_g,
-                  carbs_g: ing.carbs_g,
-                })
-                .eq("recipe_id", recipeId)
-                .eq("name", ing.name);
-
-              if (error) console.warn("[enrich] ingredient update failed:", ing.name, error.message);
-            } else {
-              // Row doesn't exist — INSERT the full ingredient with macros
-              const { error } = await sb
-                .from("recipe_ingredients")
-                .insert({
-                  recipe_id: recipeId,
-                  name: ing.name,
-                  quantity: ing.quantity ?? null,
-                  unit: ing.unit ?? null,
-                  confidence: "medium" as const,
-                  calories_per_serving: ing.calories_kcal,
-                  protein_g: ing.protein_g,
-                  fat_g: ing.fat_g,
-                  carbs_g: ing.carbs_g,
-                });
-
-              if (error) console.warn("[enrich] ingredient insert failed:", ing.name, error.message);
-            }
-          }
+          if (error) console.warn("[enrich] ingredient upsert failed:", recipeId, error.message);
         }
       } catch (err) {
         console.warn("[enrich] Supabase write-back error (non-blocking):", err instanceof Error ? err.message : err);

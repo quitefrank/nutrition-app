@@ -24,10 +24,10 @@
 
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { AppShell } from '@/components/AppShell';
 import { FrostedCard } from '@/components/ui/FrostedCard';
-import { useRecipe, useUpdateRecipe, useUpdateIngredient, useAddIngredient } from '@/hooks/useRecipes';
+import { useRecipe, useUpdateRecipe, useUpdateIngredient, useAddIngredient, useRemoveRecipe } from '@/hooks/useRecipes';
 
 // ─── UUID detection ───────────────────────────────────────────────────────────
 
@@ -159,11 +159,13 @@ function EditPageInner() {
   const updateRecipe = useUpdateRecipe();
   const updateIngredient = useUpdateIngredient();
   const addIngredient = useAddIngredient();
+  const removeRecipe = useRemoveRecipe();
 
   // Raw scan result (used by both paths as a render source)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   // Editable fields
   const [dishName, setDishName] = useState('');
@@ -346,6 +348,27 @@ function EditPageInner() {
     router.replace(`/recipe/${id}?dish=${dishIndex}`);
   }
 
+  // ─── Remove ───────────────────────────────────────────────────────────────────
+
+  async function handleRemove() {
+    if (idIsUUID) {
+      await removeRecipe.mutateAsync(id);
+      router.replace('/');
+      return;
+    }
+    // SessionStorage path: remove this dish; delete the key if it was the only one
+    if (scanResult) {
+      const updatedDishes = scanResult.allDishes.filter((_, i) => i !== dishIndex);
+      if (updatedDishes.length === 0) {
+        sessionStorage.removeItem(id);
+      } else {
+        sessionStorage.setItem(id, JSON.stringify({ ...scanResult, allDishes: updatedDishes }));
+      }
+      window.dispatchEvent(new CustomEvent('plately:enriched', { detail: { key: id } }));
+    }
+    router.replace('/');
+  }
+
   // ─── Loading / error states ───────────────────────────────────────────────────
 
   if (notFound) {
@@ -523,12 +546,7 @@ function EditPageInner() {
                 <div
                   key={index}
                   className="flex items-center gap-2 px-4 py-3"
-                  style={{
-                    borderBottom:
-                      index < ingredients.length - 1
-                        ? '1px solid rgba(180,170,158,0.15)'
-                        : undefined,
-                  }}
+                  style={{ borderBottom: '1px solid rgba(180,170,158,0.15)' }}
                 >
                   {/* Name */}
                   <input
@@ -571,22 +589,39 @@ function EditPageInner() {
                   </button>
                 </div>
               ))}
+
+              {/* Add ingredient — inset from card edges, dashed border preserved */}
+              <div className="px-4 pt-3 pb-4">
+                <button
+                  onClick={handleAddIngredient}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-[var(--radius-lg)] text-sm font-medium"
+                  style={{
+                    color: 'var(--color-accent)',
+                    border: '1.5px dashed rgba(196,98,45,0.35)',
+                    background: 'var(--color-accent-light)',
+                    minHeight: 44,
+                  }}
+                  aria-label="Add ingredient"
+                >
+                  <PlusIcon />
+                  Add ingredient
+                </button>
+              </div>
             </FrostedCard>
 
-            {/* Add ingredient row */}
+            {/* Remove dish */}
             <button
-              onClick={handleAddIngredient}
-              className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-[var(--radius-lg)] text-sm font-medium"
+              onClick={() => setConfirmingRemove(true)}
+              className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-[9999px] text-sm font-medium"
               style={{
-                color: 'var(--color-accent)',
-                border: '1.5px dashed rgba(196,98,45,0.35)',
-                background: 'var(--color-accent-light)',
-                minHeight: 44,
+                color: '#A03030',
+                background: 'rgba(251, 234, 234, 0.95)',
+                border: '1px solid rgba(160, 48, 48, 0.14)',
+                minHeight: 52,
               }}
-              aria-label="Add ingredient"
+              aria-label="Remove this dish"
             >
-              <PlusIcon />
-              Add ingredient
+              Remove dish
             </button>
           </div>
 
@@ -594,6 +629,63 @@ function EditPageInner() {
           <div style={{ height: 'calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)' }} />
         </motion.div>
       </div>
+
+      {/* Remove confirmation modal */}
+      <AnimatePresence>
+        {confirmingRemove && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-6"
+            style={{ background: 'rgba(26,22,18,0.50)' }}
+            onClick={() => setConfirmingRemove(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.93, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0, transition: { type: 'spring', damping: 28, stiffness: 380 } }}
+              exit={{ scale: 0.93, opacity: 0, y: 8, transition: { duration: 0.15 } }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-xs rounded-[24px] p-6 flex flex-col gap-5"
+              style={{
+                background: 'rgba(255,252,247,0.96)',
+                backdropFilter: 'blur(32px) saturate(1.5)',
+                border: '1px solid rgba(180,170,158,0.28)',
+                boxShadow: '0 24px 60px rgba(26,22,18,0.20), 0 8px 24px rgba(26,22,18,0.12)',
+              }}
+            >
+              <div className="flex flex-col gap-1.5">
+                <p
+                  className="text-base font-semibold"
+                  style={{ fontFamily: 'var(--font-display), Georgia, serif', color: 'var(--color-text-primary)' }}
+                >
+                  Remove &ldquo;{dishName}&rdquo;?
+                </p>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                  This dish will be removed from your collection.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => void handleRemove()}
+                  disabled={removeRecipe.isPending}
+                  className="w-full py-3.5 rounded-full text-sm font-semibold"
+                  style={{ background: '#A03030', color: '#fff', opacity: removeRecipe.isPending ? 0.6 : 1 }}
+                >
+                  {removeRecipe.isPending ? 'Removing…' : 'Remove'}
+                </button>
+                <button
+                  onClick={() => setConfirmingRemove(false)}
+                  className="w-full py-3.5 rounded-full text-sm font-medium"
+                  style={{ background: 'rgba(180,170,158,0.15)', color: 'var(--color-text-secondary)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </AppShell>
   );
 }

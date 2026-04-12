@@ -9,6 +9,7 @@ import { useRestaurants } from "@/hooks/useRestaurants";
 import { useRecipesByRestaurant, useRemoveRecipe } from "@/hooks/useRecipes";
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 import { supabase } from "@/lib/supabase";
+import { useEnrichment } from "@/hooks/useEnrichment";
 import type { DomainRestaurant, DomainRecipe } from "@/types/database";
 
 // ─── Types ─────────────────────────────────────────────────
@@ -102,6 +103,28 @@ function loadRecipesForRestaurant(placeId: string): SavedRecipe[] {
 }
 
 /**
+ * Return the menu photo URL (the Google Places photo Gemini read during
+ * auto-scan) stored in the most recent session scan for this restaurant.
+ */
+function loadMenuPhotoUrl(placeId: string): string | null {
+  try {
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (!key) continue;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) continue;
+      let parsed: { restaurantPlaceId?: string | null; menuPhotoUrl?: string | null };
+      try { parsed = JSON.parse(raw); } catch { continue; }
+      if (parsed.restaurantPlaceId !== placeId) continue;
+      if (parsed.menuPhotoUrl) return parsed.menuPhotoUrl;
+    }
+  } catch {
+    // sessionStorage unavailable
+  }
+  return null;
+}
+
+/**
  * Convert a Supabase DomainRecipe to the SavedRecipe shape used by the
  * render layer. Uses the recipe's UUID as the navigation key so that
  * /recipe/[uuid] loads it from Supabase.
@@ -127,93 +150,6 @@ function domainRecipeToSaved(
   };
 }
 
-/**
- * Fire-and-forget enrichment after an auto-save completes.
- * Calls /api/scan/enrich so Gemini infers ingredients + USDA macros for
- * every dish in the scan. Writes the enriched result back to sessionStorage
- * (enriched: true) and dispatches plately:enriched so the recipe page
- * stops polling and renders the updated data.
- */
-function fireEnrichment(
-  scanKey: string,
-  dishToRecipeMap: Record<string, string> | null
-) {
-  void (async () => {
-    try {
-      const raw = sessionStorage.getItem(scanKey);
-      if (!raw) return;
-      const scanData = JSON.parse(raw) as {
-        allDishes: Array<{ id?: string; name: string; description?: string }>;
-        restaurantName?: string | null;
-      };
-      const dishes = (scanData.allDishes ?? []).map((d) => ({
-        id: d.id,
-        name: d.name,
-        description: d.description,
-      }));
-      if (dishes.length === 0) return;
-
-      const enrichRes = await fetch("/api/scan/enrich", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dishes,
-          restaurantName: scanData.restaurantName ?? null,
-          ...(dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0
-            ? { dishToRecipeMap }
-            : {}),
-        }),
-      });
-
-      if (!enrichRes.ok) return;
-
-      const enrichData = await enrichRes.json() as {
-        data?: {
-          dishes: Array<{
-            id?: string;
-            name: string;
-            servings: number;
-            ingredients: unknown[];
-            photoUrl: string | null;
-            totalCalories: number | null;
-            totalProtein: number | null;
-            totalFat: number | null;
-            totalCarbs: number | null;
-          }>;
-        };
-      };
-
-      const enrichedDishes = enrichData?.data?.dishes;
-      if (!Array.isArray(enrichedDishes)) return;
-
-      // Re-read sessionStorage in case it was updated since we started
-      const currentRaw = sessionStorage.getItem(scanKey);
-      const currentData = currentRaw
-        ? (JSON.parse(currentRaw) as { allDishes: Array<Record<string, unknown>> })
-        : scanData;
-
-      const mergedDishes = (currentData.allDishes ?? []).map((dish) => {
-        const enriched = enrichedDishes.find((e) =>
-          e.id ? e.id === dish.id : e.name === dish.name
-        );
-        if (!enriched) return dish;
-        return { ...dish, ...enriched };
-      });
-
-      sessionStorage.setItem(
-        scanKey,
-        JSON.stringify({ ...currentData, allDishes: mergedDishes, enriched: true })
-      );
-
-      window.dispatchEvent(
-        new CustomEvent("plately:enriched", { detail: { key: scanKey } })
-      );
-    } catch {
-      // Non-blocking — enrichment is best-effort
-    }
-  })();
-}
-
 // ─── RestaurantScreen ──────────────────────────────────────
 
 export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
@@ -221,9 +157,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const searchParams = useSearchParams();
   const nameFromUrl = searchParams.get("name") ?? null;
   const queryClient = useQueryClient();
+  const { enrich } = useEnrichment();
   const removeRecipe = useRemoveRecipe();
   const [sessionRecipes, setSessionRecipes] = useState<SavedRecipe[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [confirmRecipe, setConfirmRecipe] = useState<SavedRecipe | null>(null);
+  const [menuPhotoUrl, setMenuPhotoUrl] = useState<string | null>(null);
+  const [menuPhotoOpen, setMenuPhotoOpen] = useState(false);
 
   // ── Auto-scan state ─────────────────────────────────────────
   const [autoScanStep, setAutoScanStep] = useState<'idle' | 'looking' | 'scanning' | 'finishing' | 'done' | 'error'>('idle');
@@ -235,10 +175,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const visitCreatedRef = useRef(false);
   // Guards against scanning fallback photos more than once per page load.
   const fallbackScannedRef = useRef(false);
+  // Guards against running the photo backfill more than once per page load.
+  const photoBackfillRef = useRef(false);
 
   // ── SessionStorage ─────────────────────────────────────────
   useEffect(() => {
     setSessionRecipes(loadRecipesForRestaurant(placeId));
+    setMenuPhotoUrl(loadMenuPhotoUrl(placeId));
     setLoaded(true);
   }, [placeId]);
 
@@ -271,10 +214,84 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     (r) => !supabaseNames.has(r.dish.name.toLowerCase().trim())
   );
 
+  // When merging Supabase and session recipes, prefer the session photo URL
+  // when the Supabase row has dish_image_url: null (write-back may not have
+  // completed yet). This prevents photos from disappearing on same-session revisits.
   const recipes: SavedRecipe[] =
     supabaseRecipes.length > 0
-      ? [...supabaseRecipes, ...sessionOnlyRecipes]
+      ? [
+          ...supabaseRecipes.map((sr) => {
+            if (sr.dish.photoUrl) return sr;
+            const sessionMatch = sessionRecipes.find(
+              (s) => s.dish.name.toLowerCase().trim() === sr.dish.name.toLowerCase().trim()
+            );
+            if (!sessionMatch?.dish.photoUrl) return sr;
+            return { ...sr, dish: { ...sr.dish, photoUrl: sessionMatch.dish.photoUrl } };
+          }),
+          ...sessionOnlyRecipes,
+        ]
       : sessionRecipes;
+
+  // ── Photo backfill ─────────────────────────────────────────
+  // When any Supabase recipe is missing a photo, fire a one-shot enrichment
+  // call for the missing subset to hydrate dish_image_url. We only skip if
+  // ALL recipes already have photos — one photo present should not block the
+  // others from being backfilled.
+  useEffect(() => {
+    if (recipesPending) return;
+    if (supabaseRecipes.length === 0) return;
+    if (supabaseRecipes.every((r) => r.dish.photoUrl)) return; // all photos present
+    if (photoBackfillRef.current) return;
+    photoBackfillRef.current = true;
+
+    // Only backfill the recipes that are actually missing a photo
+    const recipesNeedingPhotos = supabaseRecipes.filter((r) => !r.dish.photoUrl);
+    if (recipesNeedingPhotos.length === 0) return;
+
+    // Snapshot stable values at effect time
+    const currentRestaurantName = restaurantName;
+    const dishToRecipeMap: Record<string, string> = {};
+    const dishes = recipesNeedingPhotos.map((r) => {
+      const tempId = crypto.randomUUID();
+      dishToRecipeMap[tempId] = r.scanKey; // scanKey IS the Supabase UUID for isSupabase recipes
+      return { id: tempId, name: r.dish.name, description: r.dish.description };
+    });
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/scan/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dishes, restaurantName: currentRestaurantName, dishToRecipeMap }),
+        });
+        if (!res.ok) return;
+        const json = await res.json() as {
+          data?: { dishes: Array<{ id?: string; photoUrl: string | null }> };
+        };
+        const enrichedDishes = json.data?.dishes ?? [];
+
+        // Write photos to Supabase now that we have them, then refresh the grid
+        const writes = enrichedDishes
+          .filter((d) => d.id && d.photoUrl && dishToRecipeMap[d.id])
+          .map((d) =>
+            supabase
+              .from("recipes")
+              .update({ dish_image_url: d.photoUrl })
+              .eq("id", dishToRecipeMap[d.id!])
+          );
+
+        if (writes.length > 0) {
+          await Promise.all(writes);
+          void queryClient.invalidateQueries({ queryKey: ["recipes", "restaurant"] });
+          void queryClient.invalidateQueries({ queryKey: ["recipes"] });
+        }
+      } catch {
+        // Non-blocking — photo backfill is best-effort
+      }
+    })();
+  // restaurantName and supabaseRecipes identity change on each render — use lengths/flags as deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipesPending, supabaseRecipes.length]);
 
   // True while we're waiting for Supabase to confirm whether recipes exist.
   // Prevents flashing the empty/idle state before the auto-scan fires.
@@ -433,17 +450,19 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           type: 'menu',
           restaurantName: json.data.restaurantName ?? restaurantName,
           restaurantPlaceId: placeId,
+          menuPhotoUrl: json.data.menuPhotoUrl ?? null,
           allDishes: json.data.dishes,
           enriched: false,
         })
       );
 
       setSessionRecipes(loadRecipesForRestaurant(placeId));
+      setMenuPhotoUrl(loadMenuPhotoUrl(placeId));
       setAutoScanStep('done');
       autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
         void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
         void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
-        fireEnrichment(scanKey, dishToRecipeMap);
+        enrich(scanKey, dishToRecipeMap);
       });
     } catch {
       clearTimeout(stepTimer);
@@ -505,7 +524,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
         autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
           void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
           void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
-          fireEnrichment(scanKey, dishToRecipeMap);
+          enrich(scanKey, dishToRecipeMap);
         });
       } catch {
         // Non-blocking — best-effort dish photo scan
@@ -522,6 +541,21 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     const toScan = fallbackDishPhotos.slice(0, 5);
     void Promise.allSettled(toScan.map((photo) => handleScanPhoto(photo.url)));
   }, [fallbackDishPhotos, handleScanPhoto]);
+
+  const handleConfirmDelete = () => {
+    if (!confirmRecipe) return;
+    if (confirmRecipe.isSupabase) {
+      void removeRecipe.mutate(confirmRecipe.scanKey);
+    } else {
+      setSessionRecipes((prev) =>
+        prev.filter(
+          (r) =>
+            !(r.scanKey === confirmRecipe.scanKey && r.dishIndex === confirmRecipe.dishIndex)
+        )
+      );
+    }
+    setConfirmRecipe(null);
+  };
 
   return (
     <motion.div
@@ -584,13 +618,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           {/* Skeleton while Supabase resolves (before auto-scan fires) */}
           {isInitializing && autoScanStep === 'idle' && (
             <div className="px-4 animate-pulse" aria-busy="true" aria-label="Loading">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 grid-cols-2">
                 {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="overflow-hidden rounded-[var(--radius-md)]" aria-hidden="true">
-                    <div style={{ height: 100, background: "rgba(180,170,158,0.10)" }} />
-                    <div style={{ height: 60, background: "rgba(180,170,158,0.07)" }} className="p-3 flex flex-col gap-2">
-                      <div style={{ height: 12, width: "75%", background: "rgba(180,170,158,0.12)", borderRadius: 6 }} />
-                      <div style={{ height: 10, width: "40%", background: "rgba(180,170,158,0.08)", borderRadius: 6 }} />
+                  <div key={i} className="relative overflow-hidden rounded-[var(--radius-md)]" aria-hidden="true">
+                    <div style={{ height: 140, background: "rgba(180,170,158,0.10)" }} />
+                    <div className="absolute bottom-0 left-0 right-0 p-3 flex flex-col gap-2">
+                      <div style={{ height: 12, width: "75%", background: "rgba(180,170,158,0.18)", borderRadius: 6 }} />
+                      <div style={{ height: 10, width: "40%", background: "rgba(180,170,158,0.12)", borderRadius: 6 }} />
                     </div>
                   </div>
                 ))}
@@ -670,8 +704,40 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
       {recipes.length > 0 && (
         <motion.div
           variants={containerVariants}
-          className="px-4 pb-4 grid grid-cols-2 gap-3"
+          className="px-4 pb-4 grid gap-3 grid-cols-2"
         >
+          {menuPhotoUrl && (
+            <motion.div className="col-span-2" variants={itemVariants}>
+              <button
+                onClick={() => setMenuPhotoOpen(true)}
+                className="w-full rounded-[20px] overflow-hidden relative"
+                style={{
+                  border: "1px solid rgba(180,170,158,0.28)",
+                  boxShadow: "0 2px 12px rgba(80,60,40,0.08), 0 1px 3px rgba(80,60,40,0.06)",
+                }}
+              >
+                {/* Blurred menu photo hint */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={menuPhotoUrl}
+                  alt=""
+                  className="w-full object-cover"
+                  style={{ height: 96, filter: "blur(2px) brightness(0.72)", transform: "scale(1.05)" }}
+                />
+                {/* Label overlay */}
+                <div
+                  className="absolute inset-0 flex items-center justify-between px-4"
+                  style={{ background: "rgba(26,22,18,0.36)" }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ScrollTextIcon />
+                    <span className="text-[15px] font-semibold" style={{ color: "rgba(255,255,255,0.95)", fontFamily: "var(--font-sans)" }}>Menu</span>
+                  </div>
+                  <ChevronRightIcon />
+                </div>
+              </button>
+            </motion.div>
+          )}
           {recipes.map((recipe, i) => (
             <motion.div key={`${recipe.scanKey}-${recipe.dishIndex}-${i}`} variants={itemVariants}>
               <RecipeCard
@@ -679,17 +745,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
                 onTap={() =>
                   router.push(`/recipe/${recipe.scanKey}?dish=${recipe.dishIndex}`)
                 }
-                onDelete={
-                  recipe.isSupabase
-                    ? () => void removeRecipe.mutate(recipe.scanKey)
-                    : () =>
-                        setSessionRecipes((prev) =>
-                          prev.filter(
-                            (r) =>
-                              !(r.scanKey === recipe.scanKey && r.dishIndex === recipe.dishIndex)
-                          )
-                        )
-                }
+                onDelete={() => setConfirmRecipe(recipe)}
               />
             </motion.div>
           ))}
@@ -703,6 +759,99 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
             "calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)",
         }}
       />
+
+      {/* Delete confirmation modal */}
+      <AnimatePresence>
+        {confirmRecipe && (
+          <motion.div
+            key="confirm-overlay"
+            className="fixed inset-0 z-50 flex items-center justify-center px-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            onClick={() => setConfirmRecipe(null)}
+            style={{ background: "rgba(26,22,18,0.5)" }}
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ scale: 0.93, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0, transition: { type: "spring", damping: 28, stiffness: 380 } }}
+              exit={{ scale: 0.93, opacity: 0, y: 8, transition: { duration: 0.15 } }}
+              className="w-full max-w-xs rounded-[24px] p-6 flex flex-col gap-5"
+              style={{
+                background: "rgba(255,252,247,0.96)",
+                backdropFilter: "blur(32px) saturate(1.5)",
+                border: "1px solid rgba(180,170,158,0.28)",
+                boxShadow: "0 24px 60px rgba(26,22,18,0.20), 0 8px 24px rgba(26,22,18,0.12)",
+              }}
+            >
+              <div className="flex flex-col gap-1.5">
+                <p
+                  className="text-base font-semibold"
+                  style={{ fontFamily: "var(--font-display), Georgia, serif", color: "var(--color-text-primary)" }}
+                >
+                  Remove from collection?
+                </p>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+                  &ldquo;{confirmRecipe.dish.name}&rdquo; will be removed. This can&apos;t be undone.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleConfirmDelete}
+                  className="w-full py-3.5 rounded-full text-sm font-semibold"
+                  style={{ background: "#A03030", color: "#fff" }}
+                >
+                  Remove
+                </button>
+                <button
+                  onClick={() => setConfirmRecipe(null)}
+                  className="w-full py-3.5 rounded-full text-sm font-medium"
+                  style={{ background: "rgba(180,170,158,0.15)", color: "var(--color-text-secondary)" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Menu photo lightbox */}
+      <AnimatePresence>
+        {menuPhotoOpen && menuPhotoUrl && (
+          <motion.div
+            key="menu-photo-lightbox"
+            className="fixed inset-0 z-50 flex flex-col"
+            style={{ background: "#1A1612" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            {/* Close button */}
+            <div className="absolute top-0 left-0 right-0 flex justify-end px-4 z-10"
+                 style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
+              <button
+                onClick={() => setMenuPhotoOpen(false)}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,0.18)", backdropFilter: "blur(12px)" }}
+                aria-label="Close menu photo"
+              >
+                <XIcon />
+              </button>
+            </div>
+            {/* Full photo */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={menuPhotoUrl}
+              alt="Menu"
+              className="w-full h-full object-contain"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -721,58 +870,69 @@ function RecipeCard({
   const { dish } = recipe;
 
   return (
-    <div className="relative">
-      <FrostedCard
-        noPadding
-        className="overflow-hidden cursor-pointer"
-        onClick={onTap}
-        role="button"
-        tabIndex={0}
-        aria-label={`View ${dish.name}`}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onTap();
-          }
-        }}
-      >
-        {/* Photo */}
+    <FrostedCard
+      noPadding
+      className="relative overflow-hidden cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none"
+      onClick={onTap}
+      role="button"
+      tabIndex={0}
+      aria-label={`View ${dish.name}`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onTap();
+        }
+      }}
+    >
+      {/* Photo + text overlay */}
+      <div className="relative w-full" style={{ height: 140 }}>
         {dish.photoUrl ? (
           <img
             src={dish.photoUrl}
             alt={dish.name}
-            className="w-full object-cover"
-            style={{ height: 100 }}
+            className="w-full h-full object-cover"
           />
         ) : (
           <div
-            className="w-full flex items-center justify-center"
-            style={{
-              height: 100,
-              background: "var(--color-surface)",
-            }}
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "var(--color-surface)" }}
             aria-hidden="true"
           >
             <PlateIcon dim />
           </div>
         )}
 
-        {/* Info */}
-        <div className="p-3">
+        {/* Gradient scrim — photo only */}
+        {dish.photoUrl && (
+          <div
+            className="absolute inset-0"
+            aria-hidden="true"
+            style={{
+              background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.38) 48%, transparent 72%)",
+            }}
+          />
+        )}
+
+        {/* Title + calories */}
+        <div className="absolute bottom-0 left-0 right-0 p-3">
           <p
-            className="text-sm font-medium leading-snug line-clamp-2"
-            style={{ color: "var(--color-text-primary)" }}
+            className="text-sm font-semibold leading-snug line-clamp-2"
+            style={{ color: dish.photoUrl ? "#fff" : "var(--color-text-primary)" }}
           >
             {dish.name}
           </p>
           {dish.calorieEstimate && (
-            <p className="text-xs mt-1" style={{ color: "var(--color-text-tertiary)" }}>
+            <p
+              className="text-xs mt-0.5"
+              style={{ color: dish.photoUrl ? "rgba(255,255,255,0.72)" : "var(--color-text-tertiary)" }}
+            >
               {dish.calorieEstimate} cal
             </p>
           )}
         </div>
-      </FrostedCard>
+      </div>
 
+      {/* Delete button — inside the card so it isn't displaced by backdrop-filter stacking context */}
       {onDelete && (
         <button
           onClick={(e) => {
@@ -780,15 +940,22 @@ function RecipeCard({
             onDelete();
           }}
           aria-label={`Remove ${dish.name}`}
-          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
-          style={{ background: "rgba(255,252,247,0.88)", boxShadow: "0 1px 4px rgba(80,60,40,0.12)" }}
+          className="absolute top-2 right-2 z-10 rounded-full flex items-center justify-center"
+          style={{
+            width: 32,
+            height: 32,
+            minWidth: "unset",
+            minHeight: "unset",
+            background: "rgba(255,252,247,0.90)",
+            boxShadow: "0 1px 6px rgba(80,60,40,0.16)",
+          }}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <path d="M1 1l8 8M9 1l-8 8" stroke="var(--color-text-secondary)" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M1 1l8 8M9 1l-8 8" stroke="var(--color-text-secondary)" strokeWidth="1.75" strokeLinecap="round" />
           </svg>
         </button>
       )}
-    </div>
+    </FrostedCard>
   );
 }
 
@@ -869,6 +1036,55 @@ function PlateIcon({ dim }: { dim?: boolean }) {
         d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4"
         stroke="var(--color-accent)"
         strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ScrollTextIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M8 2H5a2 2 0 0 0-2 2v1a2 2 0 0 0 2 2h1"
+        stroke="rgba(255,255,255,0.9)"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 7v13a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H6z"
+        stroke="rgba(255,255,255,0.9)"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M11 12h6M11 16h6M11 20h4" stroke="rgba(255,255,255,0.9)" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9 18l6-6-6-6"
+        stroke="rgba(255,255,255,0.7)"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M18 6L6 18M6 6l12 12"
+        stroke="rgba(255,255,255,0.9)"
+        strokeWidth="2"
         strokeLinecap="round"
       />
     </svg>

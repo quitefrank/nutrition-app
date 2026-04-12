@@ -12,8 +12,7 @@
  */
 
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
+import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,18 +26,6 @@ export interface CachedMenuResult {
   dishes: CachedDish[];
   restaurantId: string;
   cachedAt: string;
-}
-
-// ─── Supabase client (server-side, using anon key) ────────────────────────────
-// The server routes already run in a trusted environment. If a service-role key
-// is needed for storage, it lives in the upload route — menu cache only reads/
-// writes text columns that the anon key can access under RLS.
-
-function getClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !key) return null;
-  return createClient<Database>(url, key);
 }
 
 // 30-day TTL in milliseconds
@@ -56,9 +43,6 @@ const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export async function getCachedMenu(
   restaurantIdentifier: { placeId?: string; name?: string }
 ): Promise<CachedMenuResult | null> {
-  const supabase = getClient();
-  if (!supabase) return null;
-
   const { placeId, name } = restaurantIdentifier;
   if (!placeId && !name) return null;
 
@@ -142,9 +126,6 @@ export async function getCachedMenu(
  * Called fire-and-forget after a successful Gemini scan.
  */
 export async function cacheMenu(restaurantId: string, dishesJson: string): Promise<void> {
-  const supabase = getClient();
-  if (!supabase) return;
-
   try {
     // Find the most recent visit for this restaurant (just created in auto-save or
     // created by Gemini in the scan route)

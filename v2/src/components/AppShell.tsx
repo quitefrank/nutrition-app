@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AtmosphericBackground } from "@/components/ui/AtmosphericBackground";
 import { TabBar } from "@/components/layout/TabBar";
 import { ProcessingStrip, ProcessingState } from "@/components/layout/ProcessingStrip";
@@ -16,7 +18,11 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantId }: AppShellProps) {
+  const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
   const [processingMessage, setProcessingMessage] = useState<string | undefined>();
   const [resultId, setResultId] = useState<string | undefined>();
@@ -45,36 +51,81 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
       {/* Layer 1: Page content */}
       <div className="relative z-10 h-full scroll-content">{children}</div>
 
-      {/* Layer 2: Tab bar with embedded camera FAB */}
-      <TabBar onCameraPress={() => setCameraOpen(true)} isOnline={isOnline} />
+      {/* Settings icon — persistent top-right, hidden on settings page itself.
+          Deferred to client-only to avoid SSR/client pathname mismatch. */}
+      {mounted && pathname !== "/settings" && (
+        <Link
+          href="/settings"
+          aria-label="Settings"
+          className="fixed z-40 flex items-center justify-center"
+          style={{
+            top: "calc(var(--space-safe-top, env(safe-area-inset-top, 0px)) + 14px)",
+            right: 16,
+            width: 44,
+            height: 44,
+            color: "var(--color-text-tertiary)",
+          }}
+        >
+          <GearIcon />
+        </Link>
+      )}
 
-      {/* Layer 3: Processing strip (above tab bar) */}
-      <ProcessingStrip
-        state={processingState}
-        message={processingMessage}
-        resultId={resultId}
-        onDismiss={() => setProcessingState("idle")}
-      />
+      {/* Layers 2-4: client-only — suppressed on SSR to prevent hydration mismatches */}
+      {mounted && (
+        <>
+          {/* Layer 2: Tab bar with embedded camera FAB */}
+          <TabBar onCameraPress={() => setCameraOpen(true)} isOnline={isOnline} />
 
-      {/* Layer 4: Camera modal */}
-      <CameraModal
-        open={cameraOpen}
-        onClose={() => setCameraOpen(false)}
-        onProcessingStart={(msg) => {
-          setCameraOpen(false);
-          setProcessingState("processing");
-          setProcessingMessage(msg);
-        }}
-        onProcessingComplete={(id) => {
-          setProcessingState("ready");
-          setResultId(id);
-          setProcessingMessage(undefined);
-        }}
-        onProcessingError={(msg) => {
-          setProcessingState("error");
-          setProcessingMessage(msg);
-        }}
-      />
+          {/* Layer 3: Processing strip (above tab bar) */}
+          <ProcessingStrip
+            state={processingState}
+            message={processingMessage}
+            resultId={resultId}
+            onDismiss={() => setProcessingState("idle")}
+          />
+
+          {/* Layer 4: Camera modal */}
+          <CameraModal
+            open={cameraOpen}
+            onClose={() => setCameraOpen(false)}
+            onProcessingStart={(msg) => {
+              setCameraOpen(false);
+              setProcessingState("processing");
+              setProcessingMessage(msg);
+            }}
+            onProcessingComplete={(id) => {
+              setProcessingState("ready");
+              setResultId(id);
+              setProcessingMessage(undefined);
+            }}
+            onProcessingError={(msg) => {
+              setProcessingState("error");
+              setProcessingMessage(msg);
+            }}
+          />
+        </>
+      )}
     </div>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

@@ -70,7 +70,7 @@ function supabaseToUnified(item: DomainGroceryItem): UnifiedItem {
     quantity: item.quantity,
     unit: item.unit,
     checked: item.checked,
-    dishName: item.name,          // Supabase items don't carry a dishName; use item name as group key
+    dishName: item.dishName ?? item.name,
     restaurantName: null,
     isSupabase: true,
   };
@@ -101,15 +101,15 @@ export function GroceryScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("grouped");
 
   // Supabase hooks
-  const { data: supabaseData } = useGroceryItems();
+  const { data: supabaseData, isError: supabaseError } = useGroceryItems();
   const checkMutation = useCheckGroceryItem();
   const deleteMutation = useDeleteGroceryItem();
   const clearCheckedMutation = useClearChecked();
 
-  // Determine whether Supabase data should be used:
-  // Only use Supabase items if the query returned a non-empty array.
-  // An empty Supabase result defers to localStorage (Supabase might not be configured).
-  const hasSupabaseData = Array.isArray(supabaseData) && supabaseData.length > 0;
+  // Use Supabase once its query has resolved (even to an empty array).
+  // Fall back to localStorage only if the query hasn't settled yet (data is undefined)
+  // or if Supabase errored (not configured / network failure).
+  const hasSupabaseData = Array.isArray(supabaseData) && !supabaseError;
 
   const refreshLocal = useCallback(() => {
     setLocalItems(readGroceryList());

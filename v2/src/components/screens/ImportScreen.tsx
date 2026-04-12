@@ -51,7 +51,12 @@ function Spinner() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ImportScreen() {
+interface ImportScreenProps {
+  /** When true, renders only the form + result content — no page wrapper or heading. */
+  embedded?: boolean;
+}
+
+export function ImportScreen({ embedded = false }: ImportScreenProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -161,44 +166,40 @@ export function ImportScreen() {
 
   const springTransition = { type: "spring" as const, damping: 26, stiffness: 340 };
 
-  return (
-    <div className="scroll-content">
-      <div className="px-4 pt-6 pb-4 max-w-lg mx-auto space-y-5">
-        {/* Page heading */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={springTransition}
-        >
-          <h1
-            style={{
-              fontFamily: "var(--font-display), Georgia, serif",
-              fontSize: "1.75rem",
-              fontWeight: 600,
-              color: "var(--color-text-primary)",
-              marginBottom: 4,
-            }}
-          >
-            Import a Recipe
-          </h1>
-          <p
-            style={{
-              fontSize: "0.9375rem",
-              color: "var(--color-text-secondary)",
-              lineHeight: 1.5,
-            }}
-          >
-            Paste a URL from AllRecipes, NYT Cooking, or any recipe site.
-          </p>
-        </motion.div>
-
-        {/* URL form */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springTransition, delay: 0.05 }}
-        >
+  const content = (
+    <>
+      {/* URL form */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={embedded ? springTransition : { ...springTransition, delay: 0.05 }}
+      >
           <FrostedCard>
+            {embedded && (
+              <>
+                <h2
+                  className="mb-2"
+                  style={{
+                    fontFamily: "var(--font-display), Georgia, serif",
+                    fontSize: "1.0625rem",
+                    fontWeight: 600,
+                    color: "var(--color-text-primary)",
+                  }}
+                >
+                  Import a Recipe
+                </h2>
+                <p
+                  className="mb-4"
+                  style={{
+                    fontSize: "0.875rem",
+                    color: "var(--color-text-secondary)",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  Paste a URL from AllRecipes, NYT Cooking, or any recipe site and Plately will extract the recipe for your collection.
+                </p>
+              </>
+            )}
             <form onSubmit={handleSubmit} className="flex flex-col gap-3">
               <input
                 type="url"
@@ -413,6 +414,42 @@ export function ImportScreen() {
             </motion.div>
           )}
         </AnimatePresence>
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <div className="scroll-content">
+      <div className="px-4 pt-6 pb-4 max-w-lg mx-auto space-y-5">
+        {/* Page heading */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springTransition}
+        >
+          <h1
+            style={{
+              fontFamily: "var(--font-display), Georgia, serif",
+              fontSize: "1.75rem",
+              fontWeight: 600,
+              color: "var(--color-text-primary)",
+              marginBottom: 4,
+            }}
+          >
+            Import a Recipe
+          </h1>
+          <p
+            style={{
+              fontSize: "0.9375rem",
+              color: "var(--color-text-secondary)",
+              lineHeight: 1.5,
+            }}
+          >
+            Paste a URL from AllRecipes, NYT Cooking, or any recipe site.
+          </p>
+        </motion.div>
+        {content}
       </div>
     </div>
   );

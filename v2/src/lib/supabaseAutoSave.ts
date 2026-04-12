@@ -15,18 +15,8 @@
  * SEC-SEC-1.00: uses browser anon key (NEXT_PUBLIC_) — no service role in client code.
  */
 
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
+import { supabase } from "@/lib/supabase";
 import type { ScanResult } from "@/components/scan/InferenceState";
-
-// ─── Supabase client (browser-safe anon key) ──────────────────────────────────
-
-function getClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !key) return null;
-  return createClient<Database>(url, key);
-}
 
 // ─── Dish shape coming out of sessionStorage ──────────────────────────────────
 
@@ -34,6 +24,7 @@ interface StoredDish {
   id?: string;
   name: string;
   description?: string;
+  photoUrl?: string | null;
   calorieEstimate?: number | null;
   confidence?: number;
   ingredients?: Array<{
@@ -58,17 +49,13 @@ interface StoredDish {
  *                 or null if Supabase is not configured or no dishes were saved.
  */
 export async function autoSaveToSupabase(scanKey: string): Promise<Record<string, string> | null> {
-  const supabase = getClient();
-  if (!supabase) {
-    // Offline-first: silently no-op when env vars are absent
-    return null;
-  }
-
   // 1. Load scan result from sessionStorage
   type ExtendedScanResult = ScanResult & {
     allDishes: StoredDish[];
     restaurantPlaceId?: string | null;
     restaurantAddress?: string | null;
+    restaurantRating?: number | null;
+    restaurantUserRatingsTotal?: number | null;
   };
   let scanResult: ExtendedScanResult;
   try {
@@ -85,6 +72,8 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
 
   const restaurantName = scanResult.restaurantName ?? "Unknown Restaurant";
   const restaurantPlaceId = scanResult.restaurantPlaceId ?? null;
+  const restaurantRating = scanResult.restaurantRating ?? null;
+  const restaurantUserRatingsTotal = scanResult.restaurantUserRatingsTotal ?? null;
 
   try {
     // 2. Upsert restaurant ─────────────────────────────────────────────────────
@@ -104,14 +93,20 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
       if (byPlaceId) {
         restaurantId = byPlaceId.id;
       } else {
-        // Not found by placeId — insert with both name and place_id
+        // Not found by placeId — insert with both name and place_id (+ rating when available)
         const { data: inserted, error: insertErr } = await supabase
           .from("restaurants")
-          .insert({ name: restaurantName, place_id: restaurantPlaceId })
+          .insert({
+            name: restaurantName,
+            place_id: restaurantPlaceId,
+            ...(restaurantRating !== null ? { rating: restaurantRating } : {}),
+            ...(restaurantUserRatingsTotal !== null ? { user_ratings_total: restaurantUserRatingsTotal } : {}),
+          })
           .select("id")
           .single();
 
         if (insertErr || !inserted) {
+          console.warn("[supabaseAutoSave] restaurant insert failed:", insertErr?.message ?? "no data returned", "— falling back to name lookup");
           // Conflict on name — fall back to name lookup
           const { data: existing } = await supabase
             .from("restaurants")
@@ -133,7 +128,11 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
       // No placeId — name-based insert with fallback to lookup
       const { data: restaurantData, error: restaurantError } = await supabase
         .from("restaurants")
-        .insert({ name: restaurantName })
+        .insert({
+          name: restaurantName,
+          ...(restaurantRating !== null ? { rating: restaurantRating } : {}),
+          ...(restaurantUserRatingsTotal !== null ? { user_ratings_total: restaurantUserRatingsTotal } : {}),
+        })
         .select("id")
         .single();
 
@@ -181,7 +180,7 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
       // reuse the existing recipe UUID rather than inserting a duplicate row.
       const { data: existingRecipe } = await supabase
         .from("recipes")
-        .select("id")
+        .select("id, dish_image_url")
         .eq("restaurant_id", restaurantId)
         .eq("name", dish.name)
         .neq("status", "removed")
@@ -190,6 +189,13 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
 
       if (existingRecipe) {
         if (dish.id) dishToRecipeMap[dish.id] = existingRecipe.id;
+        // Backfill the photo if the stored row has none but this scan provides one
+        if (!existingRecipe.dish_image_url && dish.photoUrl) {
+          await supabase
+            .from("recipes")
+            .update({ dish_image_url: dish.photoUrl, photo_status: "confirmed" })
+            .eq("id", existingRecipe.id);
+        }
         continue;
       }
 
@@ -200,9 +206,14 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
           visit_id: visitId,
           name: dish.name,
           description: dish.description ?? null,
+          dish_image_url: dish.photoUrl ?? null,
           estimated_calories: estimatedCalories,
           status: "auto_captured",
           gemini_confidence: typeof dish.confidence === "number" ? dish.confidence : null,
+          // photo_status: confidence < 0.3 → suppressed (card hidden); otherwise placeholder until enrichment
+          photo_status: typeof dish.confidence === "number" && dish.confidence < 0.3
+            ? "suppressed"
+            : "placeholder",
         })
         .select("id")
         .single();

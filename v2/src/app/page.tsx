@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/AppShell";
-import { HomeScreen } from "@/components/screens/HomeScreen";
+import { HomeScreenClient } from "@/components/screens/HomeScreenClient";
 
 export default function HomePage() {
   return (
     <AppShell>
-      <HomeScreen />
+      <HomeScreenClient />
     </AppShell>
   );
 }

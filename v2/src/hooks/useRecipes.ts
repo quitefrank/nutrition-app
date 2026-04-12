@@ -32,7 +32,7 @@ import {
 
 // Columns needed by mapRecipe — explicit to avoid fetching large future columns
 const RECIPE_LIST_COLUMNS =
-  'id, name, restaurant_id, visit_id, description, dish_image_url, estimated_calories, status, gemini_confidence, created_at'
+  'id, name, restaurant_id, visit_id, description, dish_image_url, estimated_calories, status, photo_status, gemini_confidence, created_at'
 
 async function fetchRecipes(): Promise<DomainRecipe[]> {
   const { data, error } = await supabase
@@ -78,6 +78,17 @@ async function fetchRecipesByRestaurant(restaurantId: string): Promise<DomainRec
   return (data ?? []).map(mapRecipe)
 }
 
+async function fetchKeptRecipes(): Promise<DomainRecipe[]> {
+  const { data, error } = await supabase
+    .from('recipes')
+    .select(RECIPE_LIST_COLUMNS)
+    .eq('status', 'kept')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(mapRecipe)
+}
+
 // ─── Query hooks ──────────────────────────────────────────────────────────────
 
 /** Fetch all non-removed recipes, newest first. */
@@ -108,6 +119,18 @@ export function useRecipesByRestaurant(restaurantId: string | null) {
     queryKey: ['recipes', 'restaurant', restaurantId],
     queryFn: () => fetchRecipesByRestaurant(restaurantId!),
     enabled: !!restaurantId,
+  })
+}
+
+/** Fetch only kept recipes — the "My Recipes" collection. */
+export function useKeptRecipes() {
+  return useQuery<DomainRecipe[], Error>({
+    queryKey: ['recipes', 'kept'],
+    queryFn: fetchKeptRecipes,
+    retry: (failureCount, error) => {
+      if (error.message.includes('supabase') || failureCount >= 2) return false
+      return true
+    },
   })
 }
 
@@ -191,6 +214,7 @@ export function useUpdateRecipe() {
     onSuccess: (_data, { id }) => {
       void queryClient.invalidateQueries({ queryKey: ['recipes', id] })
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', 'kept'] })
     },
   })
 }
@@ -205,6 +229,28 @@ export function useRemoveRecipe() {
         .from('recipes')
         .update({ status: 'removed' })
         .eq('id', id)
+
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', 'kept'] })
+    },
+  })
+}
+
+/** Hard-delete ALL recipes and their ingredients (cascade handled by DB). */
+export function useDeleteAllRecipes() {
+  const queryClient = useQueryClient()
+
+  return useMutation<void, Error, void>({
+    mutationFn: async () => {
+      // supabase-js v2 requires a filter clause on DELETE.
+      // neq against the nil UUID matches every real row.
+      const { error } = await supabase
+        .from('recipes')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000')
 
       if (error) throw new Error(error.message)
     },

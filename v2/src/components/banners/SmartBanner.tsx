@@ -279,14 +279,20 @@ export function SmartBanner({ scans }: SmartBannerProps) {
       ? `You might be near ${nearbyRestaurant.name} — you've saved dishes from here before`
       : `Looks like you're near ${nearbyRestaurant.name}`
 
-    setBannerData({
-      type: 'location',
-      restaurantName: nearbyRestaurant.name,
-      recipeCount: restaurantMap.get(nearbyRestaurant.name) ?? 0,
-      message,
+    // Use functional update to read the current banner value without adding
+    // bannerData to deps — reading it as a dep causes an infinite loop because
+    // the effect itself calls setBannerData.
+    setBannerData((current) => {
+      if (current && current.type !== 'location') return current
+      return {
+        type: 'location',
+        restaurantName: nearbyRestaurant.name,
+        recipeCount: restaurantMap.get(nearbyRestaurant.name) ?? 0,
+        message,
+      }
     })
     setVisible(true)
-  }, [nearbyResolved, nearbyRestaurant, locationGranted, bannerData, scans])
+  }, [nearbyResolved, nearbyRestaurant, locationGranted, scans])
 
   const handleDismiss = () => {
     if (bannerData) setSessionDismissed(bannerData.type)
