@@ -2,30 +2,34 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { SPRING_CARD_EXPAND } from "@/lib/springs";
 
 const tabs = [
-  { href: "/", label: "Home", Icon: HomeIcon },
+  { href: "/", label: "Home", Icon: RestaurantsIcon },
   { href: "/search", label: "Search", Icon: SearchIcon },
   { href: "/grocery", label: "Grocery", Icon: GroceryIcon },
-  { href: "/import", label: "Import", Icon: ImportIcon },
-  { href: "/settings", label: "Settings", Icon: SettingsIcon },
+  { href: "/recipes", label: "Recipes", Icon: RecipesIcon },
 ] as const;
 
 interface TabBarProps {
-  onCameraPress: () => void;
+  onCameraPress?: () => void;
   /** When false, the camera FAB is visually disabled and tapping is a no-op */
   isOnline?: boolean;
 }
 
-// Routes that should keep the Search tab highlighted (restaurants are a leaf of the search flow)
+// Routes that should keep the correct tab highlighted
 const ACTIVE_PREFIXES: Partial<Record<string, string[]>> = {
-  "/search": ["/search", "/restaurants"],
+  "/": ["/", "/restaurants"],
+  "/search": ["/search"],
+  "/grocery": ["/grocery"],
+  "/recipes": ["/recipes", "/recipe"],
 };
 
-export function TabBar({ onCameraPress, isOnline = true }: TabBarProps) {
+export function TabBar({ onCameraPress = () => {}, isOnline = true }: TabBarProps) {
   const pathname = usePathname();
+  const reducedMotion = useReducedMotion();
 
   return (
     <nav
@@ -39,7 +43,7 @@ export function TabBar({ onCameraPress, isOnline = true }: TabBarProps) {
     >
       {/* Floating glass pill — contains labeled nav tabs */}
       <div
-        className="flex flex-1 items-center rounded-full border border-[rgba(180,170,158,0.22)]"
+        className="flex flex-1 items-center justify-evenly rounded-full border border-[rgba(180,170,158,0.22)]"
         style={{
           height: 62,
           background: "rgba(255,252,245,0.94)",
@@ -51,7 +55,7 @@ export function TabBar({ onCameraPress, isOnline = true }: TabBarProps) {
         {tabs.map(({ href, label, Icon }) => {
           const isActive =
             href === "/"
-              ? pathname === "/"
+              ? pathname === "/" || pathname.startsWith("/restaurants")
               : (ACTIVE_PREFIXES[href] ?? [href]).some((p) => pathname.startsWith(p));
           return (
             <TabItem key={href} href={href} label={label} isActive={isActive}>
@@ -68,7 +72,7 @@ export function TabBar({ onCameraPress, isOnline = true }: TabBarProps) {
       <div className="relative flex-shrink-0">
         <motion.button
           onClick={isOnline ? onCameraPress : undefined}
-          aria-label={isOnline ? "Scan or upload a dish" : "Camera unavailable offline"}
+          aria-label={isOnline ? "Scan a menu" : "Camera unavailable — no internet connection"}
           aria-disabled={!isOnline}
           className="flex items-center justify-center rounded-full"
           style={{
@@ -83,8 +87,8 @@ export function TabBar({ onCameraPress, isOnline = true }: TabBarProps) {
             opacity: isOnline ? 1 : 0.7,
             transition: "background 0.2s, opacity 0.2s, box-shadow 0.2s",
           }}
-          whileTap={isOnline ? { scale: 0.88 } : {}}
-          transition={{ type: "spring", stiffness: 400, damping: 22 }}
+          whileTap={isOnline && !reducedMotion ? { scale: 0.88 } : {}}
+          transition={reducedMotion ? { duration: 0.15 } : SPRING_CARD_EXPAND}
         >
           <CameraIcon />
         </motion.button>
@@ -124,7 +128,7 @@ function TabItem({
     <Link
       href={href}
       className={cn(
-        "flex flex-col items-center justify-center gap-0.5 flex-1 h-full px-4",
+        "flex flex-col items-center justify-center gap-0.5 h-full",
         "transition-colors duration-150",
         isActive ? "text-[var(--color-accent)]" : "text-[var(--color-text-tertiary)]"
       )}
@@ -143,16 +147,35 @@ function TabItem({
 
 /* ─── Icons ─── */
 
-function HomeIcon({ filled }: { filled: boolean }) {
+function RestaurantsIcon({ filled }: { filled: boolean }) {
   return (
     <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M12 3L4 9.5V20h5v-5h6v5h5V9.5L12 3Z"
-        stroke="currentColor"
-        strokeWidth={filled ? 0 : 1.75}
-        fill={filled ? "currentColor" : "none"}
-        strokeLinejoin="round"
+        d="M3 21h18M5 21V7l7-4 7 4v14"
+        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
+        fill={filled ? "currentColor" : "none"} opacity={filled ? 0.15 : 1}
       />
+      {filled && (
+        <path d="M3 21h18M5 21V7l7-4 7 4v14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      )}
+      <rect x="9" y="14" width="6" height="7" rx="1" stroke="currentColor" strokeWidth="1.5" fill={filled ? "currentColor" : "none"} opacity={filled ? 0.3 : 1} />
+    </svg>
+  );
+}
+
+function GroceryIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"
+        stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round"
+        fill={filled ? "currentColor" : "none"} opacity={filled ? 0.15 : 1}
+      />
+      {filled && (
+        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" fill="none" />
+      )}
+      <path d="M3 6h18" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M16 10a4 4 0 0 1-8 0" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   );
 }
@@ -163,8 +186,7 @@ function SearchIcon({ filled }: { filled: boolean }) {
       <circle
         cx="11" cy="11" r="7"
         stroke="currentColor" strokeWidth="1.75"
-        fill={filled ? "currentColor" : "none"}
-        opacity={filled ? 0.18 : 1}
+        fill={filled ? "currentColor" : "none"} opacity={filled ? 0.15 : 1}
       />
       {filled && (
         <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.75" fill="none" />
@@ -174,20 +196,17 @@ function SearchIcon({ filled }: { filled: boolean }) {
   );
 }
 
-function GroceryIcon({ filled }: { filled: boolean }) {
+function RecipesIcon({ filled }: { filled: boolean }) {
   return (
     <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M6 7h12l-1.5 11H7.5L6 7Z"
+        d="M12 21C12 21 4 14.5 4 8.5a4 4 0 0 1 8 0 4 4 0 0 1 8 0C20 14.5 12 21 12 21Z"
         stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round"
-        fill={filled ? "currentColor" : "none"}
-        opacity={filled ? 0.18 : 1}
+        fill={filled ? "currentColor" : "none"} opacity={filled ? 0.18 : 1}
       />
       {filled && (
-        <path d="M6 7h12l-1.5 11H7.5L6 7Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" fill="none" />
+        <path d="M12 21C12 21 4 14.5 4 8.5a4 4 0 0 1 8 0 4 4 0 0 1 8 0C20 14.5 12 21 12 21Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" fill="none" />
       )}
-      <path d="M9 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-      <path d="M9.5 12l1.5 2 3-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -204,37 +223,3 @@ function CameraIcon() {
   );
 }
 
-function ImportIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 3v12M7 11l5 5 5-5"
-        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
-      />
-      <path
-        d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
-        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
-        fill={filled ? "currentColor" : "none"}
-        opacity={filled ? 0.18 : 1}
-      />
-      {filled && (
-        <path
-          d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
-          stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
-          fill="none"
-        />
-      )}
-    </svg>
-  );
-}
-
-function SettingsIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="none" aria-hidden="true"
-      stroke="currentColor" strokeWidth={filled ? 2 : 1.75} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" fill={filled ? "currentColor" : "none"} opacity={filled ? 0.22 : 1} />
-      {filled && <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" fill="none" />}
-      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-    </svg>
-  );
-}
