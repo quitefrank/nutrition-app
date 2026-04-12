@@ -10,11 +10,16 @@
   --font-display: "Playfair Display";
   --font-body: "DM Sans";
 
-  /* Background layers */
+  /* Background layers — legacy names kept for existing component compat */
   --color-base: #FAFAF7;
   --color-surface: #F4F3EE;
   --color-surface-raised: #EFEDE6;
   --color-surface-sunken: #E8E6DF;
+
+  /* Background layers — UX-DR3 canonical names */
+  --color-bg-base:    #FAFAF7;
+  --color-bg-elevated: #EFEDE6;
+  --color-bg-sunken:  #E8E6DF;
 
   /* Frosted card */
   --color-card: rgba(255, 252, 245, 0.88);
@@ -26,18 +31,24 @@
   --color-text-tertiary: #9E9589;
   --color-text-disabled: #C4BDB5;
 
-  /* Accent — terracotta */
+  /* Accent — terracotta. Legacy name + UX-DR canonical alias */
   --color-accent: #C4622D;
   --color-accent-light: #FAEEE6;
+  --color-accent-tint: #FAEEE6;
   --color-accent-dark: #9E4B1F;
 
-  /* Status */
+  /* Status — solid color tokens */
   --color-success: #3D7D5E;
   --color-success-light: #E8F5EE;
   --color-warning: #B07D2C;
   --color-warning-light: #FBF3E2;
   --color-error: #B83B3B;
   --color-error-light: #FBEAEA;
+
+  /* Status tints — rgba for glass-compatible overlays (UX-DR3) */
+  --tint-success: rgba(232, 245, 238, 0.95);
+  --tint-error:   rgba(251, 234, 234, 0.95);
+  --tint-warning: rgba(251, 243, 226, 0.95);
 
   /* Radii */
   --radius-sm: 8px;
@@ -46,8 +57,9 @@
   --radius-xl: 32px;
   --radius-full: 9999px;
 
-  /* Shadows — warm-tinted */
+  /* Shadows — warm-tinted. Legacy --shadow-elevated kept alongside canonical --shadow-float */
   --shadow-card: 0 2px 12px rgba(80, 60, 40, 0.08), 0 1px 3px rgba(80, 60, 40, 0.06);
+  --shadow-float: 0 8px 32px rgba(80,60,40,0.12), 0 2px 8px rgba(80,60,40,0.08);
   --shadow-elevated: 0 8px 32px rgba(80, 60, 40, 0.12), 0 2px 8px rgba(80, 60, 40, 0.08);
   --shadow-modal: 0 20px 60px rgba(60, 40, 20, 0.18), 0 8px 24px rgba(60, 40, 20, 0.10);
 
@@ -59,13 +71,57 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* Spacing */
+  /* Spacing scale — UX-DR5 (4px base unit, no step-7) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Safe-area spacing */
   --space-safe-bottom: env(safe-area-inset-bottom, 0px);
   --space-safe-top: env(safe-area-inset-top, 0px);
+
+  /* Typography scale — UX-DR4 */
+  --text-display: 2rem;      /* 32px — restaurant hero, empty state headline */
+  --text-h2:      1.5rem;    /* 24px — section titles */
+  --text-h3:      1.25rem;   /* 20px — card titles, dish names */
+  --text-h4:      1.0625rem; /* 17px — sub-section headers */
+  --text-body:    0.9375rem; /* 15px — all body text */
+  --text-label:   0.8125rem; /* 13px — metadata, secondary labels */
+  --text-caption: 0.6875rem; /* 11px — timestamps, provenance labels */
+  --text-tab:     0.625rem;  /* 10px — nav tab labels */
 
   /* Layout */
   --tab-bar-height: 80px;
   --processing-strip-height: 60px;
+}
+
+/* ─── Glass & blur tokens — used via var() in CSS, not Tailwind utilities ─── */
+/* Defined in :root so they cascade to all elements but aren't auto-exposed
+   as Tailwind classes (use bg-[var(--glass-base)] for arbitrary values).    */
+
+:root {
+  /* Glass surface fills — warm cream glass (UX-DR1) */
+  --glass-base:     rgba(255, 252, 247, 0.82); /* cards, panels over atmospheric bg */
+  --glass-elevated: rgba(255, 253, 249, 0.94); /* nav pill, modals, bottom sheets */
+  --glass-overlay:  rgba(255, 252, 247, 0.72); /* inline banners, overlays */
+  --glass-sunken:   rgba(240, 238, 232, 0.78); /* input backgrounds, recessed states */
+
+  /* Blur tokens — full backdrop-filter expressions (UX-DR1)
+     Use as: backdrop-filter: var(--blur-base)
+     NOT:    blur(var(--blur-base)) — invalid CSS nesting */
+  --blur-base:     blur(24px) saturate(1.4) brightness(1.02);
+  --blur-elevated: blur(32px) saturate(1.5) brightness(1.03);
+  --blur-heavy:    blur(48px) saturate(1.6);   /* atmospheric background layer */
+  /* Legacy alias — kept for transition period */
+  --blur-strong:   blur(32px) saturate(1.5) brightness(1.03);
+
+  /* Border tokens (UX-DR1) */
+  --border-glass:        1px solid rgba(180, 170, 158, 0.22);
+  --border-glass-strong: 1px solid rgba(180, 170, 158, 0.32);
 }
 
 /* ─── Base ─── */
@@ -122,22 +178,54 @@ p, li {
   color: var(--color-text-secondary);
 }
 
-/* ─── Frosted glass utility ─── */
+/* ─── Frosted glass utility (light surfaces) ─── */
 
 .frosted {
-  background: var(--color-card);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border: 1px solid var(--color-card-border);
+  background: var(--glass-base);
+  backdrop-filter: var(--blur-base);
+  -webkit-backdrop-filter: var(--blur-base);
+  border: var(--border-glass);
   box-shadow: var(--shadow-card);
 }
 
 .frosted-elevated {
-  background: rgba(255, 252, 245, 0.94);
-  backdrop-filter: blur(32px) saturate(1.5);
-  -webkit-backdrop-filter: blur(32px) saturate(1.5);
-  border: 1px solid rgba(180, 170, 158, 0.22);
-  box-shadow: var(--shadow-elevated);
+  background: var(--glass-elevated);
+  backdrop-filter: var(--blur-elevated);
+  -webkit-backdrop-filter: var(--blur-elevated);
+  border: var(--border-glass);
+  box-shadow: var(--shadow-float);
+}
+
+/* ─── Glass utility (surfaces over atmospheric background) ─── */
+/* Use when cards or overlays sit directly on top of the atmospheric photo layer */
+
+.glass {
+  background: var(--glass-base);
+  backdrop-filter: var(--blur-base);
+  -webkit-backdrop-filter: var(--blur-base);
+  border: var(--border-glass);
+}
+
+.glass-elevated {
+  background: var(--glass-elevated);
+  backdrop-filter: var(--blur-elevated);
+  -webkit-backdrop-filter: var(--blur-elevated);
+  border: var(--border-glass);
+  box-shadow: var(--shadow-float);
+}
+
+/* .glass-overlay — banners, inline feedback surfaces */
+.glass-overlay {
+  background: var(--glass-overlay);
+  backdrop-filter: var(--blur-base);
+  -webkit-backdrop-filter: var(--blur-base);
+  border: var(--border-glass);
+}
+
+/* .glass-sunken — inputs, recessed surfaces */
+.glass-sunken {
+  background: var(--glass-sunken);
+  border: var(--border-glass);
 }
 
 /* ─── Touch targets ─── */
@@ -146,6 +234,54 @@ button, [role="button"], a {
   min-height: 44px;
   min-width: 44px;
   cursor: pointer;
+}
+
+/* ─── Focus indicators ──────────────────────────────────────────────────────
+   :focus-visible shows a ring only on keyboard/switch-control focus.
+   :focus:not(:focus-visible) suppresses the browser default on pointer/tap.
+   box-shadow is used instead of outline so border-radius clips reliably
+   across all browsers (outline ignores border-radius in older Safari/Firefox).
+   Individual components can layer on top with Tailwind focus-visible: utilities.
+   ─────────────────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-bg-base), 0 0 0 4px var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ─── App shell & responsive layout ─────────────────────────────────────────
+   Single-column layout constrained to 430px max-width, centred on all screens.
+   Behind the app-shell, the atmospheric background fills the full viewport.
+   Safe-area padding is applied per-section — not globally on the shell — so
+   the background layer can extend into the notch/island area.
+   ─────────────────────────────────────────────────────────────────────────── */
+.app-shell {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* screen-content: padding reserves space for nav bar + safe area + breathing room */
+.screen-content {
+  padding-bottom: calc(var(--tab-bar-height) + max(env(safe-area-inset-bottom, 0px), 8px) + 32px);
+}
+
+/* nav-bar-container: positions the FloatingNavBar wrapper with safe-area clearance */
+.nav-bar-container {
+  padding-bottom: calc(max(env(safe-area-inset-bottom, 0px), 8px) + 12px);
+}
+
+/* Narrow phone breakpoint: collapse 2-col grids to single column */
+@media (max-width: 359px) {
+  .collection-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ─── Scrollable content area (above tab bar) ─── */
@@ -246,7 +382,12 @@ button, [role="button"], a {
   display: none;
 }
 
-/* ─── Reduce motion ─── */
+/* ─── Reduced motion ─────────────────────────────────────────────────────────
+   Framer Motion's useReducedMotion() hook handles JS animation suppression.
+   This block handles CSS animation and transition fallback.
+   The * catch-all kills transition-duration globally; .atmospheric-bg__image
+   gets an explicit transition: none to prevent any cross-fade bleed-through.
+   ─────────────────────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -254,6 +395,10 @@ button, [role="button"], a {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .atmospheric-bg__image {
+    transition: none !important;
   }
 }
 
