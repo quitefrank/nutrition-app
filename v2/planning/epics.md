@@ -490,7 +490,7 @@ So that interactions feel alive without being distracting or inaccessible.
 ### Story 1.6: FloatingNavBar Component
 
 As a user,
-I want a floating frosted-glass nav bar at the bottom of every screen with tabs for Restaurants and Recipes, and a prominent camera button,
+I want a floating frosted-glass nav bar at the bottom of every screen with tabs for Home and Recipes, and a prominent camera button,
 So that I can always reach my collection and scan a new menu in one tap.
 
 **Acceptance Criteria:**
@@ -1055,7 +1055,7 @@ So that I can quickly find and revisit any restaurant I've captured.
 
 **Acceptance Criteria:**
 
-**Given** the user navigates to the Restaurants tab
+**Given** the user navigates to the Home tab
 **When** one or more restaurants are in the collection
 **Then** restaurants are displayed as a grid of RestaurantGridCards (2-column grid): photo area 68px, restaurant name 12px semibold, dish count 11px, `--glass-base` surface + `16px` radius + `--shadow-card`
 

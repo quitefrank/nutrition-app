@@ -302,7 +302,7 @@ Defined at the root layout level; available to all components.
 
 **Atmospheric Background:** Persistent blurred food photo behind every screen (root layout). Falls back to a gradient when no photo is available.
 
-**Navigation:** Bottom tab bar — Restaurants, My Recipes, Grocery, Settings. Scan entry point lives in the Restaurants tab.
+**Navigation:** Bottom tab bar — Home, My Recipes, Grocery, Settings. Scan entry point lives in the Home tab.
 
 **Animation:** Framer Motion v12 spring physics for all transitions. Card expand/collapse, tab transitions, modal entrances all use UX-spec spring presets.
 

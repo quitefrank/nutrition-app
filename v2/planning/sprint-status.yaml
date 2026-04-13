@@ -1,5 +1,5 @@
 # generated: 2026-04-12
-# last_updated: 2026-04-12
+# last_updated: 2026-04-12 # 2-5 → ready-for-dev; 2-6 → done (review patches applied)
 # project: Plately v2
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,8 +35,10 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-12
-last_updated: 2026-04-12
+last_updated: 2026-04-13 # epic-5 → in-progress; 5-1, 5-2, 5-3, 5-4 → ready-for-dev
 project: Plately v2
+
+# 2026-04-12: 2-1 → done; 2-2 → done; 2-3 → review; 2-3 review patches applied (P1-P11 + IG1) → done; 2-4 review patches applied → done; 2-8 → in-progress → review
 project_key: NOKEY
 tracking_system: file-system
 story_location: planning/
@@ -60,49 +62,49 @@ development_status:
   # ──────────────────────────────────────────────────────────
   # Epic 2: Menu Scan & Dish Auto-Capture
   # ──────────────────────────────────────────────────────────
-  epic-2: in-progress
-  2-1-scan-api-route-gemini-menu-extraction: ready-for-dev
-  2-2-camera-ui-menu-capture-flow: backlog
-  2-3-restaurant-confirmation-auto-capture: backlog
-  2-4-dish-card-phase-1-ai-macros-no-photo: backlog
-  2-5-dish-row-expansion-ingredient-list: backlog
-  2-6-ai-ingredient-macro-pipeline: backlog
-  2-7-scan-confidence-indicator: backlog
-  2-8-api-route-validation-error-envelope: backlog
+  epic-2: done
+  2-1-scan-api-route-gemini-menu-extraction: done
+  2-2-camera-ui-menu-capture-flow: done
+  2-3-restaurant-confirmation-auto-capture: done
+  2-4-dish-card-phase-1-ai-macros-no-photo: done
+  2-5-dish-row-expansion-ingredient-list: done
+  2-6-ai-ingredient-macro-pipeline: done
+  2-7-scan-confidence-indicator: done
+  2-8-api-route-validation-error-envelope: done
   epic-2-retrospective: optional
 
   # ──────────────────────────────────────────────────────────
   # Epic 3: Dish Photos, USDA Nutrition & Portion Control
   # ──────────────────────────────────────────────────────────
-  epic-3: backlog
-  3-1-google-places-enrichment-api-route: backlog
-  3-2-usda-macro-verification-api-route: backlog
-  3-3-dish-photo-rendering-three-tier-state-system: backlog
-  3-4-usda-macro-provenance-indicators: backlog
-  3-5-portion-adjustment-macro-recalculation: backlog
-  3-6-progressive-enrichment-ux-phase-2-update: backlog
+  epic-3: done
+  3-1-google-places-enrichment-api-route: done
+  3-2-usda-macro-verification-api-route: done
+  3-3-dish-photo-rendering-three-tier-state-system: done
+  3-4-usda-macro-provenance-indicators: done
+  3-5-portion-adjustment-macro-recalculation: done
+  3-6-progressive-enrichment-ux-phase-2-update: done
   epic-3-retrospective: optional
 
   # ──────────────────────────────────────────────────────────
   # Epic 4: Restaurant Search & Collection Management
   # ──────────────────────────────────────────────────────────
-  epic-4: backlog
-  4-1-restaurant-search-api-route: backlog
-  4-2-restaurant-search-ui-dish-auto-capture-search-path: backlog
-  4-3-restaurant-collection-screen: backlog
-  4-4-restaurant-removal: backlog
-  4-5-herocard-homesection-components: backlog
-  4-6-home-screen-progressive-states: backlog
+  epic-4: done
+  4-1-restaurant-search-api-route: done
+  4-2-restaurant-search-ui-dish-auto-capture-search-path: done
+  4-3-restaurant-collection-screen: done
+  4-4-restaurant-removal: done
+  4-5-herocard-homesection-components: done
+  4-6-home-screen-progressive-states: done
   epic-4-retrospective: optional
 
   # ──────────────────────────────────────────────────────────
   # Epic 5: My Recipes & Cook-at-Home
   # ──────────────────────────────────────────────────────────
-  epic-5: backlog
-  5-1-add-to-my-recipes: backlog
-  5-2-my-recipes-collection-screen: backlog
-  5-3-recipe-removal: backlog
-  5-4-cooking-instructions-gate: backlog
+  epic-5: in-progress
+  5-1-add-to-my-recipes: ready-for-dev
+  5-2-my-recipes-collection-screen: ready-for-dev
+  5-3-recipe-removal: ready-for-dev
+  5-4-cooking-instructions-gate: ready-for-dev
   epic-5-retrospective: optional
 
   # ──────────────────────────────────────────────────────────

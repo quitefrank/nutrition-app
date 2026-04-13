@@ -32,7 +32,7 @@ import {
 
 // Columns needed by mapRecipe — explicit to avoid fetching large future columns
 const RECIPE_LIST_COLUMNS =
-  'id, name, restaurant_id, visit_id, description, dish_image_url, estimated_calories, status, photo_status, gemini_confidence, created_at'
+  'id, name, restaurant_id, visit_id, description, dish_image_url, estimated_calories, status, photo_status, gemini_confidence, total_protein_g, total_carbs_g, total_fat_g, total_fibre_g, created_at'
 
 async function fetchRecipes(): Promise<DomainRecipe[]> {
   const { data, error } = await supabase

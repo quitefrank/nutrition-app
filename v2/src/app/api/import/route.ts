@@ -96,6 +96,12 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// ─── Error helper ─────────────────────────────────────────────────────────────
+
+function apiError(message: string, code: string, status: 400 | 422 | 500 | 502 | 503) {
+  return NextResponse.json({ error: { message, code } }, { status });
+}
+
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -112,10 +118,7 @@ export async function POST(req: NextRequest) {
     } else if (envKey) {
       apiKey = envKey;
     } else {
-      return NextResponse.json(
-        { error: "Import service not configured", code: "IMPORT_SERVICE_UNAVAILABLE" },
-        { status: 503 }
-      );
+      return apiError("Import service not configured", "IMPORT_SERVICE_UNAVAILABLE", 503);
     }
 
     // ── Parse + validate request ─────────────────────────────────────────────
@@ -123,18 +126,12 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json(
-        { error: "Invalid request body", code: "INVALID_REQUEST" },
-        { status: 400 }
-      );
+      return apiError("Invalid request body", "INVALID_REQUEST", 400);
     }
 
     const parsed = RequestSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.issues[0]?.message ?? "Invalid URL", code: "INVALID_URL" },
-        { status: 400 }
-      );
+      return apiError("Invalid request", "VALIDATION_ERROR", 422);
     }
 
     const { url } = parsed.data;
@@ -160,36 +157,24 @@ export async function POST(req: NextRequest) {
 
       if (!fetchRes.ok) {
         console.warn("[import] target URL returned", fetchRes.status, url);
-        return NextResponse.json(
-          { error: "Could not fetch that URL — the site may be unavailable.", code: "URL_UNREACHABLE" },
-          { status: 503 }
-        );
+        return apiError("Could not fetch that URL — the site may be unavailable.", "URL_UNREACHABLE", 503);
       }
 
       html = await fetchRes.text();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("abort") || msg.includes("timeout")) {
-        return NextResponse.json(
-          { error: "The recipe page took too long to respond.", code: "URL_TIMEOUT" },
-          { status: 503 }
-        );
+      if (err instanceof Error && err.name === "AbortError") {
+        return apiError("The recipe page took too long to respond.", "URL_TIMEOUT", 503);
       }
       console.warn("[import] fetch error:", msg);
-      return NextResponse.json(
-        { error: "Could not fetch that URL.", code: "URL_UNREACHABLE" },
-        { status: 503 }
-      );
+      return apiError("Could not fetch that URL.", "URL_UNREACHABLE", 503);
     }
 
     // ── Clean HTML → text, truncate for Gemini ───────────────────────────────
     const cleanText = stripHtml(html).slice(0, 8000);
 
     if (cleanText.length < 50) {
-      return NextResponse.json(
-        { error: "The page didn't contain enough readable text.", code: "NO_CONTENT" },
-        { status: 422 }
-      );
+      return apiError("The page didn't contain enough readable text.", "NO_CONTENT", 422);
     }
 
     // ── Call Gemini ──────────────────────────────────────────────────────────
@@ -206,10 +191,7 @@ export async function POST(req: NextRequest) {
       rawText = result.response.text();
     } catch (err) {
       console.error("[import] Gemini error:", err instanceof Error ? err.message : err);
-      return NextResponse.json(
-        { error: "AI extraction temporarily unavailable.", code: "AI_UNAVAILABLE" },
-        { status: 503 }
-      );
+      return apiError("AI extraction temporarily unavailable.", "AI_UNAVAILABLE", 503);
     }
 
     // ── Parse + validate Gemini response ─────────────────────────────────────
@@ -220,27 +202,18 @@ export async function POST(req: NextRequest) {
       jsonParsed = JSON.parse(clean);
     } catch {
       console.error("[import] Gemini non-JSON:", clean.slice(0, 200));
-      return NextResponse.json(
-        { error: "Unexpected response from AI.", code: "AI_RESPONSE_UNPARSEABLE" },
-        { status: 422 }
-      );
+      return apiError("Unexpected response from AI.", "AI_RESPONSE_UNPARSEABLE", 422);
     }
 
     const validated = RecipeSchema.safeParse(jsonParsed);
     if (!validated.success) {
       console.error("[import] Zod validation failed:", validated.error.issues);
-      return NextResponse.json(
-        { error: "Unexpected response structure from AI.", code: "AI_RESPONSE_INVALID" },
-        { status: 422 }
-      );
+      return apiError("Unexpected response structure from AI.", "AI_RESPONSE_INVALID", 422);
     }
 
     // A blank name means Gemini found no recipe on the page
     if (!validated.data.name.trim()) {
-      return NextResponse.json(
-        { error: "No recipe was found at that URL. Try a different page.", code: "NO_RECIPE_FOUND" },
-        { status: 422 }
-      );
+      return apiError("No recipe was found at that URL. Try a different page.", "NO_RECIPE_FOUND", 422);
     }
 
     // Filter out blank ingredient names
@@ -249,12 +222,9 @@ export async function POST(req: NextRequest) {
       ingredients: validated.data.ingredients.filter((i) => i.name.trim().length > 0),
     };
 
-    return NextResponse.json({ recipe });
+    return NextResponse.json({ data: { recipe } });
   } catch (err) {
     console.error("[import] Unexpected error:", err instanceof Error ? err.message : err);
-    return NextResponse.json(
-      { error: "Internal server error", code: "INTERNAL_ERROR" },
-      { status: 500 }
-    );
+    return apiError("Internal server error", "INTERNAL_ERROR", 500);
   }
 }

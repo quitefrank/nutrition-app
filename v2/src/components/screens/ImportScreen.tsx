@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
@@ -64,15 +64,17 @@ export function ImportScreen({ embedded = false }: ImportScreenProps) {
   const [status, setStatus] = useState<ImportStatus>("idle");
   const [recipe, setRecipe] = useState<ImportedRecipe | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  // Track the URL that was actually sent to the API (not the current input value)
+  const fetchedUrlRef = useRef<string>("");
 
   // Auto-trigger import if url was pre-populated from query string
+  const initialUrlRef = useRef(searchParams.get("url")?.trim() ?? "");
   useEffect(() => {
-    const preUrl = searchParams.get("url");
-    if (preUrl && preUrl.trim()) {
-      void runImport(preUrl.trim());
+    const preUrl = initialUrlRef.current;
+    if (preUrl) {
+      void runImport(preUrl);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [runImport]);
 
   // ─── Import handler ─────────────────────────────────────────────────────────
 
@@ -80,6 +82,7 @@ export function ImportScreen({ embedded = false }: ImportScreenProps) {
     setStatus("loading");
     setRecipe(null);
     setErrorMessage("");
+    fetchedUrlRef.current = url;
 
     try {
       const res = await fetch("/api/import", {
@@ -88,17 +91,20 @@ export function ImportScreen({ embedded = false }: ImportScreenProps) {
         body: JSON.stringify({ url }),
       });
 
-      const body = await res.json().catch(() => ({})) as { recipe?: ImportedRecipe; error?: string };
+      const body = await res.json().catch(() => ({})) as {
+        data?: { recipe?: ImportedRecipe };
+        error?: { message: string; code?: string };
+      };
 
       if (!res.ok) {
-        throw new Error(body.error ?? "Import failed");
+        throw new Error(body.error?.message ?? "Import failed");
       }
 
-      if (!body.recipe) {
+      if (!body.data?.recipe) {
         throw new Error("No recipe data returned");
       }
 
-      setRecipe(body.recipe);
+      setRecipe(body.data.recipe);
       setStatus("success");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Something went wrong");
@@ -141,7 +147,7 @@ export function ImportScreen({ embedded = false }: ImportScreenProps) {
       // Imported recipes have fully-known ingredients — mark as enriched so the
       // recipe page doesn't show "Identifying ingredients…" indefinitely.
       enriched: true,
-      importedFromUrl: urlInput.trim(),
+      importedFromUrl: fetchedUrlRef.current,
     };
 
     try {

@@ -110,6 +110,12 @@ export const RecipeRowSchema = z.object({
   gemini_confidence: z.number().min(0).max(1).nullable(),
   dish_rating: z.number().nullable().optional(),
   dish_review_snippet: z.string().nullable().optional(),
+  // Story 3.6: denormalised macro totals written during Phase-2 enrichment.
+  // Null = not yet enriched; 0 = zero grams (valid — enriched recipe with none of this macro).
+  total_protein_g: z.number().nullable().optional(),
+  total_carbs_g: z.number().nullable().optional(),
+  total_fat_g: z.number().nullable().optional(),
+  total_fibre_g: z.number().nullable().optional(),
   created_at: IsoDateString,
 });
 
@@ -290,6 +296,11 @@ export interface DomainRecipe {
   geminiConfidence: number | null;
   dishRating: number | null;
   dishReviewSnippet: string | null;
+  /** Story 3.6: denormalised macro totals. Null until Phase-2 enrichment runs. */
+  totalProteinG: number | null;
+  totalCarbsG: number | null;
+  totalFatG: number | null;
+  totalFibreG: number | null;
   createdAt: string;
   /** Populated by join queries — not always present */
   ingredients?: DomainIngredient[];
@@ -361,6 +372,10 @@ export function mapRecipe(row: Recipe): DomainRecipe {
     geminiConfidence: row.gemini_confidence,
     dishRating: row.dish_rating ?? null,
     dishReviewSnippet: row.dish_review_snippet ?? null,
+    totalProteinG: row.total_protein_g ?? null,
+    totalCarbsG: row.total_carbs_g ?? null,
+    totalFatG: row.total_fat_g ?? null,
+    totalFibreG: row.total_fibre_g ?? null,
     createdAt: row.created_at,
   };
 }
