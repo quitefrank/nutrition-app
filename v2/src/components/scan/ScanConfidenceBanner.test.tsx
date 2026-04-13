@@ -51,6 +51,8 @@ describe('ScanConfidenceBanner', () => {
     expect(props.onAddManually).toHaveBeenCalledTimes(1)
   })
 
+  // AC4 dismiss hook — onContinue is wired to setBannerDismissed(true) in RestaurantScreen.
+  // Stories 6.2/6.3 replace stubs; this test anchors the contract.
   it('calls onContinue when "Continue with 8" button is pressed', async () => {
     const { props } = renderBanner()
     await userEvent.click(screen.getByRole('button', { name: 'Continue with 8' }))

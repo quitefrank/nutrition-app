@@ -43,6 +43,18 @@ vi.mock('@/lib/supabaseAutoSave', () => ({
   autoSaveToSupabase: vi.fn().mockResolvedValue(null),
 }))
 
+vi.mock('@/lib/retakeMergeAndSave', () => ({
+  retakeMergeAndSave: vi.fn().mockResolvedValue(0),
+}))
+
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  }
+})
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fakeStream = {
@@ -207,9 +219,11 @@ describe('CameraModal', () => {
   })
 
   // ── error handling ────────────────────────────────────────────────────────
+  // Story 6.5 AC1: Gemini scan failures show inline ScanErrorOverlay; onProcessingError
+  // is NOT called for scan failures — it is reserved for hardware camera errors.
 
   describe('error handling', () => {
-    it('nested error format { error: { message } } is read correctly', async () => {
+    it('nested error format { error: { message } } shows ScanErrorOverlay with message (not onProcessingError)', async () => {
       const onProcessingError = vi.fn()
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         ok: false,
@@ -225,13 +239,16 @@ describe('CameraModal', () => {
         fireEvent.change(fileInput, { target: { files: [file] } })
       })
 
-      await waitFor(() => expect(onProcessingError).toHaveBeenCalled())
-      expect(onProcessingError).toHaveBeenCalledWith('AI is unavailable')
-      // Modal stays open — user can retake (AC5)
+      // ScanErrorOverlay shown with the extracted message
+      await waitFor(() => expect(screen.queryByTestId('scan-error-overlay')).not.toBeNull())
+      expect(screen.getByTestId('scan-error-overlay').textContent).toContain('AI is unavailable')
+      // onProcessingError is NOT called — inline error only (AC1)
+      expect(onProcessingError).not.toHaveBeenCalled()
+      // Modal stays open (AC1)
       expect(screen.queryByRole('dialog')).not.toBeNull()
     })
 
-    it('flat error format { error: string } passes the message to onProcessingError (fallback)', async () => {
+    it('flat error format { error: string } shows ScanErrorOverlay (not onProcessingError)', async () => {
       const onProcessingError = vi.fn()
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         ok: false,
@@ -247,9 +264,10 @@ describe('CameraModal', () => {
         fireEvent.change(fileInput, { target: { files: [file] } })
       })
 
-      await waitFor(() => expect(onProcessingError).toHaveBeenCalled())
-      expect(onProcessingError).toHaveBeenCalledWith('Something went wrong')
-      // Modal stays open — user can retake (AC5)
+      await waitFor(() => expect(screen.queryByTestId('scan-error-overlay')).not.toBeNull())
+      expect(screen.getByTestId('scan-error-overlay').textContent).toContain('Something went wrong')
+      expect(onProcessingError).not.toHaveBeenCalled()
+      // Modal stays open (AC1)
       expect(screen.queryByRole('dialog')).not.toBeNull()
     })
   })

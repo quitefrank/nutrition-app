@@ -2,17 +2,35 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 import { FrostedCard } from "@/components/ui/FrostedCard";
 import { compressImage } from "@/lib/imageUtils";
 import { InferenceState, type ScanResult } from "@/components/scan/InferenceState";
+import { retakeMergeAndSave } from "@/lib/retakeMergeAndSave";
+import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 
 
 interface CameraModalProps {
-  open: boolean;
+  /** Whether the modal is open. Defaults to true (for retake mode, control via conditional render). */
+  open?: boolean;
   onClose: () => void;
-  onProcessingStart: (message: string) => void;
-  onProcessingComplete: (scanKey: string) => void;
-  onProcessingError: (message: string) => void;
+  onProcessingStart?: (message: string) => void;
+  onProcessingComplete?: (scanKey: string) => void;
+  onProcessingError?: (message: string) => void;
+  /** 'scan' — normal first-time capture; 'retake' — merge scan. Defaults to 'scan'. */
+  mode?: 'scan' | 'retake';
+  /** Provided in retake mode: Supabase restaurantId to merge into */
+  restaurantId?: string | null;
+  /** Provided in retake mode: already-captured dish names (lowercase trimmed) */
+  existingDishNames?: string[];
+  /** Provided in retake mode: original totalDetected count for context header */
+  totalDetected?: number;
+  /** Provided in retake mode: called with count of newly added recipes after merge */
+  onRetakeMerged?: (newRecipeCount: number) => void;
+  /** Restaurant name for the retake context header */
+  restaurantName?: string | null;
+  /** Google Places ID for the restaurant — used in retake mode to write sessionStorage entry */
+  placeId?: string | null;
 }
 
 type PermissionPhase =
@@ -46,16 +64,26 @@ const SCAN_KEY_PREFIX = "plately:scan:";
 const SWIPE_DISMISS_THRESHOLD_PX = 80;
 
 export function CameraModal({
-  open,
+  open = true,
   onClose,
   onProcessingStart,
   onProcessingComplete,
   onProcessingError,
+  mode = 'scan',
+  restaurantId,
+  existingDishNames,
+  totalDetected,
+  onRetakeMerged,
+  restaurantName,
+  placeId,
 }: CameraModalProps) {
   const shouldReduceMotion = useReducedMotion();
+  const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // D5: AbortController to cancel in-flight /api/scan requests when the modal closes.
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [permissionPhase, setPermissionPhase] = useState<PermissionPhase>("unknown");
   const [cameraReady, setCameraReady] = useState(false);
@@ -73,6 +101,12 @@ export function CameraModal({
     confidence: number;
     scanKey: string;
   } | null>(null);
+
+  // Inline scan error shown inside the camera frame (AC1 — Story 6.5)
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  // True while a scan request is in-flight — shows a loading indicator inside the camera frame.
+  const [isScanning, setIsScanning] = useState(false);
 
   // Holds the dish→recipe map promise across the confidence gate confirm flow
 
@@ -99,16 +133,21 @@ export function CameraModal({
       // Reset bracket visibility whenever a new camera session starts
       setBracketsVisible(true);
     } catch {
-      setCameraError("Camera unavailable — try uploading a photo instead.");
+      const cameraFailMsg = "Camera unavailable — try uploading a photo instead.";
+      setCameraError(cameraFailMsg);
       setCameraReady(false);
       setPermissionPhase("denied");
+      onProcessingError?.(cameraFailMsg);
     }
-  }, []);
+  }, [onProcessingError]);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setCameraReady(false);
+    // D5: Cancel any in-flight scan request to avoid orphaned side-effects.
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
   }, []);
 
   // ─── Permission check on open ─────────────────────────────────────────────
@@ -119,6 +158,8 @@ export function CameraModal({
     // Reset state whenever the modal opens
     setBracketsVisible(true);
     setPendingResult(null);
+    setScanError(null);
+    setIsScanning(false);
 
     async function init() {
       const perm = await checkCameraPermission();
@@ -187,9 +228,17 @@ export function CameraModal({
   const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !cameraReady) return;
 
+    // D4: Guard against drawing to a zero-size canvas (video not yet decoded).
+    const width = videoRef.current.videoWidth;
+    const height = videoRef.current.videoHeight;
+    if (!width || !height) {
+      console.warn('[CameraModal] capturePhoto: video not ready (0×0)');
+      return;
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = width;
+    canvas.height = height;
     canvas.getContext("2d")!.drawImage(videoRef.current, 0, 0);
 
     const rawBlob = await new Promise<Blob>((res) =>
@@ -216,7 +265,8 @@ export function CameraModal({
 
   async function submitImage(image: Blob | File) {
     stopCamera();
-    onProcessingStart("Identifying your dish…");
+    setIsScanning(true);
+    onProcessingStart?.("Identifying your dish…");
 
     try {
       // 1. Compress before upload — keeps payload under Vercel's 4.5 MB body limit.
@@ -243,10 +293,16 @@ export function CameraModal({
         // localStorage unavailable — proceed without user key
       }
 
+      // D5: Cancel any previous in-flight scan and register a new controller.
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: scanHeaders,
         body: JSON.stringify({ imageBase64: base64, mimeType }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -287,7 +343,11 @@ export function CameraModal({
         // filtered server-side). RestaurantScreen uses this to show ScanConfidenceBanner.
         totalDetected: data.totalDetected,
       };
-      sessionStorage.setItem(scanKey, JSON.stringify(initialResult));
+      try {
+        sessionStorage.setItem(scanKey, JSON.stringify(initialResult));
+      } catch {
+        // sessionStorage write is best-effort
+      }
 
       // 4. Confidence gate — per-dish confidence from Gemini is 0–1; convert to 0–100.
       //    If no confidence field is present, treat as high confidence (proceed normally).
@@ -299,16 +359,83 @@ export function CameraModal({
 
       if (confidencePct < CONFIDENCE_THRESHOLD) {
         // Pause processing flow and ask the user to confirm.
+        setIsScanning(false);
         setPendingResult({ result: initialResult, confidence: confidencePct, scanKey });
         return;
       }
 
-      // High confidence — proceed immediately
-      onProcessingComplete(scanKey);
-      fireEnrichment(data.dishes, data.restaurantName, scanKey, initialResult);
+      // High confidence — proceed
+      setIsScanning(false);
+      await handlePostScan(data.dishes, data.restaurantName, scanKey, initialResult);
     } catch (err) {
+      setIsScanning(false);
+      // D5: Scan was cancelled because the modal closed — not a user-visible error.
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       console.error("[CameraModal] scan error:", err);
-      onProcessingError(err instanceof Error ? err.message : "Couldn't identify the dish — tap to try again.");
+      const msg = err instanceof Error ? err.message : "Couldn't identify the dish — tap to try again.";
+      // AC1 (Story 6.5): Gemini scan failures show inline — do NOT call onProcessingError.
+      // onProcessingError is reserved for hardware camera errors (cameraError path).
+      setScanError(msg);
+    }
+  }
+
+  // ─── Post-scan branching: retake vs normal ─────────────────────────────────
+
+  async function handlePostScan(
+    dishes: ScanResult["allDishes"],
+    scannedRestaurantName: string | null,
+    scanKey: string,
+    initialResult: ScanResult,
+  ) {
+    if (mode === 'retake' && restaurantId) {
+      // Retake path: merge new dishes without duplicating existing ones
+      try {
+        const newCount = await retakeMergeAndSave({
+          restaurantId,
+          newDishes: dishes,
+          existingDishNames: existingDishNames ?? [],
+          queryClient,
+        });
+        // P1: Write a new plately_scan_* sessionStorage entry so RestaurantScreen can
+        // pick up the new dishes via loadRecipesForRestaurant / loadTotalDetected.
+        if (placeId) {
+          const now = Date.now();
+          const retryScanKey = `plately_scan_${now}`;
+          try {
+            sessionStorage.setItem(retryScanKey, JSON.stringify({
+              type: 'menu' as const,
+              restaurantName: restaurantName ?? null,
+              restaurantPlaceId: placeId,
+              allDishes: dishes,
+              enriched: false,
+              totalDetected: dishes.length,
+              scannedAt: now,
+            }));
+          } catch {
+            // sessionStorage write is best-effort
+          }
+        }
+        onRetakeMerged?.(newCount);
+      } catch (err) {
+        // P8: Signal the error to the parent before calling onRetakeMerged so the
+        // parent can show an error state instead of silently resetting.
+        console.warn('[CameraModal] retakeMergeAndSave failed:', err instanceof Error ? err.message : err);
+        onProcessingError?.(err instanceof Error ? err.message : 'Retake failed');
+        onRetakeMerged?.(0);
+      }
+    } else if (mode === 'retake' && !restaurantId) {
+      // Retake fallback: restaurantId not yet available — use normal autoSave
+      console.warn('[CameraModal] retake mode but restaurantId is null — falling back to autoSaveToSupabase');
+      void autoSaveToSupabase(scanKey);
+      fireEnrichment(dishes, restaurantName, scanKey, initialResult);
+      // P2: Call onRetakeMerged so the modal doesn't get stuck waiting for a callback.
+      onRetakeMerged?.(0);
+    } else {
+      // Normal (first-time) scan path
+      onProcessingComplete?.(scanKey);
+      fireEnrichment(dishes, scannedRestaurantName, scanKey, initialResult);
     }
   }
 
@@ -318,14 +445,26 @@ export function CameraModal({
     if (!pendingResult) return;
     const { scanKey, result } = pendingResult;
     setPendingResult(null);
-    onProcessingComplete(scanKey);
-    fireEnrichment(result.allDishes, result.restaurantName, scanKey, result);
+    // P3: Catch errors from handlePostScan and surface them to the user rather
+    // than swallowing them with a bare void.
+    handlePostScan(result.allDishes, result.restaurantName, scanKey, result).catch((err) => {
+      console.error('[CameraModal] handleInferenceConfirm error:', err);
+      setScanError(err instanceof Error ? err.message : 'Scan failed');
+    });
   }
 
   function handleInferenceRetake() {
     setPendingResult(null);
     // Reset camera state and restart
     setCameraError(null);
+    setBracketsVisible(true);
+    startCamera();
+  }
+
+  // ─── Scan error retry (AC1 — Story 6.5) ──────────────────────────────────
+
+  function handleScanRetry() {
+    setScanError(null);
     setBracketsVisible(true);
     startCamera();
   }
@@ -411,6 +550,7 @@ export function CameraModal({
 
   const handleClose = () => {
     stopCamera();
+    setScanError(null);
     onClose();
   };
 
@@ -470,6 +610,34 @@ export function CameraModal({
               >
                 <ScanFrame />
               </motion.div>
+            )}
+
+            {/* ── Retake context header ─────────────────────────────── */}
+            {mode === 'retake' && existingDishNames !== undefined && totalDetected !== undefined && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  position: 'absolute',
+                  top: 'calc(var(--space-safe-top, 0px) + 16px)',
+                  left: 20,
+                  right: 20,
+                  zIndex: 20,
+                  borderRadius: 12,
+                  background: 'rgba(13,11,9,0.72)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  padding: '10px 16px',
+                  textAlign: 'center',
+                }}
+              >
+                <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>
+                  {existingDishNames.length} dish{existingDishNames.length !== 1 ? 'es' : ''} captured
+                </p>
+                <p style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12, margin: '2px 0 0' }}>
+                  Scan the menu to read the remaining {Math.max(0, totalDetected - existingDishNames.length)}
+                </p>
+              </div>
             )}
 
             {/* Camera error */}
@@ -618,6 +786,24 @@ export function CameraModal({
               )}
             </AnimatePresence>
 
+            {/* ── Scanning indicator (in-flight) ───────────────────────── */}
+            <AnimatePresence>
+              {isScanning && !scanError && !pendingResult && (
+                <ScanningIndicator key="scanning" />
+              )}
+            </AnimatePresence>
+
+            {/* ── Scan error overlay (AC1 — Story 6.5) ─────────────────── */}
+            <AnimatePresence>
+              {scanError && (
+                <ScanErrorOverlay
+                  key={`scan-error-${scanError ?? ''}`}
+                  message={scanError}
+                  onRetry={handleScanRetry}
+                />
+              )}
+            </AnimatePresence>
+
             {/* Dismiss button */}
             <button
               onClick={handleClose}
@@ -683,6 +869,102 @@ export function CameraModal({
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+// ─── ScanningIndicator ────────────────────────────────────────────────────────
+// Shown inside the camera frame while a scan request is in-flight.
+
+function ScanningIndicator() {
+  return (
+    <motion.div
+      data-testid="scanning-indicator"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 40,
+        display: "flex",
+        flexDirection: "column" as const,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "16px",
+      }}
+    >
+      <div
+        className="animate-spin"
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: "50%",
+          border: "3px solid rgba(255,255,255,0.2)",
+          borderTopColor: "rgba(255,255,255,0.9)",
+        }}
+        aria-hidden="true"
+      />
+      <p style={{ color: "rgba(255,255,255,0.85)", fontSize: "0.875rem" }}>
+        Identifying your dish…
+      </p>
+    </motion.div>
+  );
+}
+
+// ─── ScanErrorOverlay (AC1 — Story 6.5) ──────────────────────────────────────
+// Shown inline inside the camera frame when a Gemini scan fails.
+// Dusty rose tint + "Try again" retry button. Modal stays open.
+
+interface ScanErrorOverlayProps {
+  message: string;
+  onRetry: () => void;
+}
+
+function ScanErrorOverlay({ message, onRetry }: ScanErrorOverlayProps) {
+  return (
+    <motion.div
+      data-testid="scan-error-overlay"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 40,
+        // Dusty rose tint — Story 6.5 AC1
+        background: "rgba(188, 108, 110, 0.22)",
+        backdropFilter: "blur(2px)",
+        WebkitBackdropFilter: "blur(2px)",
+        display: "flex",
+        flexDirection: "column" as const,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "32px",
+        gap: "20px",
+      }}
+    >
+      <p
+        style={{
+          fontSize: "0.9375rem",
+          color: "rgba(255,255,255,0.9)",
+          textAlign: "center",
+          lineHeight: 1.5,
+          maxWidth: 260,
+        }}
+      >
+        {message}
+      </p>
+      <button
+        onClick={onRetry}
+        aria-label="Retry scan"
+        className="btn-pill btn-primary"
+        style={{ minWidth: 120 }}
+      >
+        Try again
+      </button>
+    </motion.div>
+  );
+}
 
 /** Corner-bracket scan frame rendered as an SVG */
 function ScanFrame() {

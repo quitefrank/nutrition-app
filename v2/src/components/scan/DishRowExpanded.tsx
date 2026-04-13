@@ -266,6 +266,7 @@ export function DishRowExpanded({
             carbsG={scaledCarbs}
             fatG={scaledFat}
             fibreG={scaledFibre}
+            isEstimated={macroSource === 'ai'}
           />
         </motion.div>
 

@@ -98,17 +98,22 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
             open={cameraOpen}
             onClose={() => setCameraOpen(false)}
             onProcessingStart={(msg) => {
-              setCameraOpen(false);
+              // Camera stays open during scanning — ScanErrorOverlay handles inline errors.
+              // Close on success (onProcessingComplete) or hardware failure (onProcessingError).
               setProcessingState("processing");
               setProcessingMessage(msg);
             }}
             onProcessingComplete={(scanKey) => {
+              // Scan succeeded — close camera and enter confirming state.
+              setCameraOpen(false);
               // P4: Use "confirming" state — distinct from "processing" (API in-flight)
               setConfirmingScanKey(scanKey);
               setProcessingState("confirming");
               setProcessingMessage(undefined);
             }}
             onProcessingError={(msg) => {
+              // Hardware camera errors — close camera and surface error via ProcessingStrip.
+              setCameraOpen(false);
               setProcessingState("error");
               setProcessingMessage(msg);
             }}

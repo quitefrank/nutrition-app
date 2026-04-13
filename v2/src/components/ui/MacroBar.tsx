@@ -5,6 +5,8 @@ interface MacroBarProps {
   carbsG: number | null
   fatG: number | null
   fibreG: number | null
+  /** When true, renders an "Est." label below each non-null macro value (USDA enrichment failed). Defaults to false. */
+  isEstimated?: boolean
   className?: string
 }
 
@@ -15,7 +17,7 @@ const MACRO_CELLS = [
   { label: "FIBRE",   key: "fibreG" as const },
 ] as const
 
-export function MacroBar({ proteinG, carbsG, fatG, fibreG, className }: MacroBarProps) {
+export function MacroBar({ proteinG, carbsG, fatG, fibreG, isEstimated = false, className }: MacroBarProps) {
   const values: Record<string, number | null> = { proteinG, carbsG, fatG, fibreG }
 
   return (
@@ -58,6 +60,19 @@ export function MacroBar({ proteinG, carbsG, fatG, fibreG, className }: MacroBar
           >
             {values[cell.key] != null && Number.isFinite(values[cell.key]) ? `${Math.round(values[cell.key]!)}g` : "—"}
           </span>
+          {isEstimated && values[cell.key] != null && (
+            <span
+              style={{
+                fontSize: 9,
+                color: "var(--color-text-tertiary)",
+                fontWeight: 500,
+                marginTop: 1,
+              }}
+              aria-label="estimated value"
+            >
+              Est.
+            </span>
+          )}
         </div>
       ))}
     </div>

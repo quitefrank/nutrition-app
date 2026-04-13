@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -8,6 +8,8 @@ import { FrostedCard } from "@/components/ui/FrostedCard";
 import { DishRowCompact } from "@/components/scan/DishRowCompact";
 import { DishRowExpanded } from "@/components/scan/DishRowExpanded";
 import { ScanConfidenceBanner } from "@/components/scan/ScanConfidenceBanner";
+import { CameraModal } from "@/components/capture/CameraModal";
+import { ManualDishEntrySheet } from "@/components/scan/ManualDishEntrySheet";
 import { useRestaurants } from "@/hooks/useRestaurants";
 import { useRecipesByRestaurant, useRemoveRecipe, useRecipe, useUpdateRecipe } from "@/hooks/useRecipes";
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
@@ -158,6 +160,60 @@ function loadMenuPhotoUrl(placeId: string): string | null {
 }
 
 /**
+ * Return whether the most recent plately_scan_* session entry for this
+ * restaurant originated from the search path ('search') or camera path ('scan').
+ * Returns null if no matching session entry exists.
+ * Used by the Places recovery effect (Story 6.4) to avoid firing on the camera path.
+ */
+function loadVisitSource(placeId: string): 'search' | 'scan' | null {
+  try {
+    let bestSource: 'search' | 'scan' | null = null;
+    let bestAt = -1;
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (!key?.startsWith('plately_scan_')) continue;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) continue;
+      let parsed: { restaurantPlaceId?: string | null; visitSource?: string; scannedAt?: number };
+      try { parsed = JSON.parse(raw); } catch { continue; }
+      if (parsed.restaurantPlaceId !== placeId) continue;
+      const at = parsed.scannedAt ?? 0;
+      if (at <= bestAt) continue;
+      bestAt = at;
+      if (parsed.visitSource === 'scan') bestSource = 'scan';
+      else if (parsed.visitSource === 'search') bestSource = 'search';
+      else bestSource = null;
+    }
+    return bestSource;
+  } catch {
+    // sessionStorage unavailable
+  }
+  return null;
+}
+
+/**
+ * Returns true if a Places recovery attempt has already been made for this
+ * place in the current browser session (Story 6.4).
+ * sessionStorage persists across unmount/remount unlike a useRef.
+ */
+function hasAttemptedRecovery(placeId: string): boolean {
+  try {
+    return sessionStorage.getItem(`plately_recovery_${placeId}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Mark that a Places recovery has been attempted for this place this session. */
+function markRecoveryAttempted(placeId: string): void {
+  try {
+    sessionStorage.setItem(`plately_recovery_${placeId}`, '1');
+  } catch {
+    // sessionStorage unavailable
+  }
+}
+
+/**
  * Convert a Supabase DomainRecipe to the SavedRecipe shape used by the
  * render layer. Uses the recipe's UUID as the navigation key so that
  * /recipe/[uuid] loads it from Supabase.
@@ -200,7 +256,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const [menuPhotoUrl, setMenuPhotoUrl] = useState<string | null>(null);
   // totalDetected: raw Gemini dish count from camera-scan session (0 = search path)
   const [totalDetected, setTotalDetected] = useState(0);
+  // bannerDismissed: ephemeral — resets on navigation so 6.2/6.3 re-evaluate fresh data
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [menuPhotoOpen, setMenuPhotoOpen] = useState(false);
+  // retakeCameraOpen: controls the retake-mode CameraModal (Story 6.2)
+  const [retakeCameraOpen, setRetakeCameraOpen] = useState(false);
+  // manualEntryOpen: controls the ManualDishEntrySheet (Story 6.3)
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
 
   // ── Accordion state (Story 2-5) ────────────────────────────
   // Single expanded dish ID — null means all rows are collapsed.
@@ -224,6 +286,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     setSessionRecipes(loadRecipesForRestaurant(placeId));
     setMenuPhotoUrl(loadMenuPhotoUrl(placeId));
     setTotalDetected(loadTotalDetected(placeId));
+    setBannerDismissed(false);
     setLoaded(true);
   }, [placeId]);
 
@@ -276,6 +339,18 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           ...sessionOnlyRecipes,
         ]
       : sessionRecipes;
+
+  // ── existingDishNames for retake dedup ────────────────────
+  // Derived from current merged recipe list. Passed to CameraModal in retake mode
+  // so it can deduplicate against already-captured dishes (Story 6.2).
+  // P3-A: memoised so children (ScanConfidenceBanner, CameraModal) receive a stable
+  // array reference and don't re-render on every unrelated state change.
+  const existingDishNames = useMemo(
+    () => recipes
+      .filter((r) => r.dish.name.trim().length > 0)
+      .map((r) => r.dish.name.toLowerCase().trim()),
+    [recipes]
+  );
 
   // ── Photo backfill ─────────────────────────────────────────
   // When any Supabase recipe is missing a photo, fire a one-shot enrichment
@@ -406,6 +481,59 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScanStep, supabaseRestaurant]);
 
+  // ── Search-path Places recovery (Story 6.4) ──────────────────────────────
+  // Fires automatically when the search-path auto-scan leaves unrecognised dishes.
+  // Conditions:
+  //   1. Recipes have loaded from Supabase (not pending)
+  //   2. There IS a gap (more detected than recognised)
+  //   3. The session key identifies this as a search-path visit (visitSource discriminator)
+  //   4. The restaurant has a place_id (was enriched via Places)
+  //   5. Not already attempted this session
+  useEffect(() => {
+    if (recipesPending) return;
+    if (!supabaseRestaurant || !supabaseRestaurant.placeId) return;
+    if (totalDetected === 0) return;                                  // no scan data at all
+    if (recipes.length >= totalDetected) return;                      // no gap to recover
+    if (loadVisitSource(supabaseRestaurant.placeId) !== 'search') return; // camera path — skip
+    if (hasAttemptedRecovery(supabaseRestaurant.placeId)) return;
+
+    markRecoveryAttempted(supabaseRestaurant.placeId);
+
+    // Capture stable values at effect time before async handoff
+    const recoveryPlaceId = supabaseRestaurant.placeId;
+    const recoveryRestaurantId = supabaseRestaurant.id;
+    const recoveryRestaurantName = supabaseRestaurant.name;
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/places/recover-menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            placeId: recoveryPlaceId,
+            restaurantId: recoveryRestaurantId,
+            restaurantName: recoveryRestaurantName,
+          }),
+        });
+
+        if (!res.ok) return;  // AC4: silent failure — no error UI
+
+        const json = await res.json() as { data?: { newDishCount: number } };
+        const newDishCount = json.data?.newDishCount ?? 0;
+
+        if (newDishCount > 0) {
+          // Invalidate so the dish list and ScanConfidenceBanner recount update
+          void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
+          void queryClient.invalidateQueries({ queryKey: ['recipes'] });
+        }
+      } catch {
+        // AC4: any error is silent — ScanConfidenceBanner stays with original options
+      }
+    })();
+  // supabaseRestaurant identity is stable once loaded; include length guards for re-checks
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipesPending, supabaseRestaurant?.placeId, supabaseRestaurant?.id, totalDetected, recipes.length]);
+
   // ── Derived display values ────────────────────────────────
   // Prefer Supabase restaurant name/address; fall back to sessionStorage data
   const restaurantName =
@@ -420,6 +548,60 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     null;
 
   const restaurantPhoto = supabaseRestaurant?.referenceImageUrl ?? null;
+
+  // ── Manual dish entry (Story 6.3) ─────────────────────────
+  // SEC-INJ-1.00: dishName is validated/trimmed before insert; Supabase client
+  // uses parameterised queries — no string concatenation.
+  const handleAddManually = useCallback(
+    async (dishName: string) => {
+      // P1-B: throw so ManualDishEntrySheet can surface the error rather than
+      // silently clearing the input and leaving the dish unsaved.
+      if (!supabaseRestaurant?.id) throw new Error("Restaurant not ready — please try again.");
+
+      const { data: recipe, error } = await supabase
+        .from("recipes")
+        .insert({
+          restaurant_id: supabaseRestaurant.id,
+          name: dishName,
+          status: "auto_captured",
+          photo_status: "placeholder",
+        })
+        .select()
+        .single();
+
+      if (error || !recipe) {
+        throw new Error(error?.message ?? "Failed to save dish");
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ["recipes", "restaurant"] });
+
+      // Fire-and-forget AI enrichment — same pipeline as Story 2.6
+      void (async () => {
+        try {
+          const tempId = crypto.randomUUID();
+          const res = await fetch("/api/scan/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              dishes: [{ id: tempId, name: dishName }],
+              // D2: use the real source values rather than comparing against the
+              // "Restaurant" fallback string — avoids breakage if copy ever changes.
+              restaurantName: supabaseRestaurant?.name ?? nameFromUrl ?? undefined,
+              dishToRecipeMap: { [tempId]: recipe.id },
+            }),
+          });
+          if (!res.ok) return;
+          void queryClient.invalidateQueries({ queryKey: ["recipes", "restaurant"] });
+          void queryClient.invalidateQueries({ queryKey: ["recipes"] });
+        } catch {
+          // Non-blocking — enrichment is best-effort
+        }
+      })();
+
+      setManualEntryOpen(false);
+    },
+    [supabaseRestaurant?.id, restaurantName, queryClient]
+  );
 
   // ── Trigger fully-automated menu scan ──────────────────────
   const handleAutoScan = useCallback(async () => {
@@ -503,6 +685,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           enriched: false,
           totalDetected: dishCount,
           scannedAt: now,
+          visitSource: 'search',
         })
       );
 
@@ -511,6 +694,9 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
       setTotalDetected(dishCount);
       setAutoScanStep('done');
       autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
+        // P2-C: reset after save resolves so the banner doesn't flicker back
+        // during the async tail when recipes.length is still catching up.
+        setBannerDismissed(false);
         void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
         void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
         enrich(scanKey, dishToRecipeMap);
@@ -566,6 +752,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
             type: json.data.type,
             restaurantName: json.data.restaurantName ?? restaurantName,
             restaurantPlaceId: placeId,
+            visitSource: 'search',
             allDishes: json.data.dishes.map((d, i) => ({
               ...d,
               photoUrl: i === 0 ? photoUrl : null,
@@ -577,6 +764,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
         );
 
         setSessionRecipes(loadRecipesForRestaurant(placeId));
+        setBannerDismissed(false);
         setTotalDetected(scanPhotoTotal);
         autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
           void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
@@ -896,14 +1084,15 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
       {/* Compare total visible recipes (Supabase + session-only) so the banner
           dismisses correctly once all dishes have been persisted to Supabase. */}
       <AnimatePresence>
-        {!recipesPending && totalDetected > 0 && recipes.length < totalDetected && (
+        {!recipesPending && !bannerDismissed && totalDetected > 0 && recipes.length < totalDetected && (
           <ScanConfidenceBanner
             key="scan-confidence-banner"
             recognisedCount={recipes.length}
             totalDetected={totalDetected}
-            onRetake={() => console.warn("[ScanConfidenceBanner] retake — Story 6.2")}
-            onAddManually={() => console.warn("[ScanConfidenceBanner] add manually — Story 6.3")}
-            onContinue={() => console.warn("[ScanConfidenceBanner] continue — Story 6.1")}
+            existingDishNames={existingDishNames}
+            onRetake={() => setRetakeCameraOpen(true)}
+            onAddManually={() => setManualEntryOpen(true)}
+            onContinue={() => setBannerDismissed(true)}
           />
         )}
       </AnimatePresence>
@@ -965,6 +1154,32 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Manual dish entry sheet — Story 6.3 */}
+      <ManualDishEntrySheet
+        isOpen={manualEntryOpen}
+        onClose={() => setManualEntryOpen(false)}
+        onSave={handleAddManually}
+      />
+
+      {/* Retake photo — CameraModal in retake mode (Story 6.2) */}
+      {retakeCameraOpen && (
+        <CameraModal
+          mode="retake"
+          placeId={placeId}
+          restaurantId={supabaseRestaurant?.id ?? null}
+          restaurantName={restaurantName}
+          existingDishNames={existingDishNames}
+          totalDetected={totalDetected}
+          onClose={() => setRetakeCameraOpen(false)}
+          onRetakeMerged={(_newCount: number) => {
+            setRetakeCameraOpen(false);
+            // D3: always refresh — even on error (newCount=0), retakeMergeAndSave
+            // may have partially written to sessionStorage before failing.
+            setSessionRecipes(loadRecipesForRestaurant(placeId));
+          }}
+        />
+      )}
 
       {/* Menu photo lightbox */}
       <AnimatePresence>

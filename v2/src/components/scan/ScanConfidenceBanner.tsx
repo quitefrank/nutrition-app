@@ -5,6 +5,9 @@ import { motion, useReducedMotion } from "framer-motion";
 export interface ScanConfidenceBannerProps {
   recognisedCount: number;
   totalDetected: number;
+  /** Names of already-captured dishes (lowercase trimmed). Provided by RestaurantScreen
+   * and forwarded into CameraModal when the retake path opens. Not rendered by this component. */
+  existingDishNames?: string[];
   onRetake: () => void;
   onAddManually: () => void;
   onContinue: () => void;
@@ -20,6 +23,7 @@ export interface ScanConfidenceBannerProps {
 export function ScanConfidenceBanner({
   recognisedCount,
   totalDetected,
+  existingDishNames: _existingDishNames,
   onRetake,
   onAddManually,
   onContinue,
