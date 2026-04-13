@@ -38,8 +38,10 @@ export function useDataReset() {
       }
     },
     onSuccess: () => {
-      // Clear the entire query cache so the UI reflects empty state immediately
+      // Clear the in-memory query cache and the persisted localStorage snapshot
+      // so the next launch does not restore stale data after a settings reset.
       queryClient.clear();
+      localStorage.removeItem("plately-query-cache");
     },
   });
 }

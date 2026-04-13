@@ -16,6 +16,10 @@ export function ServiceWorkerRegistrar() {
     if (typeof window === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
 
+    // Capture cleanup so React can call it on unmount even though registration
+    // is async. The function is populated inside the .then() callback.
+    let removeVisibilityListener: (() => void) | undefined;
+
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
       .then((registration) => {
@@ -58,14 +62,16 @@ export function ServiceWorkerRegistrar() {
           }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        return () => {
+        removeVisibilityListener = () =>
           document.removeEventListener('visibilitychange', handleVisibilityChange);
-        };
       })
       .catch(() => {
         // SW registration failures are non-fatal; app works without it
       });
+
+    return () => {
+      removeVisibilityListener?.();
+    };
   }, []);
 
   return null;
