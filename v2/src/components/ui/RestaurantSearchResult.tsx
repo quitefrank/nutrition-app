@@ -112,11 +112,13 @@ export function RestaurantSearchResult({ result, onSelect }: RestaurantSearchRes
               fill="var(--color-accent)"
             />
           </svg>
+          {/* WCAG 2.1 AA: terracotta (#C4622D) requires font-size ≥ 14px.
+              0.75rem (12px) does not meet the threshold — use text-secondary. */}
           <span
             style={{
               fontSize: '0.75rem',
               fontWeight: 600,
-              color: 'var(--color-accent)',
+              color: 'var(--color-text-secondary)',
             }}
           >
             {result.rating.toFixed(1)}

@@ -110,12 +110,14 @@ export function RecipeGridCard({ recipe, onPress }: RecipeGridCardProps) {
           {recipe.name}
         </p>
 
-        {/* Calorie count: 11px terracotta — only when estimatedCalories is non-null */}
+        {/* Calorie count: 11px — only when estimatedCalories is non-null */}
+        {/* WCAG 2.1 AA: terracotta (#C4622D) requires font-size ≥ 14px at weight ≥ 600.
+            11px does not meet the threshold — use text-secondary instead. */}
         {recipe.estimatedCalories !== null && recipe.estimatedCalories !== undefined && (
           <p
             style={{
               fontSize: '0.6875rem',
-              color: 'var(--color-accent)',
+              color: 'var(--color-text-secondary)',
               lineHeight: 1.4,
               margin: 0,
             }}

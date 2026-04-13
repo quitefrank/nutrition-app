@@ -240,12 +240,15 @@ export function GroceryScreen() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.15 }}
           >
-            {/* View toggle */}
+            {/* View toggle — WCAG 2.1 AA: w-8 h-8 (32px) is below the 44×44px touch target
+                minimum. Replace with minWidth/minHeight: 44 so the button meets the requirement. */}
             <button
               onClick={toggleViewMode}
               aria-label={viewMode === "grouped" ? "Switch to flat view" : "Switch to grouped view"}
-              className="flex items-center justify-center w-8 h-8 rounded-[var(--radius-sm)] transition-colors"
+              className="flex items-center justify-center rounded-[var(--radius-sm)] transition-colors"
               style={{
+                minWidth: 44,
+                minHeight: 44,
                 background: "var(--color-surface-raised)",
                 color: viewMode === "flat" ? "var(--color-accent)" : "var(--color-text-tertiary)",
                 border: "1px solid var(--color-card-border)",
@@ -510,12 +513,13 @@ function SwipeableGroceryRow({
           )}
         </div>
 
-        {/* Remove button (always visible — X button) */}
+        {/* Remove button — WCAG 2.1 AA: w-7 h-7 (28px) is below the 44×44px touch target
+            minimum. Use minWidth/minHeight: 44 to meet the requirement. */}
         <button
           onClick={onRemove}
           aria-label={`Remove ${item.name}`}
-          className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full"
-          style={{ color: "var(--color-text-tertiary)" }}
+          className="flex-shrink-0 flex items-center justify-center rounded-full"
+          style={{ minWidth: 44, minHeight: 44, color: "var(--color-text-tertiary)" }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />

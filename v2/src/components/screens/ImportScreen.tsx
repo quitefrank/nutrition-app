@@ -472,7 +472,10 @@ function MetaChip({ label, accent = false }: { label: string; accent?: boolean }
       className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
       style={{
         background: accent ? "var(--color-accent-light)" : "var(--color-surface-raised)",
-        color: accent ? "var(--color-accent)" : "var(--color-text-secondary)",
+        /* WCAG 2.1 AA: terracotta (#C4622D) requires font-size ≥ 14px.
+           text-xs (12px) does not meet the threshold — use text-secondary instead.
+           The accent-light background still provides visual distinction. */
+        color: accent ? "var(--color-text-secondary)" : "var(--color-text-secondary)",
         border: `1px solid ${accent ? "rgba(196,98,45,0.18)" : "var(--color-card-border)"}`,
       }}
     >

@@ -47,7 +47,9 @@ export function RecipesScreen() {
             }}
             style={{
               fontSize: 14,
-              fontWeight: 500,
+              /* WCAG 2.1 AA: terracotta (#C4622D) requires font-weight ≥ 600 at font-size ≥ 14px.
+                 500 does not meet the threshold — bump to 600. */
+              fontWeight: 600,
               color: "var(--color-accent)",
               background: "none",
               border: "none",

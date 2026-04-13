@@ -287,13 +287,15 @@ export function RestaurantCollectionScreen({ onScanPress }: RestaurantCollection
           background: 'transparent',
         }}
       >
+        {/* WCAG 2.1 AA: explicit width/height 40px is below the 44×44px touch target minimum.
+            Use minWidth/minHeight: 44 so the button expands to meet the requirement. */}
         <button
           type="button"
           aria-label="Find a restaurant by name"
           onClick={() => setSearchOpen(true)}
           style={{
-            width: 40,
-            height: 40,
+            minWidth: 44,
+            minHeight: 44,
             borderRadius: '50%',
             border: '1.5px solid var(--color-accent)',
             background: 'transparent',

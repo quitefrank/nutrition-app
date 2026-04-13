@@ -147,11 +147,14 @@ export function InstallPromptBanner() {
 
             {/* Actions */}
             <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              {/* WCAG 2.1 AA: explicit height: 36 / minHeight: 36 overrides the global
+                  button min-height: 44px. Remove the Tailwind h-9 class and inline heights
+                  so the global baseline and padding provide a compliant 44px touch target. */}
               <button
                 onClick={handleInstall}
                 aria-label="Install Plately"
-                className="btn-pill btn-primary h-9 px-4 text-xs"
-                style={{ height: 36, minHeight: 36 }}
+                className="btn-pill btn-primary px-4 text-xs"
+                style={{ minHeight: 44 }}
               >
                 Install
               </button>

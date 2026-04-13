@@ -492,7 +492,9 @@ function RecipePageInner() {
                       </span>
                     )}
                     {ing.calories_kcal !== null && ing.calories_kcal !== undefined && (
-                      <span className="text-xs font-medium" style={{ color: "var(--color-accent)" }}>
+                      /* WCAG 2.1 AA: text-xs (12px) + font-medium (500) does not meet the
+                         terracotta threshold (≥14px AND ≥600). Use text-tertiary instead. */
+                      <span className="text-xs font-medium" style={{ color: "var(--color-text-tertiary)" }}>
                         {ing.calories_kcal} kcal
                       </span>
                     )}

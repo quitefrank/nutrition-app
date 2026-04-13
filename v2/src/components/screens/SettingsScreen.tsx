@@ -255,17 +255,17 @@ export function SettingsScreen() {
             )}
 
             {/* Clear key button — only shown when a key is stored */}
+            {/* WCAG 2.1 AA: explicit height/minHeight: 40 overrides the global min-height: 44px. */}
             {storedKey && (
               <button
                 onClick={handleClearKey}
                 aria-label="Clear stored API key"
                 className="btn-pill btn-ghost text-sm"
                 style={{
-                  height: 40,
                   fontSize: "0.875rem",
                   color: "var(--color-text-tertiary)",
                   padding: "0 12px",
-                  minHeight: 40,
+                  minHeight: 44,
                 }}
               >
                 Clear Key
@@ -312,12 +312,12 @@ export function SettingsScreen() {
             >
               Permanently delete all recipes and dishes from your collection. This cannot be undone.
             </p>
+            {/* WCAG 2.1 AA: explicit height/minHeight: 40 overrides the global min-height: 44px. */}
             <button
               onClick={() => setConfirmingDeleteAll(true)}
               className="btn-pill text-sm font-medium px-4"
               style={{
-                height: 40,
-                minHeight: 40,
+                minHeight: 44,
                 background: "rgba(251,234,234,0.95)",
                 color: "#A03030",
                 fontSize: "0.875rem",

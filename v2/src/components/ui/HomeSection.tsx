@@ -54,7 +54,9 @@ export function HomeSection({ title, itemCount, onSeeAll, children }: HomeSectio
               padding: 0,
               fontSize: 12,
               fontWeight: 500,
-              color: 'var(--color-accent)',
+              /* WCAG 2.1 AA: terracotta (#C4622D) requires font-size ≥ 14px AND font-weight ≥ 600.
+                 12px does not meet the size threshold — use text-tertiary instead. */
+              color: 'var(--color-text-tertiary)',
               cursor: 'pointer',
               minHeight: 44,
               minWidth: 44,

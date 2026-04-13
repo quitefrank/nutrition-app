@@ -166,7 +166,9 @@ export function SearchBar({
           border: 'none',
           cursor: 'pointer',
           fontSize: '0.875rem',
-          fontWeight: 500,
+          /* WCAG 2.1 AA: terracotta (#C4622D) requires font-weight ≥ 600 at font-size ≥ 14px.
+             500 does not meet the threshold at exactly 14px — bump to 600. */
+          fontWeight: 600,
           color: 'var(--color-accent)',
           fontFamily: 'var(--font-body), system-ui, sans-serif',
           padding: '0 4px',

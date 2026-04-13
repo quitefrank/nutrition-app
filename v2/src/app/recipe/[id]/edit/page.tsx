@@ -498,12 +498,11 @@ function EditPageInner() {
                 <MinusIcon />
               </button>
               <span
-                className="text-2xl font-semibold tabular-nums w-8 text-center"
-                style={{ fontFamily: 'var(--font-display), Georgia, serif', color: 'var(--color-text-primary)' }}
+                className="text-2xl font-semibold tabular-nums text-center"
+                style={{ fontFamily: 'var(--font-display), Georgia, serif', color: 'var(--color-text-primary)', minWidth: '3.5rem' }}
                 aria-live="polite"
-                aria-label={`${servings} serving${servings !== 1 ? 's' : ''}`}
               >
-                {servings}
+                {servings} serving{servings !== 1 ? 's' : ''}
               </span>
               <button
                 onClick={() => handleServingsChange(servings + 1)}
@@ -513,9 +512,6 @@ function EditPageInner() {
               >
                 <PlusIcon />
               </button>
-              <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                serving{servings !== 1 ? 's' : ''}
-              </span>
             </div>
           </FrostedCard>
 
@@ -578,12 +574,19 @@ function EditPageInner() {
                     style={{ color: 'var(--color-text-secondary)' }}
                     aria-label={`Ingredient ${index + 1} unit`}
                   />
-                  {/* Remove button */}
+                  {/* Remove button — WCAG 2.1 AA: explicit minHeight/minWidth: 32 overrides
+                      the global min-height: 44px. Use invisible padding to extend the touch
+                      target to 44×44px without changing the visual 32px icon area. */}
                   <button
                     onClick={() => handleRemoveIngredient(index)}
                     aria-label={`Remove ${ing.name || 'ingredient'}`}
-                    className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full"
-                    style={{ color: 'var(--color-text-tertiary)', background: 'none', minHeight: 32, minWidth: 32 }}
+                    className="flex-shrink-0 flex items-center justify-center rounded-full"
+                    style={{
+                      color: 'var(--color-text-tertiary)',
+                      background: 'none',
+                      minHeight: 44,
+                      minWidth: 44,
+                    }}
                   >
                     <TrashIcon />
                   </button>

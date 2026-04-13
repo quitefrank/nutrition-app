@@ -76,12 +76,16 @@ export function RemoveRestaurantSheet({
       </p>
 
       {/* Inline error message (AC5) */}
+      {/* WCAG 2.1 AA: terracotta is not a semantic error colour and is not permitted for
+          actionable error/warning messages. Use --color-error (or text-secondary as
+          accessible fallback) so screen readers and sighted users get a neutral but
+          readable error message rather than a decorative accent. */}
       {isError && (
         <p
           role="alert"
           style={{
             fontSize: "0.8125rem",
-            color: "var(--color-accent)",
+            color: "var(--color-error, var(--color-text-secondary))",
             marginBottom: 16,
             lineHeight: 1.4,
           }}

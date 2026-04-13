@@ -230,7 +230,9 @@ export function DishRowExpanded({
               aria-label={`${value} serving${value > 1 ? "s" : ""}`}
               style={{
                 flex: 1,
-                height: 34,
+                /* WCAG 2.1 AA: explicit height: 34 overrides the global button min-height: 44px.
+                   Replace with minHeight: 44 to meet the 44×44px touch target requirement. */
+                minHeight: 44,
                 borderRadius: 9999,
                 border: portion === value ? "none" : "var(--border-glass)",
                 background: portion === value ? "var(--color-accent)" : "var(--glass-base)",
