@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-12
-last_updated: 2026-04-13 # 5-2 review patches applied → done; 5-4 review patches applied → done
+last_updated: 2026-04-13 # 5-2 review patches applied → done; 5-4 review patches applied → done; 5-3 review patches applied → done
 project: Plately v2
 
 # 2026-04-12: 2-1 → done; 2-2 → done; 2-3 → review; 2-3 review patches applied (P1-P11 + IG1) → done; 2-4 review patches applied → done; 2-8 → in-progress → review
@@ -103,7 +103,7 @@ development_status:
   epic-5: in-progress
   5-1-add-to-my-recipes: done
   5-2-my-recipes-collection-screen: done
-  5-3-recipe-removal: ready-for-dev
+  5-3-recipe-removal: done
   5-4-cooking-instructions-gate: done
   epic-5-retrospective: optional
 

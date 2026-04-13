@@ -1,6 +1,6 @@
 # Story 5.3: Recipe Removal
 
-Status: ready-for-dev
+Status: review
 Epic: 5 — My Recipes & Cook-at-Home
 Story ID: 5.3
 Story Key: 5-3-recipe-removal
@@ -400,16 +400,22 @@ vi.mock('@/hooks/useRecipes', () => ({
 
 ### Agent Model Used
 
-<!-- to be filled in -->
+claude-sonnet-4-6
 
 ### Debug Log References
 
-<!-- to be filled in -->
+No blockers or debug sessions required. Implementation was straightforward following the spec.
 
 ### Completion Notes List
 
-<!-- to be filled in -->
+- Updated `RecipesScreen.tsx`: added `isEditMode` + `removeCandidate` state, Edit/Done header button (only when recipes > 0), remove icon overlay per card in edit mode, `MinusIcon` SVG sub-component, `RemoveConfirmationPanel` with 2-stage confirm (`confirmed` local state), `BottomSheet` wired to `useUpdateRecipe` with `status: 'auto_captured'`.
+- `useUpdateRecipe` (not `useRemoveRecipe`) used per spec — returns dish to restaurant browse collection.
+- `onSuccess` callback passed directly on `mutate()` to close sheet and exit edit mode only on success.
+- `RemoveConfirmationPanel` internal `confirmed` state resets on unmount (when sheet closes) via `AnimatePresence`.
+- Card `onPress` is a no-op `() => {}` in edit mode — navigation intentionally disabled.
+- 10 new tests added for edit mode and removal flow; 24 total tests pass; 47 test files / 601 tests total — zero regressions.
 
 ### File List
 
-<!-- to be filled in -->
+- src/components/screens/RecipesScreen.tsx (modified)
+- src/components/screens/RecipesScreen.test.tsx (modified)
