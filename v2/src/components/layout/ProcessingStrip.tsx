@@ -68,7 +68,6 @@ export function ProcessingStrip({
         <motion.div
           role="status"
           aria-live="polite"
-          aria-label={message ?? config.label}
           className="fixed left-4 right-4 z-35 flex items-center gap-3 px-4 cursor-pointer"
           style={{
             bottom: `calc(var(--tab-bar-height) + var(--space-safe-bottom) + 8px)`,
