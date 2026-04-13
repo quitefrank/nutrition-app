@@ -9,7 +9,7 @@ import { DishRowCompact } from "@/components/scan/DishRowCompact";
 import { DishRowExpanded } from "@/components/scan/DishRowExpanded";
 import { ScanConfidenceBanner } from "@/components/scan/ScanConfidenceBanner";
 import { useRestaurants } from "@/hooks/useRestaurants";
-import { useRecipesByRestaurant, useRemoveRecipe, useRecipe } from "@/hooks/useRecipes";
+import { useRecipesByRestaurant, useRemoveRecipe, useRecipe, useUpdateRecipe } from "@/hooks/useRecipes";
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 import { supabase } from "@/lib/supabase";
 import { useEnrichment } from "@/hooks/useEnrichment";
@@ -192,6 +192,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const queryClient = useQueryClient();
   const { enrich } = useEnrichment();
   const removeRecipe = useRemoveRecipe();
+  const updateRecipe = useUpdateRecipe();
   const reducedMotion = useReducedMotion();
   const [sessionRecipes, setSessionRecipes] = useState<SavedRecipe[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -848,7 +849,12 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
                           totalFat={recipe.totalFatG}
                           totalFibre={recipe.totalFibreG}
                           onCollapse={() => setExpandedDishId(null)}
-                          onAddToRecipes={() => {}} // TODO: Story 5-1
+                          onAddToRecipes={(onError) => {
+                            updateRecipe.mutate(
+                              { id: recipe.id, updates: { status: 'kept' } },
+                              { onError }
+                            )
+                          }}
                         />
                       </div>
                     </motion.div>

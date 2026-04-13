@@ -215,6 +215,8 @@ export function useUpdateRecipe() {
       void queryClient.invalidateQueries({ queryKey: ['recipes', id] })
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })
       void queryClient.invalidateQueries({ queryKey: ['recipes', 'kept'] })
+      // Invalidate all per-restaurant lists so RestaurantScreen sees the updated status
+      void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] })
     },
   })
 }

@@ -325,6 +325,56 @@ describe('DishRowExpanded', () => {
     })
   })
 
+  describe('Add to My Recipes CTA', () => {
+    const mockRecipeKept: DomainRecipe = {
+      ...baseRecipe,
+      status: 'kept',
+    }
+
+    it('renders "Add to My Recipes" button when recipe.status is "auto_captured"', () => {
+      render(<DishRowExpanded {...defaultProps} recipe={baseRecipe} />)
+      expect(screen.getByRole('button', { name: /add to my recipes/i })).toBeTruthy()
+      expect(screen.queryByText('Saved to My Recipes')).toBeNull()
+    })
+
+    it('renders "Saved to My Recipes" state when recipe.status is "kept" (no button)', () => {
+      render(<DishRowExpanded {...defaultProps} recipe={mockRecipeKept} />)
+      expect(screen.queryByRole('button', { name: /add to my recipes/i })).toBeNull()
+      // sr-only live region also contains this text; target the visible div only
+      expect(screen.getByText('Saved to My Recipes', { selector: 'div:not(.sr-only)' })).toBeTruthy()
+    })
+
+    it('calls onAddToRecipes when CTA is tapped', async () => {
+      const onAddToRecipes = vi.fn()
+      const user = userEvent.setup()
+      render(<DishRowExpanded {...defaultProps} onAddToRecipes={onAddToRecipes} />)
+      await user.click(screen.getByRole('button', { name: /add to my recipes/i }))
+      expect(onAddToRecipes).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT call onAddToRecipes when already saved (recipe.status === "kept")', () => {
+      const onAddToRecipes = vi.fn()
+      render(
+        <DishRowExpanded
+          {...defaultProps}
+          recipe={mockRecipeKept}
+          onAddToRecipes={onAddToRecipes}
+        />
+      )
+      expect(screen.queryByRole('button', { name: /add to my recipes/i })).toBeNull()
+      expect(onAddToRecipes).not.toHaveBeenCalled()
+    })
+
+    it('transitions to saved state when recipe.status prop updates to "kept"', () => {
+      const { rerender } = render(<DishRowExpanded {...defaultProps} recipe={baseRecipe} />)
+      expect(screen.getByRole('button', { name: /add to my recipes/i })).toBeTruthy()
+
+      rerender(<DishRowExpanded {...defaultProps} recipe={mockRecipeKept} />)
+      expect(screen.queryByRole('button', { name: /add to my recipes/i })).toBeNull()
+      expect(screen.getByText('Saved to My Recipes', { selector: 'div:not(.sr-only)' })).toBeTruthy()
+    })
+  })
+
   describe('portion stepper', () => {
     it('default portion is 1× — MacroBar receives unscaled values', () => {
       render(<DishRowExpanded {...defaultProps} totalProtein={12} totalCarbs={48} totalFat={14} />)

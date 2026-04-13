@@ -201,4 +201,70 @@ describe('POST /api/import', () => {
     // Bare recipe should NOT be present at top level
     expect(body.recipe).toBeUndefined()
   })
+
+  // ─── Calorie parsing edge cases ───────────────────────────────────────────
+
+  describe('calorieEstimate parsing', () => {
+    function geminiWithCalorie(calorieEstimate: unknown) {
+      mockGenerateContent.mockResolvedValue({
+        response: {
+          text: () =>
+            JSON.stringify({
+              name: 'Test Recipe',
+              description: '',
+              calorieEstimate,
+              servings: 1,
+              ingredients: [],
+            }),
+        },
+      })
+    }
+
+    it('string "500.7" → rounded to 501', async () => {
+      geminiWithCalorie('500.7')
+      const res = await POST(makeReq({ url: 'https://example.com/recipe' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.recipe.calorieEstimate).toBe(501)
+    })
+
+    it('string "0" → null (zero is not a positive calorie count)', async () => {
+      geminiWithCalorie('0')
+      const res = await POST(makeReq({ url: 'https://example.com/recipe' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.recipe.calorieEstimate).toBeNull()
+    })
+
+    it('negative number -100 → null', async () => {
+      geminiWithCalorie(-100)
+      const res = await POST(makeReq({ url: 'https://example.com/recipe' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.recipe.calorieEstimate).toBeNull()
+    })
+
+    it('non-numeric string "lots" → null', async () => {
+      geminiWithCalorie('lots')
+      const res = await POST(makeReq({ url: 'https://example.com/recipe' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.recipe.calorieEstimate).toBeNull()
+    })
+
+    it('explicit null → null', async () => {
+      geminiWithCalorie(null)
+      const res = await POST(makeReq({ url: 'https://example.com/recipe' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.recipe.calorieEstimate).toBeNull()
+    })
+
+    it('absent calorieEstimate field → null', async () => {
+      mockGenerateContent.mockResolvedValue({
+        response: {
+          text: () =>
+            JSON.stringify({ name: 'Test Recipe', description: '', servings: 1, ingredients: [] }),
+        },
+      })
+      const res = await POST(makeReq({ url: 'https://example.com/recipe' }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.recipe.calorieEstimate).toBeNull()
+    })
+  })
 })

@@ -1,10 +1,24 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, useReducedMotion } from "framer-motion"
 import { PhotoFrame } from "@/components/ui/PhotoFrame"
 import { MacroBar } from "@/components/ui/MacroBar"
-import type { DomainRecipe, DomainIngredient } from "@/types/database"
+import type { DomainRecipe, DomainIngredient, RecipeStatus } from "@/types/database"
+
+type SavedState = 'idle' | 'saving' | 'checkmark' | 'saved'
+
+function initialSavedState(status: RecipeStatus): SavedState {
+  return status === 'kept' ? 'saved' : 'idle'
+}
+
+function CheckmarkIcon({ style }: { style?: React.CSSProperties }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={style}>
+      <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 // Derives macro provenance from ingredient-level USDA FDC IDs.
 // Returns null only when ingredients is null/undefined (still loading).
@@ -40,8 +54,11 @@ interface DishRowExpandedProps {
   totalFibre?: number | null
   /** Collapse the row */
   onCollapse: () => void
-  /** "Add to My Recipes" tap — parent handles navigation */
-  onAddToRecipes: () => void
+  /**
+   * "Add to My Recipes" tap — parent handles the mutation.
+   * Parent must call onError() if the mutation fails so the CTA resets to idle.
+   */
+  onAddToRecipes: (onError: () => void) => void
   className?: string
 }
 
@@ -62,10 +79,32 @@ export function DishRowExpanded({
   // Dismissed after first collapse tap to prevent rapid double-tap re-firing
   const [dismissed, setDismissed] = useState(false)
   const [portion, setPortion] = useState(1)
+  const [savedState, setSavedState] = useState<SavedState>(() => initialSavedState(recipe.status))
   const reducedMotion = useReducedMotion()
+  // Timeout IDs for the checkmark → saved animation sequence — cleared on unmount
+  const animTimeouts = useRef<{ outer: ReturnType<typeof setTimeout> | null; inner: ReturnType<typeof setTimeout> | null }>({ outer: null, inner: null })
 
   // Reset dismissed guard when the recipe changes (parent reuse without unmount)
   useEffect(() => { setDismissed(false) }, [recipe.id])
+
+  // Clear pending animation timeouts on unmount (or recipe change) to prevent
+  // stale setSavedState calls on an unmounted component
+  useEffect(() => {
+    return () => {
+      if (animTimeouts.current.outer !== null) clearTimeout(animTimeouts.current.outer)
+      if (animTimeouts.current.inner !== null) clearTimeout(animTimeouts.current.inner)
+    }
+  }, [recipe.id])
+
+  // Sync savedState when TanStack Query cache invalidation updates recipe.status.
+  // Guard: don't stomp an in-progress animation — the timeout chain handles the
+  // final transition. Only apply external status changes from stable states.
+  useEffect(() => {
+    setSavedState((current) => {
+      if (current === 'saving' || current === 'checkmark') return current
+      return initialSavedState(recipe.status)
+    })
+  }, [recipe.status])
 
   const ingredients = expandedRecipe?.ingredients ?? null
 
@@ -274,22 +313,87 @@ export function DishRowExpanded({
         ) : null /* expandedRecipe loaded, ingredients populated, 0 items: omit section */}
 
         {/* "Add to My Recipes" CTA pill */}
-        <button
-          type="button"
-          onClick={onAddToRecipes}
-          className="w-full font-semibold text-[15px]"
-          style={{
-            height: 42,
-            background: "var(--color-accent)",
-            color: "#fff",
-            borderRadius: 9999,
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          + Add to My Recipes
-          {/* TODO: Story 5-1 — implement save logic */}
-        </button>
+        {/* Single persistent live region — screen readers announce state changes
+            without the mount/unmount timing problems of per-element aria-live */}
+        <div aria-live="polite" aria-atomic="true" className="sr-only">
+          {savedState === 'checkmark' || savedState === 'saved' ? 'Saved to My Recipes' : ''}
+        </div>
+
+        {savedState === 'saved' ? (
+          <div
+            aria-label="Saved to My Recipes"
+            style={{
+              height: 42,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              background: "var(--glass-base)",
+              backdropFilter: "var(--blur-base)",
+              WebkitBackdropFilter: "var(--blur-base)",
+              borderRadius: 9999,
+              border: "var(--border-glass)",
+              fontSize: 15,
+              fontWeight: 600,
+              color: "var(--color-accent)",
+            }}
+          >
+            <CheckmarkIcon />
+            Saved to My Recipes
+          </div>
+        ) : savedState === 'checkmark' ? (
+          <div
+            aria-label="Saving"
+            style={{
+              height: 42,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--color-accent)",
+              borderRadius: 9999,
+            }}
+          >
+            <CheckmarkIcon style={{ color: "var(--color-on-accent, #fff)" }} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (savedState !== 'idle') return
+              // Clear any stale animation timeouts from a prior interrupted sequence
+              if (animTimeouts.current.outer !== null) clearTimeout(animTimeouts.current.outer)
+              if (animTimeouts.current.inner !== null) clearTimeout(animTimeouts.current.inner)
+              setSavedState('saving')
+              onAddToRecipes(() => setSavedState('idle'))
+              if (reducedMotion) {
+                setSavedState('saved')
+              } else {
+                animTimeouts.current.outer = setTimeout(() => {
+                  animTimeouts.current.outer = null
+                  setSavedState('checkmark')
+                  animTimeouts.current.inner = setTimeout(() => {
+                    animTimeouts.current.inner = null
+                    setSavedState('saved')
+                  }, 1500)
+                }, 0)
+              }
+            }}
+            disabled={savedState === 'saving'}
+            aria-label="Add to My Recipes"
+            className="w-full font-semibold text-[15px]"
+            style={{
+              height: 42,
+              background: savedState === 'saving' ? "var(--color-accent-light, var(--color-accent))" : "var(--color-accent)",
+              color: savedState === 'saving' ? "var(--color-accent)" : "var(--color-on-accent, #fff)",
+              borderRadius: 9999,
+              border: "none",
+              cursor: savedState === 'saving' ? "default" : "pointer",
+              transition: "background 0.2s ease, color 0.2s ease",
+            }}
+          >
+            + Add to My Recipes
+          </button>
+        )}
       </div>
     </section>
   )

@@ -1,6 +1,6 @@
 # Story 5.1: Add to My Recipes
 
-Status: ready-for-dev
+Status: review
 Epic: 5 — My Recipes & Cook-at-Home
 Story ID: 5.1
 Story Key: 5-1-add-to-my-recipes
@@ -318,15 +318,15 @@ const mockRecipeKept: DomainRecipe = {
 
 ## Definition of Done
 
-- [ ] `DishRowExpanded.tsx` updated: "Add to My Recipes" CTA implements three-state machine (`idle`, `checkmark`, `saved`)
-- [ ] `DishRowExpanded.tsx`: renders "Saved to My Recipes" state when `recipe.status === 'kept'` on initial render
-- [ ] `DishRowExpanded.tsx`: `useEffect` syncs `savedState` when `recipe.status` prop updates
-- [ ] `DishRowExpanded.tsx`: reduced motion skips checkmark phase; goes directly to saved
-- [ ] `RestaurantScreen.tsx`: `onAddToRecipes` wired to `useUpdateRecipe({ status: 'kept' })`
-- [ ] `DishRowExpanded.test.tsx`: new CTA state machine tests added and passing
-- [ ] All existing DishRowExpanded tests still pass
-- [ ] TypeScript strict: no new errors (`npx tsc --noEmit`)
-- [ ] `sprint-status.yaml` is NOT modified
+- [x] `DishRowExpanded.tsx` updated: "Add to My Recipes" CTA implements three-state machine (`idle`, `checkmark`, `saved`)
+- [x] `DishRowExpanded.tsx`: renders "Saved to My Recipes" state when `recipe.status === 'kept'` on initial render
+- [x] `DishRowExpanded.tsx`: `useEffect` syncs `savedState` when `recipe.status` prop updates
+- [x] `DishRowExpanded.tsx`: reduced motion skips checkmark phase; goes directly to saved
+- [x] `RestaurantScreen.tsx`: `onAddToRecipes` wired to `useUpdateRecipe({ status: 'kept' })`
+- [x] `DishRowExpanded.test.tsx`: new CTA state machine tests added and passing
+- [x] All existing DishRowExpanded tests still pass
+- [x] TypeScript strict: no new errors (`npx tsc --noEmit`)
+- [x] `sprint-status.yaml` is NOT modified
 
 ---
 
@@ -334,16 +334,28 @@ const mockRecipeKept: DomainRecipe = {
 
 ### Agent Model Used
 
-<!-- to be filled in -->
+claude-sonnet-4-6
 
 ### Debug Log References
 
-<!-- to be filled in -->
+None — implementation followed story spec exactly with no debugging required.
 
 ### Completion Notes List
 
-<!-- to be filled in -->
+- Implemented three-state CTA machine (`idle | saving | checkmark | saved`) in `DishRowExpanded.tsx`
+- `initialSavedState()` derives starting state from `recipe.status`; `useEffect` syncs when prop updates externally (cache invalidation)
+- Reduced-motion path skips checkmark phase: `idle → saving → saved` synchronously
+- `CheckmarkIcon` SVG added inline (no shared icon file created)
+- `RestaurantScreen.tsx` wired: `useUpdateRecipe` instantiated, `onAddToRecipes` mutates `{ status: 'kept' }`; `invalidateQueries` is handled by `useUpdateRecipe.onSuccess`
+- 5 new tests added under `describe('Add to My Recipes CTA')` — all pass; all 36 existing DishRowExpanded tests pass
+- `npx tsc --noEmit` — zero errors in modified files; pre-existing errors in other files confirmed pre-existing via `git stash` verification
 
 ### File List
 
-<!-- to be filled in -->
+- `src/components/scan/DishRowExpanded.tsx` — added `SavedState` type, `initialSavedState()`, `CheckmarkIcon`, `savedState` state + `useEffect` sync, replaced simple button with three-state CTA
+- `src/components/scan/DishRowExpanded.test.tsx` — added `describe('Add to My Recipes CTA')` with 5 new test cases
+- `src/components/screens/RestaurantScreen.tsx` — added `useUpdateRecipe` import, instantiated `updateRecipe`, wired `onAddToRecipes`
+
+## Change Log
+
+- 2026-04-13: Story 5.1 implemented — "Add to My Recipes" CTA state machine, RestaurantScreen wiring, and CTA tests

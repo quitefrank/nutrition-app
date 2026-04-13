@@ -67,15 +67,6 @@ export function ImportScreen({ embedded = false }: ImportScreenProps) {
   // Track the URL that was actually sent to the API (not the current input value)
   const fetchedUrlRef = useRef<string>("");
 
-  // Auto-trigger import if url was pre-populated from query string
-  const initialUrlRef = useRef(searchParams.get("url")?.trim() ?? "");
-  useEffect(() => {
-    const preUrl = initialUrlRef.current;
-    if (preUrl) {
-      void runImport(preUrl);
-    }
-  }, [runImport]);
-
   // ─── Import handler ─────────────────────────────────────────────────────────
 
   const runImport = useCallback(async (url: string) => {
@@ -167,6 +158,18 @@ export function ImportScreen({ embedded = false }: ImportScreenProps) {
     setStatus("idle");
     setErrorMessage("");
   }, []);
+
+  // Auto-trigger import if url was pre-populated from query string.
+  // runImport is stable (useCallback with no deps) so this effect fires once on mount only.
+  // If deps are ever added to runImport's useCallback, this effect will re-trigger on
+  // every identity change — initialUrlRef.current guards against duplicate imports.
+  const initialUrlRef = useRef(searchParams.get("url")?.trim() ?? "");
+  useEffect(() => {
+    const preUrl = initialUrlRef.current;
+    if (preUrl) {
+      void runImport(preUrl);
+    }
+  }, [runImport]);
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
