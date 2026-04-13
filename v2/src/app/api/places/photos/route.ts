@@ -8,6 +8,12 @@ const QuerySchema = z.object({
   placeId: z.string().min(1).max(300),
 })
 
+// ─── Error helper ─────────────────────────────────────────────────────────────
+
+function apiError(message: string, code: string, status: 400 | 422 | 500 | 502 | 503) {
+  return NextResponse.json({ error: { message, code } }, { status })
+}
+
 /**
  * GET /api/places/photos?placeId=xxx
  *
@@ -18,23 +24,20 @@ export async function GET(req: NextRequest) {
   const placesKey = getApiKeys().places
 
   if (!placesKey) {
-    return NextResponse.json(
-      { error: 'Places service not configured', code: 'PLACES_SERVICE_UNAVAILABLE' },
-      { status: 503 }
-    )
+    return apiError('Places service not configured', 'PLACES_SERVICE_UNAVAILABLE', 503)
   }
 
   const { searchParams } = new URL(req.url)
   const parsed = QuerySchema.safeParse({ placeId: searchParams.get('placeId') })
 
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'placeId is required', code: 'INVALID_REQUEST' },
-      { status: 400 }
-    )
+    return apiError('placeId is required', 'VALIDATION_ERROR', 422)
   }
 
-  const photos = await getRestaurantPhotos({ placeId: parsed.data.placeId }, placesKey)
-
-  return NextResponse.json({ data: photos })
+  try {
+    const photos = await getRestaurantPhotos({ placeId: parsed.data.placeId }, placesKey)
+    return NextResponse.json({ data: photos })
+  } catch {
+    return apiError('Photos unavailable', 'PHOTOS_ERROR', 502)
+  }
 }

@@ -33,36 +33,34 @@ const PlacesResponseSchema = z.object({
   ).catch([]),
 });
 
+// ─── Error helper ────────────────────────────────────────────
+
+function apiError(message: string, code: string, status: 400 | 422 | 500 | 502 | 503) {
+  return NextResponse.json({ error: { message, code } }, { status });
+}
+
 // ─── Handler ────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const apiKey = getApiKeys().places;
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "Location service not configured", code: "SERVICE_UNAVAILABLE" },
-      { status: 503 }
-    );
+    return apiError("Location service not configured", "SERVICE_UNAVAILABLE", 503);
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body", code: "INVALID_REQUEST" },
-      { status: 400 }
-    );
+    return apiError("Invalid request body", "INVALID_REQUEST", 400);
   }
 
   const parsed = RequestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      {
-        error: "lat and lng are required and must be valid coordinates",
-        code: "INVALID_REQUEST",
-      },
-      { status: 400 }
+    return apiError(
+      "lat and lng are required and must be valid coordinates",
+      "VALIDATION_ERROR",
+      422
     );
   }
 
@@ -106,10 +104,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       console.error("[places/nearby] Places API error:", res.status);
-      return NextResponse.json(
-        { error: "Location lookup failed", code: "PLACES_ERROR" },
-        { status: 502 }
-      );
+      return apiError("Location lookup failed", "PLACES_ERROR", 502);
     }
 
     const { places } = PlacesResponseSchema.parse(await res.json());
@@ -138,9 +133,6 @@ export async function POST(req: NextRequest) {
       "[places/nearby] Unexpected error:",
       error instanceof Error ? error.message : "Unknown"
     );
-    return NextResponse.json(
-      { error: "Internal server error", code: "INTERNAL_ERROR" },
-      { status: 500 }
-    );
+    return apiError("Internal server error", "INTERNAL_ERROR", 500);
   }
 }

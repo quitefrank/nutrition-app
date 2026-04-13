@@ -109,9 +109,10 @@ export function useEnrichment() {
             JSON.stringify({ ...currentData, allDishes: mergedDishes, enriched: true })
           )
 
-          // 4. Write dish photos back to Supabase for dishes that received one
+          // 4. Write dish photos + macro totals back to Supabase
           if (dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0) {
-            const writes = enrichedDishes
+            // Photo writes — only for dishes that received a Places photo
+            const photoWrites = enrichedDishes
               .filter((d) => d.photoUrl && d.id && dishToRecipeMap[d.id!])
               .map((d) =>
                 supabase
@@ -120,9 +121,34 @@ export function useEnrichment() {
                   .eq('id', dishToRecipeMap[d.id!])
               )
 
-            // 5. Await writes before invalidating so the refetch sees persisted photos
-            if (writes.length > 0) {
-              await Promise.allSettled(writes)
+            // Macro total writes — only for dishes that received actual USDA macro data.
+            // Guard against null: writing null over a previously enriched row would reset it
+            // to "not enriched" (AC4: failed dishes retain Phase 1 values, not null values).
+            // Promise.allSettled ensures one dish failure doesn't block others.
+            // total_fibre_g is always null: fibre not yet in the enrich API response.
+            const macroWrites = enrichedDishes
+              .filter(
+                (d) =>
+                  d.id &&
+                  dishToRecipeMap[d.id!] &&
+                  (d.totalProtein != null || d.totalCarbs != null || d.totalFat != null)
+              )
+              .map((d) =>
+                supabase
+                  .from('recipes')
+                  .update({
+                    total_protein_g: d.totalProtein,
+                    total_carbs_g: d.totalCarbs,
+                    total_fat_g: d.totalFat,
+                    total_fibre_g: null,
+                  })
+                  .eq('id', dishToRecipeMap[d.id!])
+              )
+
+            // 5. Await all writes before invalidating so the refetch sees all persisted data
+            const allWrites = [...photoWrites, ...macroWrites]
+            if (allWrites.length > 0) {
+              await Promise.allSettled(allWrites)
               void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] })
               void queryClient.invalidateQueries({ queryKey: ['recipes', 'kept'] })
               void queryClient.invalidateQueries({ queryKey: ['recipes'] })
