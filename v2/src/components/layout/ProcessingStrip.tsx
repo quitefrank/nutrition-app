@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 
-export type ProcessingState = "idle" | "processing" | "ready" | "error";
+export type ProcessingState = "idle" | "processing" | "confirming" | "ready" | "error";
 
 interface ProcessingStripProps {
   state: ProcessingState;
@@ -19,6 +19,12 @@ const stateConfig: Record<
 > = {
   processing: {
     label: "Identifying your dish…",
+    icon: <SpinnerIcon />,
+    bg: "rgba(255, 252, 245, 0.92)",
+    border: "rgba(180, 170, 158, 0.28)",
+  },
+  confirming: {
+    label: "Confirm restaurant name",
     icon: <SpinnerIcon />,
     bg: "rgba(255, 252, 245, 0.92)",
     border: "rgba(180, 170, 158, 0.28)",

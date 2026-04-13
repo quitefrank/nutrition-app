@@ -99,6 +99,23 @@ const RequestSchema = z
     { message: 'Either imageBase64+mimeType or photoUrl is required' }
   );
 
+// ─── Error response helper ────────────────────────────────
+// Enforces the API contract: { error: { message, code } }
+type ErrorCode =
+  | "VALIDATION_ERROR"
+  | "INVALID_REQUEST"
+  | "PHOTO_FETCH_FAILED"
+  | "SCAN_SERVICE_UNAVAILABLE"
+  | "AI_UNAVAILABLE"
+  | "GEMINI_RESPONSE_UNPARSEABLE"
+  | "GEMINI_RESPONSE_INVALID"
+  | "NO_DISHES"
+  | "INTERNAL_ERROR";
+
+function apiError(message: string, code: ErrorCode, status: 400 | 422 | 500 | 503) {
+  return NextResponse.json({ error: { message, code } }, { status });
+}
+
 export async function POST(req: NextRequest) {
   try {
     // ── Resolve API key: user-provided BYOAK takes precedence over env key ──
@@ -113,28 +130,19 @@ export async function POST(req: NextRequest) {
     } else if (envKey) {
       apiKey = envKey;
     } else {
-      return NextResponse.json(
-        { error: "Scan service not configured", code: "SCAN_SERVICE_UNAVAILABLE" },
-        { status: 503 }
-      );
+      return apiError("Scan service not configured", "SCAN_SERVICE_UNAVAILABLE", 503);
     }
 
     let body: unknown;
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json(
-        { error: "Invalid request body", code: "INVALID_REQUEST" },
-        { status: 400 }
-      );
+      return apiError("Invalid request body", "INVALID_REQUEST", 400);
     }
 
     const parsed = RequestSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "imageBase64 and mimeType are required", code: "INVALID_REQUEST" },
-        { status: 400 }
-      );
+      return apiError("Invalid request parameters", "VALIDATION_ERROR", 422);
     }
 
     const { restaurantPlaceId, restaurantName } = parsed.data;
@@ -168,6 +176,7 @@ export async function POST(req: NextRequest) {
                 type: "menu" as const,
                 restaurantName: restaurantName ?? null,
                 dishes: dishesWithIds,
+                totalDetected: dishesWithIds.length,
               },
               cached: true,
             });
@@ -187,43 +196,28 @@ export async function POST(req: NextRequest) {
       const photoUrl = parsed.data.photoUrl;
       // SEC-INJ-1.00 / SEC-SEC-1.00: reject non-HTTPS URLs
       if (!photoUrl.startsWith('https://')) {
-        return NextResponse.json(
-          { error: 'photoUrl must be an HTTPS URL', code: 'INVALID_REQUEST' },
-          { status: 400 }
-        );
+        return apiError('photoUrl must be an HTTPS URL', 'INVALID_REQUEST', 400);
       }
       const fetchController = new AbortController();
       const fetchTimer = setTimeout(() => fetchController.abort(), 8000);
       try {
         const photoRes = await fetch(photoUrl, { signal: fetchController.signal });
         if (!photoRes.ok) {
-          return NextResponse.json(
-            { error: 'Failed to fetch photo', code: 'PHOTO_FETCH_FAILED' },
-            { status: 400 }
-          );
+          return apiError('Failed to fetch photo', 'PHOTO_FETCH_FAILED', 400);
         }
         const contentType = photoRes.headers.get('content-type') ?? 'image/jpeg';
         mimeType = contentType.split(';')[0].trim();
         if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-          return NextResponse.json(
-            { error: 'Unsupported image format', code: 'INVALID_REQUEST' },
-            { status: 400 }
-          );
+          return apiError('Unsupported image format', 'INVALID_REQUEST', 400);
         }
         const buffer = await photoRes.arrayBuffer();
         if (buffer.byteLength * 1.34 > MAX_IMAGE_BASE64_LENGTH) {
-          return NextResponse.json(
-            { error: 'Image too large', code: 'INVALID_REQUEST' },
-            { status: 400 }
-          );
+          return apiError('Image too large', 'INVALID_REQUEST', 400);
         }
         imageBase64 = Buffer.from(buffer).toString('base64');
       } catch (err) {
         console.warn('[scan] photoUrl fetch failed:', err instanceof Error ? err.message : err);
-        return NextResponse.json(
-          { error: 'Could not retrieve photo', code: 'PHOTO_FETCH_FAILED' },
-          { status: 400 }
-        );
+        return apiError('Could not retrieve photo', 'PHOTO_FETCH_FAILED', 400);
       } finally {
         clearTimeout(fetchTimer);
       }
@@ -232,16 +226,10 @@ export async function POST(req: NextRequest) {
       mimeType = parsed.data.mimeType!;
 
       if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-        return NextResponse.json(
-          { error: 'Unsupported image format', code: 'INVALID_REQUEST' },
-          { status: 400 }
-        );
+        return apiError('Unsupported image format', 'INVALID_REQUEST', 400);
       }
       if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
-        return NextResponse.json(
-          { error: 'Image too large', code: 'INVALID_REQUEST' },
-          { status: 400 }
-        );
+        return apiError('Image too large', 'INVALID_REQUEST', 400);
       }
     }
 
@@ -274,10 +262,7 @@ export async function POST(req: NextRequest) {
       rawText = result.response.text();
     } catch (err) {
       console.error("[scan] Gemini error:", err instanceof Error ? err.message : err);
-      return NextResponse.json(
-        { error: "Scan service temporarily unavailable", code: "SCAN_UNAVAILABLE" },
-        { status: 503 }
-      );
+      return apiError("Scan service temporarily unavailable", "AI_UNAVAILABLE", 503);
     }
 
     // ─── Parse + validate ──────────────────────────────────
@@ -289,28 +274,22 @@ export async function POST(req: NextRequest) {
       jsonParsed = JSON.parse(clean);
     } catch {
       console.error("[scan] Gemini returned non-JSON:", clean.slice(0, 200));
-      return NextResponse.json(
-        { error: "Unexpected response from AI", code: "GEMINI_RESPONSE_UNPARSEABLE" },
-        { status: 422 }
-      );
+      return apiError("Unexpected response from AI", "GEMINI_RESPONSE_UNPARSEABLE", 422);
     }
 
     const validated = GeminiResponseSchema.safeParse(jsonParsed);
     if (!validated.success) {
       console.error("[scan] Zod validation failed:", validated.error.issues);
-      return NextResponse.json(
-        { error: "Unexpected response structure", code: "GEMINI_RESPONSE_INVALID" },
-        { status: 422 }
-      );
+      return apiError("Unexpected response structure", "GEMINI_RESPONSE_INVALID", 422);
     }
+
+    // Capture raw Gemini dish count BEFORE filtering (empty names = unrecognised dishes)
+    const totalDetected = validated.data.dishes.length;
 
     // Drop any dishes that came back with an empty name (Gemini edge case)
     const validDishes = validated.data.dishes.filter((d) => d.name.trim().length > 0);
     if (validDishes.length === 0) {
-      return NextResponse.json(
-        { error: "No dishes identified", code: "NO_DISHES" },
-        { status: 422 }
-      );
+      return apiError("No dishes identified", "NO_DISHES", 422);
     }
 
     // Assign stable IDs for position-independent enrichment merging
@@ -372,13 +351,11 @@ export async function POST(req: NextRequest) {
       data: {
         ...validated.data,
         dishes: dishesWithIds,
+        totalDetected,
       },
     });
   } catch (err) {
     console.error("[scan] Unexpected error:", err instanceof Error ? err.message : err);
-    return NextResponse.json(
-      { error: "Internal server error", code: "INTERNAL_ERROR" },
-      { status: 500 }
-    );
+    return apiError("Internal server error", "INTERNAL_ERROR", 500);
   }
 }

@@ -232,7 +232,12 @@ async function inferIngredients(dishName: string, geminiKey: string, description
     const result = await model.generateContent(INFER_PROMPT(dishName, description, restaurantName));
     const text = result.response.text();
     const clean = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-    const { servings, ingredients: raw } = GeminiInferenceSchema.parse(JSON.parse(clean));
+    const schemaResult = GeminiInferenceSchema.safeParse(JSON.parse(clean));
+    if (!schemaResult.success) {
+      console.warn("[enrich/gemini] schema validation failed for:", dishName, schemaResult.error.issues);
+      return { servings: 1, ingredients: [] };
+    }
+    const { servings, ingredients: raw } = schemaResult.data;
     const ingredients: InferredIngredient[] = raw
       .filter((i) => i.name.trim().length > 0)
       .map((i) => ({
@@ -246,7 +251,7 @@ async function inferIngredients(dishName: string, geminiKey: string, description
     return { servings, ingredients };
   } catch (err) {
     console.warn("[enrich/gemini] inference failed for:", dishName, err instanceof Error ? err.message : err);
-    return { servings: 4, ingredients: [] };
+    return { servings: 1, ingredients: [] };
   }
 }
 
@@ -408,31 +413,27 @@ const RequestSchema = z.object({
 
 // ─── Handler ───────────────────────────────────────────────
 
+function apiError(message: string, code: string, status: number) {
+  return NextResponse.json({ error: { message, code } }, { status });
+}
+
 export async function POST(req: NextRequest) {
   const { gemini: geminiKey, usda: usdaKey, places: placesKey, cseKey, cseCx } = getApiKeys();
 
   if (!geminiKey) {
-    return NextResponse.json(
-      { error: "Enrichment service not configured", code: "ENRICH_SERVICE_UNAVAILABLE" },
-      { status: 503 }
-    );
+    return apiError("Enrichment service not configured", "ENRICH_SERVICE_UNAVAILABLE", 503);
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body", code: "INVALID_REQUEST" }, { status: 400 });
+    return apiError("Invalid request body", "INVALID_REQUEST", 400);
   }
 
+  // RequestSchema uses .catch() fallbacks throughout — safeParse always succeeds;
+  // malformed input coerces to { dishes: [] }, returning a 200 with no dishes.
   const parsed = RequestSchema.safeParse(body);
-  if (!parsed.success) {
-    console.error("[enrich] request schema failed:", parsed.error.issues);
-    return NextResponse.json(
-      { error: "Invalid request", code: "INVALID_REQUEST" },
-      { status: 400 }
-    );
-  }
 
   // Drop dishes with empty names (defensive)
   const dishes = parsed.data.dishes.filter((d) => d.name.trim().length > 0);

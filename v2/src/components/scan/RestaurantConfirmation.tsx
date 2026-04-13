@@ -19,9 +19,16 @@ interface RestaurantConfirmationProps {
   onConfirm: (restaurant: RestaurantInfo) => void;
   /** Called when the user skips */
   onSkip: () => void;
+  /**
+   * When provided, the component starts in name-confirm mode: the user sees a
+   * pre-filled editable name and can confirm, edit, or switch to search.
+   */
+  scanKey?: string;
+  /** Pre-filled restaurant name extracted from the Gemini scan result. */
+  extractedName?: string | null;
 }
 
-type Mode = "idle" | "gps" | "text";
+type Mode = "confirm" | "idle" | "gps" | "text";
 type GpsState = "loading" | "ready" | "error";
 
 // ─── Hook: debounced value ─────────────────────────────────
@@ -40,8 +47,12 @@ function useDebounced<T>(value: T, delay: number): T {
 export function RestaurantConfirmation({
   onConfirm,
   onSkip,
+  scanKey,
+  extractedName,
 }: RestaurantConfirmationProps) {
-  const [mode, setMode] = useState<Mode>("idle");
+  // When a scanKey is provided we start in name-confirm mode; otherwise search mode
+  const [mode, setMode] = useState<Mode>(scanKey !== undefined ? "confirm" : "idle");
+  const [confirmedName, setConfirmedName] = useState(extractedName ?? "");
   const [gpsState, setGpsState] = useState<GpsState>("loading");
   const [nearbyPlaces, setNearbyPlaces] = useState<RestaurantInfo[]>([]);
   const [textQuery, setTextQuery] = useState("");
@@ -145,6 +156,81 @@ export function RestaurantConfirmation({
 
   return (
     <AnimatePresence mode="wait">
+      {mode === "confirm" && (
+        <motion.div key="confirm" {...cardAnim}>
+          <FrostedCard className="flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                style={{ background: "var(--color-accent-light)" }}
+                aria-hidden="true"
+              >
+                <PinIcon />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold mb-0.5" style={{ color: "var(--color-text-primary)" }}>
+                  Confirm restaurant name
+                </p>
+                <p className="text-xs leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+                  We&apos;ll save all dishes under this restaurant.
+                </p>
+              </div>
+            </div>
+
+            {/* Editable name field */}
+            <div
+              className="flex items-center gap-2 px-3 rounded-xl"
+              style={{
+                height: 44,
+                background: "rgba(180,170,158,0.14)",
+                border: "1px solid rgba(180,170,158,0.22)",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Enter restaurant name or skip"
+                value={confirmedName}
+                onChange={(e) => setConfirmedName(e.target.value)}
+                className="flex-1 bg-transparent outline-none text-sm"
+                style={{ color: "var(--color-text-primary)" }}
+                aria-label="Restaurant name"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => onConfirm({ placeId: "", name: confirmedName.trim() || "Unknown Restaurant" })}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium"
+                style={{ background: "var(--color-accent)", color: "#fff" }}
+                aria-label="Confirm restaurant name"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setMode("idle")}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium"
+                style={{
+                  background: "rgba(180,170,158,0.18)",
+                  color: "var(--color-text-primary)",
+                }}
+                aria-label="Search instead"
+              >
+                Search instead
+              </button>
+              <button
+                onClick={onSkip}
+                className="px-3 py-2 rounded-full text-xs"
+                style={{ color: "var(--color-text-tertiary)" }}
+                aria-label="Skip restaurant identification"
+              >
+                Skip
+              </button>
+            </div>
+          </FrostedCard>
+        </motion.div>
+      )}
+
       {mode === "idle" && (
         <motion.div key="idle" {...cardAnim}>
           <FrostedCard className="flex flex-col gap-3">

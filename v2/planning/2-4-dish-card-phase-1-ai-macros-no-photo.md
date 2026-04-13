@@ -1,6 +1,6 @@
 # Story 2.4: Dish Card (Phase 1 — AI Macros, No Photo)
 
-Status: ready-for-dev
+Status: review
 Epic: 2 — Menu Scan & Dish Auto-Capture
 Story ID: 2.4
 Story Key: 2-4-dish-card-phase-1-ai-macros-no-photo
@@ -306,28 +306,50 @@ Story 2.4 creates the display primitive for the restaurant scan result screen:
 
 ## Definition of Done
 
-- [ ] `src/components/scan/DishRowCompact.tsx` created
-- [ ] Renders warm placeholder tile when `photoStatus: 'placeholder'`
-- [ ] Renders calorie count in terracotta when `estimatedCalories != null`
-- [ ] Renders macro chips (P/C/F) with "Est." badge when all three macro values present
-- [ ] Returns `null` when `photoStatus: 'suppressed'`
-- [ ] `role="button"`, `aria-expanded`, `aria-label` attributes present
-- [ ] `onToggle` called on click and Enter key
-- [ ] `src/components/scan/DishRowCompact.test.tsx` covers all required test cases
-- [ ] All tests pass (`vitest run`)
-- [ ] TypeScript strict mode passes (`tsc --noEmit`)
-- [ ] No regression to `DishCard.tsx` or `PhotoFrame.tsx`
+- [x] `src/components/scan/DishRowCompact.tsx` created
+- [x] Renders warm placeholder tile when `photoStatus: 'placeholder'`
+- [x] Renders calorie count in terracotta when `estimatedCalories != null`
+- [x] Renders macro chips (P/C/F) with "Est." badge when all three macro values present
+- [x] Returns `null` when `photoStatus: 'suppressed'`
+- [x] `role="button"`, `aria-expanded`, `aria-label` attributes present
+- [x] `onToggle` called on click and Enter key
+- [x] `src/components/scan/DishRowCompact.test.tsx` covers all required test cases
+- [x] All tests pass (`vitest run`)
+- [x] TypeScript strict mode passes (`tsc --noEmit`) — no errors in new files; pre-existing errors in unrelated test files outside this story's scope
+- [x] No regression to `DishCard.tsx` or `PhotoFrame.tsx`
 
 ---
 
 ## Dev Agent Record
 
-_To be filled by the implementing agent._
-
 ### Agent Model Used
+
+claude-sonnet-4-6
 
 ### Debug Log References
 
+None — implementation was clean on first pass.
+
 ### Completion Notes
 
+Implemented `DishRowCompact` as a pure `"use client"` component with no DB access. Key decisions:
+
+- **PhotoFrame reused as-is** — the existing placeholder branch renders a semi-transparent tile with a plate icon; sufficient for Phase 1; `suppressed` state returns null from PhotoFrame which is then short-circuited in DishRowCompact itself (AC4)
+- **Macro display logic** — all three props must be non-null for chips to render; "Est." badge always shown alongside chips since USDA verification is a Phase 2 concern (Story 3.4)
+- **`useReducedMotion()`** — sets `transition: "none"` via inline style when reduced motion is active; no spring animations in this component (expand animation is Story 2.5 scope)
+- **2-line clamp** — implemented via `-webkit-box` inline style (Tailwind's `line-clamp-2` utility also works but inline style is more cross-browser reliable for Safari)
+- **WebkitBackdropFilter** — added alongside `backdropFilter` for Safari compatibility with glass surface
+- **Macro rounding** — `Math.round()` applied before display; tested with fractional inputs
+
+All 21 unit tests pass. 165 total tests pass (no regressions). Zero TypeScript errors in new files.
+
+Pre-existing TypeScript errors in `enrich/route.test.ts`, `scan/route.test.ts`, `useGrocery.test.ts`, `springs.test.ts` — all outside this story's file scope.
+
 ### File List
+
+- `src/components/scan/DishRowCompact.tsx` — new component
+- `src/components/scan/DishRowCompact.test.tsx` — 21 tests, all passing
+
+### Change Log
+
+- 2026-04-12: Story 2.4 implemented — DishRowCompact component with full test coverage

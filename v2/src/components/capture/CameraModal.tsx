@@ -5,13 +5,13 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
 import { compressImage } from "@/lib/imageUtils";
 import { InferenceState, type ScanResult } from "@/components/scan/InferenceState";
-import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
+
 
 interface CameraModalProps {
   open: boolean;
   onClose: () => void;
   onProcessingStart: (message: string) => void;
-  onProcessingComplete: (recipeId: string) => void;
+  onProcessingComplete: (scanKey: string) => void;
   onProcessingError: (message: string) => void;
 }
 
@@ -39,6 +39,12 @@ async function checkCameraPermission(): Promise<"granted" | "denied" | "prompt" 
 /** Low-confidence threshold: scores below this percentage trigger InferenceState */
 const CONFIDENCE_THRESHOLD = 70;
 
+/** Prefix for sessionStorage keys — architecture contract ARCH13 (see planning/architecture.md) */
+const SCAN_KEY_PREFIX = "plately:scan:";
+
+/** Minimum downward drag distance (px) to dismiss the modal with a swipe */
+const SWIPE_DISMISS_THRESHOLD_PX = 80;
+
 export function CameraModal({
   open,
   onClose,
@@ -55,6 +61,9 @@ export function CameraModal({
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  // Swipe-down dismiss tracking
+  const [dragStartY, setDragStartY] = useState<number | null>(null);
+
   // Corner brackets fade out 2 seconds after the camera view is live
   const [bracketsVisible, setBracketsVisible] = useState(true);
 
@@ -66,7 +75,6 @@ export function CameraModal({
   } | null>(null);
 
   // Holds the dish→recipe map promise across the confidence gate confirm flow
-  const pendingDishToRecipeMapRef = useRef<Promise<Record<string, string> | null> | null>(null);
 
   const springTransition = shouldReduceMotion
     ? { duration: 0.15 }
@@ -161,6 +169,7 @@ export function CameraModal({
   useEffect(() => {
     if (!open) {
       stopCamera();
+      setDragStartY(null);
     }
   }, [open, stopCamera]);
 
@@ -241,8 +250,14 @@ export function CameraModal({
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error ?? "Scan failed");
+        const err = await res.json().catch(() => ({})) as { error?: { message?: string } | string | null };
+        const msg =
+          err.error !== null && typeof err.error === "object"
+            ? err.error?.message
+            : typeof err.error === "string"
+              ? err.error
+              : undefined;
+        throw new Error(msg ?? "Scan failed");
       }
 
       const { data } = await res.json() as { data: {
@@ -255,46 +270,24 @@ export function CameraModal({
           confidence?: number;
           [key: string]: unknown;
         }>;
+        totalDetected?: number;
       } };
 
       const firstDish = data?.dishes?.[0];
       if (!firstDish) throw new Error("No dish identified");
 
       // 3. Store initial Gemini-only result immediately
-      const scanKey = `plately_scan_${Date.now()}`;
+      const scanKey = `${SCAN_KEY_PREFIX}${crypto.randomUUID()}`;
       const initialResult: ScanResult = {
         type: data.type,
         restaurantName: data.restaurantName ?? null,
         allDishes: data.dishes,
         enriched: false,
+        // totalDetected is the raw Gemini dish count (includes empty-name entries that were
+        // filtered server-side). RestaurantScreen uses this to show ScanConfidenceBanner.
+        totalDetected: data.totalDetected,
       };
       sessionStorage.setItem(scanKey, JSON.stringify(initialResult));
-
-      // 3a. Auto-save to Supabase (fire-and-forget — must not block UX).
-      //     After the save resolves: (a) fire the photo upload, and (b) surface
-      //     a dish→recipe map so the enrich route can write USDA macros back to DB.
-      const autoSavePromise = autoSaveToSupabase(scanKey);
-
-      // autoSaveToSupabase now returns a full dishId→recipeId map for all dishes.
-      const dishToRecipeMapPromise: Promise<Record<string, string> | null> = autoSavePromise.then(
-        (map) => {
-          if (!map) return null;
-
-          // Upload the captured photo linked to the first recipe
-          const firstRecipeId = Object.values(map)[0];
-          if (firstRecipeId) {
-            void fetch("/api/scan/upload", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageBase64: base64, mimeType, recipeId: firstRecipeId }),
-            }).catch((err: unknown) => {
-              console.warn("[CameraModal] photo upload failed (non-blocking):", err instanceof Error ? err.message : err);
-            });
-          }
-
-          return map;
-        }
-      ).catch(() => null);
 
       // 4. Confidence gate — per-dish confidence from Gemini is 0–1; convert to 0–100.
       //    If no confidence field is present, treat as high confidence (proceed normally).
@@ -306,18 +299,16 @@ export function CameraModal({
 
       if (confidencePct < CONFIDENCE_THRESHOLD) {
         // Pause processing flow and ask the user to confirm.
-        // Stash the dishToRecipeMap promise so handleInferenceConfirm can pass it to enrich.
-        pendingDishToRecipeMapRef.current = dishToRecipeMapPromise;
         setPendingResult({ result: initialResult, confidence: confidencePct, scanKey });
         return;
       }
 
       // High confidence — proceed immediately
       onProcessingComplete(scanKey);
-      fireEnrichment(data.dishes, data.restaurantName, scanKey, initialResult, dishToRecipeMapPromise);
+      fireEnrichment(data.dishes, data.restaurantName, scanKey, initialResult);
     } catch (err) {
       console.error("[CameraModal] scan error:", err);
-      onProcessingError("Couldn't identify the dish — tap to try again.");
+      onProcessingError(err instanceof Error ? err.message : "Couldn't identify the dish — tap to try again.");
     }
   }
 
@@ -326,11 +317,9 @@ export function CameraModal({
   function handleInferenceConfirm() {
     if (!pendingResult) return;
     const { scanKey, result } = pendingResult;
-    const mapPromise = pendingDishToRecipeMapRef.current;
-    pendingDishToRecipeMapRef.current = null;
     setPendingResult(null);
     onProcessingComplete(scanKey);
-    fireEnrichment(result.allDishes, result.restaurantName, scanKey, result, mapPromise ?? undefined);
+    fireEnrichment(result.allDishes, result.restaurantName, scanKey, result);
   }
 
   function handleInferenceRetake() {
@@ -348,25 +337,9 @@ export function CameraModal({
     restaurantName: string | null,
     scanKey: string,
     initialResult: ScanResult,
-    /** Optional: resolves to a map of Gemini dish ID → Supabase recipe UUID for write-back */
-    dishToRecipeMapPromise?: Promise<Record<string, string> | null>
   ) {
     void (async () => {
       try {
-        // Collect the dish-to-recipe map if available (best-effort, max 5 s wait)
-        let dishToRecipeMap: Record<string, string> | undefined;
-        if (dishToRecipeMapPromise) {
-          try {
-            const resolved = await Promise.race([
-              dishToRecipeMapPromise,
-              new Promise<null>((res) => setTimeout(() => res(null), 5000)),
-            ]);
-            if (resolved) dishToRecipeMap = resolved;
-          } catch {
-            // Map unavailable — enrichment proceeds without write-back
-          }
-        }
-
         const enrichRes = await fetch("/api/scan/enrich", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -377,7 +350,6 @@ export function CameraModal({
               description: typeof d.description === "string" ? d.description : "",
             })),
             restaurantName: restaurantName ?? null,
-            ...(dishToRecipeMap ? { dishToRecipeMap } : {}),
           }),
         });
 
@@ -457,6 +429,21 @@ export function CameraModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
+          onPointerDown={(e) => {
+            if (pendingResult) return;
+            const target = e.target as HTMLElement;
+            if (target.closest("button, input, [data-no-swipe]")) return;
+            setDragStartY(e.clientY);
+          }}
+          onPointerUp={(e) => {
+            // P9: Guard against stale dragStartY if pendingResult appeared mid-drag
+            if (pendingResult) { setDragStartY(null); return; }
+            if (dragStartY !== null && e.clientY - dragStartY > SWIPE_DISMISS_THRESHOLD_PX) {
+              handleClose();
+            }
+            setDragStartY(null);
+          }}
+          onPointerCancel={() => setDragStartY(null)}
         >
           {/* Camera viewfinder */}
           <div className="relative flex-1 overflow-hidden">
@@ -685,6 +672,7 @@ export function CameraModal({
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            aria-label="Upload image file"
             className="sr-only"
             onChange={handleFileUpload}
           />

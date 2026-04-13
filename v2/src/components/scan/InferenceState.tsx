@@ -18,6 +18,8 @@ export interface ScanResult {
   restaurantName: string | null;
   allDishes: ScanDish[];
   enriched: boolean;
+  /** Raw Gemini dish count before name-filter — used by ScanConfidenceBanner (Story 2-7) */
+  totalDetected?: number;
 }
 
 interface InferenceStateProps {

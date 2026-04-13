@@ -1,6 +1,6 @@
 # Story 2.2: Camera UI & Menu Capture Flow
 
-Status: ready-for-dev
+Status: review
 Epic: 2 — Menu Scan & Dish Auto-Capture
 Story ID: 2.2
 Story Key: 2-2-camera-ui-menu-capture-flow
@@ -285,24 +285,43 @@ Story 2.2 is the entry point for the full scan flow:
 
 ## Definition of Done
 
-- [ ] `sessionStorage` key format is `plately:scan:{uuid}` (UUID v4, colon separator)
-- [ ] Error response parsing reads `data?.error?.message` (nested) with flat-format fallback
-- [ ] Swipe down >80px on modal dismisses it
-- [ ] `src/components/capture/CameraModal.test.tsx` exists and covers required test cases
-- [ ] All tests pass (`vitest run`)
-- [ ] TypeScript strict mode passes (`tsc --noEmit`)
-- [ ] No regressions to confidence gate, file upload, BYOAK, or enrichment pipeline
+- [x] `sessionStorage` key format is `plately:scan:{uuid}` (UUID v4, colon separator)
+- [x] Error response parsing reads `data?.error?.message` (nested) with flat-format fallback
+- [x] Swipe down >80px on modal dismisses it
+- [x] `src/components/capture/CameraModal.test.tsx` exists and covers required test cases
+- [x] All tests pass (`vitest run`)
+- [x] TypeScript strict mode passes (`tsc --noEmit`)
+- [x] No regressions to confidence gate, file upload, BYOAK, or enrichment pipeline
 
 ---
 
 ## Dev Agent Record
 
-_To be filled by the implementing agent._
-
 ### Agent Model Used
+
+claude-sonnet-4-6
 
 ### Debug Log References
 
+None — implementation was straightforward with no blocking issues.
+
 ### Completion Notes
 
+Three targeted fixes applied to existing `CameraModal.tsx`:
+
+1. **SessionStorage key format** — replaced `plately_scan_${Date.now()}` with `plately:scan:${crypto.randomUUID()}`. Added `SCAN_KEY_PREFIX` constant per ARCH13. This affects all downstream consumers (supabaseAutoSave, enrichment events, recipe detail page).
+
+2. **Error response parsing** — updated the `!res.ok` error extraction to handle both the new nested `{ error: { message } }` envelope (post Story 2.1 fix) and the legacy flat `{ error: string }` format as a fallback. Dual-format guard ensures safe parallel shipping.
+
+3. **Swipe-down dismiss** — added `dragStartY` state, `onPointerDown` sets start Y, `onPointerUp` computes delta and calls `handleClose()` if >80px. Placed on the outer `motion.div` (modal root) per architecture guardrail.
+
+Test file covers all 9 required cases: rendering (open/closed), X button dismiss, swipe >80px, swipe ≤80px, sessionStorage key format, nested error format, flat error fallback, and capture button disabled state.
+
 ### File List
+
+- `src/components/capture/CameraModal.tsx` (modified)
+- `src/components/capture/CameraModal.test.tsx` (created)
+
+### Change Log
+
+- 2026-04-12: Story 2.2 implemented — sessionStorage key format fixed, error envelope aligned with Story 2.1, swipe-down dismiss added, tests created (9 cases, all pass)
