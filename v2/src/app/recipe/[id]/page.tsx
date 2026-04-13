@@ -509,6 +509,22 @@ function RecipePageInner() {
           )}
         </motion.div>
 
+        {/* Cooking instructions gate — Story 5.4 */}
+        {idIsUUID && supabaseRecipe?.status === 'kept' && (
+          <motion.div variants={itemVariants} className="px-4 pb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2
+                id="cooking-instructions-heading"
+                className="text-xs font-semibold uppercase tracking-widest"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                How to Make It
+              </h2>
+            </div>
+            <CookingInstructionsPlaceholder />
+          </motion.div>
+        )}
+
         {/* Add to Grocery CTA */}
         {dish.ingredients.length > 0 && (
           <motion.div variants={itemVariants} className="px-4 pb-4 flex flex-col gap-2">
@@ -688,6 +704,38 @@ function RecipeDetailSkeleton() {
 }
 
 // ─── Sub-components ────────────────────────────────────────
+
+function CookingInstructionsPlaceholder() {
+  return (
+    <div
+      style={{
+        borderRadius: 14,
+        border: "1.5px dashed var(--color-card-border)",
+        display: "flex",
+        flexDirection: "column" as const,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        padding: "24px 16px",
+        minHeight: 96,
+      }}
+      role="region"
+      aria-labelledby="cooking-instructions-heading"
+    >
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--color-text-disabled, var(--color-text-tertiary))",
+          textAlign: "center",
+          lineHeight: 1.5,
+          maxWidth: 220,
+        }}
+      >
+        Cooking instructions coming soon
+      </p>
+    </div>
+  )
+}
 
 function MacroStat({ label, value, unit }: { label: string; value: number | null | undefined; unit: string }) {
   return (

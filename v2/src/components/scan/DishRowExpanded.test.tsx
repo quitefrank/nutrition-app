@@ -375,6 +375,30 @@ describe('DishRowExpanded', () => {
     })
   })
 
+  describe('No cooking instructions in restaurant browse', () => {
+    it('does NOT render "How to make it" or any cooking section for any recipe status', () => {
+      // Confirm the gate is structurally enforced — DishRowExpanded has no cooking
+      // instructions slot. The gate lives in /recipe/[id]/page.tsx (the My Recipes
+      // detail page), not in this component.
+      const { rerender } = render(<DishRowExpanded {...defaultProps} recipe={baseRecipe} />)
+
+      expect(screen.queryByText(/how to make it/i)).toBeNull()
+      expect(screen.queryByText(/cooking instructions/i)).toBeNull()
+
+      const keptRecipe: DomainRecipe = { ...baseRecipe, status: 'kept' }
+      rerender(<DishRowExpanded {...defaultProps} recipe={keptRecipe} />)
+
+      expect(screen.queryByText(/how to make it/i)).toBeNull()
+      expect(screen.queryByText(/cooking instructions/i)).toBeNull()
+
+      const removedRecipe: DomainRecipe = { ...baseRecipe, status: 'removed' }
+      rerender(<DishRowExpanded {...defaultProps} recipe={removedRecipe} />)
+
+      expect(screen.queryByText(/how to make it/i)).toBeNull()
+      expect(screen.queryByText(/cooking instructions/i)).toBeNull()
+    })
+  })
+
   describe('portion stepper', () => {
     it('default portion is 1× — MacroBar receives unscaled values', () => {
       render(<DishRowExpanded {...defaultProps} totalProtein={12} totalCarbs={48} totalFat={14} />)
