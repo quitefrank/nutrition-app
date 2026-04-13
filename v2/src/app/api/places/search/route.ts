@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getRestaurantPhotos } from "@/lib/placesPhotos";
 import { getApiKeys } from "@/lib/api-keys";
+import { supabase } from "@/lib/supabase";
 
 // ─── Request schema ─────────────────────────────────────────
 
@@ -30,37 +31,68 @@ const PlacesResponseSchema = z.object({
   ).catch([]),
 });
 
+// ─── Error helper ────────────────────────────────────────────
+
+function apiError(message: string, code: string, status: 400 | 422 | 500 | 502 | 503) {
+  return NextResponse.json({ error: { message, code } }, { status });
+}
+
 // ─── Handler ────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const apiKey = getApiKeys().places;
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "Restaurant search unavailable", code: "PLACES_UNAVAILABLE" },
-      { status: 503 }
-    );
+    return apiError("Restaurant search unavailable", "PLACES_UNAVAILABLE", 503);
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body", code: "INVALID_REQUEST" },
-      { status: 400 }
-    );
+    return apiError("Invalid request body", "INVALID_REQUEST", 400);
   }
 
   const parsed = RequestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "query is required", code: "INVALID_REQUEST" },
-      { status: 400 }
-    );
+    return apiError("query is required", "VALIDATION_ERROR", 422);
   }
 
   const { query, lat, lng } = parsed.data;
+
+  // ─── Supabase cache check ─────────────────────────────────
+  // Before hitting Places API, check for a previously confirmed restaurant
+  // matching this name. Cache is populated by the Restaurant Confirmation
+  // step (Story 2.3 / 4.2) — this route only reads, never writes.
+  try {
+    const { data: cached, error: cacheError } = await supabase
+      .from("restaurants")
+      .select("id, name, place_id, address, rating, user_ratings_total, reference_image_url")
+      .ilike("name", query.trim())
+      .not("place_id", "is", null)
+      .limit(5);
+
+    if (cacheError) {
+      // Non-fatal: log and fall through to live Places call
+      console.error("[places/search] Cache query error:", cacheError.message);
+    } else if (cached && cached.length > 0) {
+      const results = cached.map((r) => ({
+        placeId: r.place_id!,
+        name: r.name,
+        address: r.address ?? "",
+        rating: r.rating ?? null,
+        userRatingCount: r.user_ratings_total ?? null,
+        photoUrl: r.reference_image_url ?? null,
+      }));
+      return NextResponse.json({ data: results });
+    }
+  } catch (cacheErr) {
+    // Non-fatal: unexpected error in cache path — fall through to Places
+    console.error(
+      "[places/search] Unexpected cache error:",
+      cacheErr instanceof Error ? cacheErr.message : String(cacheErr)
+    );
+  }
 
   const requestBody: Record<string, unknown> = {
     textQuery: query,
@@ -79,19 +111,28 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const response = await fetch(
-      "https://places.googleapis.com/v1/places:searchText",
-      {
-        method: "POST",
-        headers: {
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+
+    let response: Response;
+    try {
+      response = await fetch(
+        "https://places.googleapis.com/v1/places:searchText",
+        {
+          method: "POST",
+          headers: {
+            "X-Goog-Api-Key": apiKey,
+            "X-Goog-FieldMask":
+              "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        }
+      );
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "(unreadable)");
@@ -100,10 +141,7 @@ export async function POST(req: NextRequest) {
         response.status,
         errorBody
       );
-      return NextResponse.json(
-        { error: "Restaurant search unavailable", code: "PLACES_UNAVAILABLE" },
-        { status: 503 }
-      );
+      return apiError("Restaurant search unavailable", "PLACES_UNAVAILABLE", 503);
     }
 
     const { places } = PlacesResponseSchema.parse(await response.json());
@@ -116,7 +154,8 @@ export async function POST(req: NextRequest) {
         address: p.formattedAddress ?? "",
         rating: p.rating ?? null,
         userRatingCount: p.userRatingCount ?? null,
-      }));
+      }))
+      .slice(0, 5); // AC2: cap at 5 results
 
     // Resolve one photo per result in parallel — best-effort, degrades to null
     const results = await Promise.all(
@@ -132,9 +171,6 @@ export async function POST(req: NextRequest) {
       "[places/search] Unexpected error:",
       err instanceof Error ? err.message : String(err)
     );
-    return NextResponse.json(
-      { error: "Restaurant search unavailable", code: "PLACES_UNAVAILABLE" },
-      { status: 503 }
-    );
+    return apiError("Restaurant search unavailable", "PLACES_UNAVAILABLE", 503);
   }
 }
