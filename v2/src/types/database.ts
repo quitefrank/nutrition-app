@@ -51,6 +51,8 @@ export const RestaurantRowSchema = z.object({
   atmospheric_palette_json: z.string().nullable(),
   rating: z.number().nullable().optional(),
   user_ratings_total: z.number().int().nullable().optional(),
+  // Soft-delete timestamp; null = active, string = removed
+  removed_at: IsoDateString.nullable().optional(),
   created_at: IsoDateString,
 });
 
@@ -116,6 +118,8 @@ export const RecipeRowSchema = z.object({
   total_carbs_g: z.number().nullable().optional(),
   total_fat_g: z.number().nullable().optional(),
   total_fibre_g: z.number().nullable().optional(),
+  // Soft-delete timestamp; null = active, string = removed
+  removed_at: IsoDateString.nullable().optional(),
   created_at: IsoDateString,
 });
 

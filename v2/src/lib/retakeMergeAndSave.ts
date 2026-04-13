@@ -11,6 +11,7 @@
 
 import { supabase } from '@/lib/supabase';
 import type { QueryClient } from '@tanstack/react-query';
+import type { RecipeStatus, PhotoStatus } from '@/types/database';
 
 interface RetakeDish {
   id?: string;
@@ -113,12 +114,11 @@ export async function retakeMergeAndSave({
       typeof d.calorieEstimate === 'number' && d.calorieEstimate > 0
         ? Math.round(d.calorieEstimate)
         : null,
-    status: 'auto_captured',
+    status: 'auto_captured' as RecipeStatus,
     gemini_confidence: typeof d.confidence === 'number' ? d.confidence : null,
-    photo_status:
-      typeof d.confidence === 'number' && d.confidence < 0.3
+    photo_status: (typeof d.confidence === 'number' && d.confidence < 0.3
         ? 'suppressed'
-        : 'placeholder',
+        : 'placeholder') as PhotoStatus,
   }));
 
   const { data: insertedRecipes, error: bulkInsertError } = await supabase

@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion, type Transition } from "framer-motion";
 import { SPRING_CARD_EXPAND } from "@/lib/springs";
 
 interface BottomSheetProps {
@@ -87,7 +87,7 @@ export function BottomSheet({ isOpen, onClose, children, label }: BottomSheetPro
   const sheetInitial = reducedMotion ? { opacity: 0 } : { y: "100%", opacity: 1 };
   const sheetAnimate = reducedMotion ? { opacity: 1 } : { y: 0, opacity: 1 };
   const sheetExit = reducedMotion ? { opacity: 0 } : { y: "100%", opacity: 1 };
-  const sheetTransition = reducedMotion
+  const sheetTransition: Transition<unknown> = reducedMotion
     ? { duration: 0.15, ease: "easeOut" }
     : SPRING_CARD_EXPAND;
 

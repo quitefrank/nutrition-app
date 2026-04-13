@@ -434,6 +434,9 @@ export async function POST(req: NextRequest) {
   // RequestSchema uses .catch() fallbacks throughout — safeParse always succeeds;
   // malformed input coerces to { dishes: [] }, returning a 200 with no dishes.
   const parsed = RequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ data: { dishes: [] } });
+  }
 
   // Drop dishes with empty names (defensive)
   const dishes = parsed.data.dishes.filter((d) => d.name.trim().length > 0);

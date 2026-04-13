@@ -17,7 +17,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react'
-import { motion, useReducedMotion } from 'framer-motion'
+import { motion, useReducedMotion, type Variants } from 'framer-motion'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { RestaurantSearchResult } from '@/components/ui/RestaurantSearchResult'
 import { useRestaurantSearch } from '@/hooks/useRestaurantSearch'
@@ -45,7 +45,7 @@ const listVariants = {
   show: { transition: { staggerChildren: 0.04 } },
 }
 
-const listItemVariants = {
+const listItemVariants: Variants = {
   hidden: { opacity: 0, y: 10 },
   show: {
     opacity: 1,
@@ -54,7 +54,7 @@ const listItemVariants = {
   },
 }
 
-const listItemVariantsReduced = {
+const listItemVariantsReduced: Variants = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { duration: 0.15, ease: 'easeOut' } },
 }

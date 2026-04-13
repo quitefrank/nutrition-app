@@ -429,7 +429,7 @@ export function CameraModal({
       // Retake fallback: restaurantId not yet available — use normal autoSave
       console.warn('[CameraModal] retake mode but restaurantId is null — falling back to autoSaveToSupabase');
       void autoSaveToSupabase(scanKey);
-      fireEnrichment(dishes, restaurantName, scanKey, initialResult);
+      fireEnrichment(dishes, restaurantName ?? null, scanKey, initialResult);
       // P2: Call onRetakeMerged so the modal doesn't get stuck waiting for a callback.
       onRetakeMerged?.(0);
     } else {
