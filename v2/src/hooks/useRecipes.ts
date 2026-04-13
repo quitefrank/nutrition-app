@@ -258,6 +258,8 @@ export function useDeleteAllRecipes() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', 'kept'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] })
     },
   })
 }
@@ -277,6 +279,7 @@ export function useDeleteRecipe() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes', 'kept'] })
     },
   })
 }
