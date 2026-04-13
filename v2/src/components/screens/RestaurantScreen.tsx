@@ -3,13 +3,17 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
+import { DishRowCompact } from "@/components/scan/DishRowCompact";
+import { DishRowExpanded } from "@/components/scan/DishRowExpanded";
+import { ScanConfidenceBanner } from "@/components/scan/ScanConfidenceBanner";
 import { useRestaurants } from "@/hooks/useRestaurants";
-import { useRecipesByRestaurant, useRemoveRecipe } from "@/hooks/useRecipes";
+import { useRecipesByRestaurant, useRemoveRecipe, useRecipe } from "@/hooks/useRecipes";
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 import { supabase } from "@/lib/supabase";
 import { useEnrichment } from "@/hooks/useEnrichment";
+import { SPRING_CARD_EXPAND } from "@/lib/springs";
 import type { DomainRestaurant, DomainRecipe } from "@/types/database";
 
 // ─── Types ─────────────────────────────────────────────────
@@ -103,6 +107,35 @@ function loadRecipesForRestaurant(placeId: string): SavedRecipe[] {
 }
 
 /**
+ * Return the raw Gemini dish count (totalDetected) from the most recent
+ * camera-scan session entry for this restaurant. Returns 0 when the restaurant
+ * was reached via the search path (no camera scan) — the natural guard for
+ * suppressing ScanConfidenceBanner on search-path visits (Story 2-7).
+ */
+function loadTotalDetected(placeId: string): number {
+  try {
+    let bestTotal = 0;
+    let bestAt = -1;
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (!key?.startsWith('plately_scan_')) continue;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) continue;
+      let parsed: { restaurantPlaceId?: string | null; totalDetected?: number; scannedAt?: number };
+      try { parsed = JSON.parse(raw); } catch { continue; }
+      if (parsed.restaurantPlaceId !== placeId) continue;
+      if (typeof parsed.totalDetected !== 'number') continue;
+      const at = parsed.scannedAt ?? 0;
+      if (at > bestAt) { bestAt = at; bestTotal = parsed.totalDetected; }
+    }
+    return bestTotal;
+  } catch {
+    // sessionStorage unavailable
+  }
+  return 0;
+}
+
+/**
  * Return the menu photo URL (the Google Places photo Gemini read during
  * auto-scan) stored in the most recent session scan for this restaurant.
  */
@@ -159,11 +192,18 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const queryClient = useQueryClient();
   const { enrich } = useEnrichment();
   const removeRecipe = useRemoveRecipe();
+  const reducedMotion = useReducedMotion();
   const [sessionRecipes, setSessionRecipes] = useState<SavedRecipe[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [confirmRecipe, setConfirmRecipe] = useState<SavedRecipe | null>(null);
   const [menuPhotoUrl, setMenuPhotoUrl] = useState<string | null>(null);
+  // totalDetected: raw Gemini dish count from camera-scan session (0 = search path)
+  const [totalDetected, setTotalDetected] = useState(0);
   const [menuPhotoOpen, setMenuPhotoOpen] = useState(false);
+
+  // ── Accordion state (Story 2-5) ────────────────────────────
+  // Single expanded dish ID — null means all rows are collapsed.
+  const [expandedDishId, setExpandedDishId] = useState<string | null>(null);
 
   // ── Auto-scan state ─────────────────────────────────────────
   const [autoScanStep, setAutoScanStep] = useState<'idle' | 'looking' | 'scanning' | 'finishing' | 'done' | 'error'>('idle');
@@ -182,6 +222,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   useEffect(() => {
     setSessionRecipes(loadRecipesForRestaurant(placeId));
     setMenuPhotoUrl(loadMenuPhotoUrl(placeId));
+    setTotalDetected(loadTotalDetected(placeId));
     setLoaded(true);
   }, [placeId]);
 
@@ -196,6 +237,9 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const { data: supabaseRecipeRows, isPending: recipesPending } = useRecipesByRestaurant(
     supabaseRestaurant?.id ?? null
   );
+
+  // Lazy-load ingredients for the expanded dish (Story 2-5)
+  const { data: expandedRecipe, isError: expandedRecipeError } = useRecipe(expandedDishId);
 
   // Map Supabase recipes to unified SavedRecipe shape
   const supabaseRecipes: SavedRecipe[] = (supabaseRecipeRows ?? []).map((r) =>
@@ -281,8 +325,9 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           );
 
         if (writes.length > 0) {
-          await Promise.all(writes);
+          await Promise.allSettled(writes);
           void queryClient.invalidateQueries({ queryKey: ["recipes", "restaurant"] });
+          void queryClient.invalidateQueries({ queryKey: ["recipes", "kept"] });
           void queryClient.invalidateQueries({ queryKey: ["recipes"] });
         }
       } catch {
@@ -443,7 +488,9 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
       }
 
       // Success — write to sessionStorage and refresh
-      const scanKey = `plately_scan_${Date.now()}`;
+      const dishCount = json.data.dishes.length;
+      const now = Date.now();
+      const scanKey = `plately_scan_${now}`;
       sessionStorage.setItem(
         scanKey,
         JSON.stringify({
@@ -453,11 +500,14 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           menuPhotoUrl: json.data.menuPhotoUrl ?? null,
           allDishes: json.data.dishes,
           enriched: false,
+          totalDetected: dishCount,
+          scannedAt: now,
         })
       );
 
       setSessionRecipes(loadRecipesForRestaurant(placeId));
       setMenuPhotoUrl(loadMenuPhotoUrl(placeId));
+      setTotalDetected(dishCount);
       setAutoScanStep('done');
       autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
         void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
@@ -492,6 +542,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           data: {
             type: string;
             restaurantName: string | null;
+            totalDetected?: number;
             dishes: Array<{
               id?: string;
               name: string;
@@ -505,7 +556,9 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
 
         if (json.data.dishes.length === 0) return;
 
-        const scanKey = `plately_scan_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const scanPhotoTotal = json.data.totalDetected ?? json.data.dishes.length;
+        const scanPhotoNow = Date.now();
+        const scanKey = `plately_scan_${scanPhotoNow}_${Math.random().toString(36).slice(2, 7)}`;
         sessionStorage.setItem(
           scanKey,
           JSON.stringify({
@@ -517,10 +570,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
               photoUrl: i === 0 ? photoUrl : null,
             })),
             enriched: false,
+            totalDetected: scanPhotoTotal,
+            scannedAt: scanPhotoNow,
           })
         );
 
         setSessionRecipes(loadRecipesForRestaurant(placeId));
+        setTotalDetected(scanPhotoTotal);
         autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
           void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
           void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
@@ -701,50 +757,120 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
         </motion.div>
       )}
 
-      {recipes.length > 0 && (
+      {/* Menu photo thumbnail — shown whenever any recipes exist */}
+      {recipes.length > 0 && menuPhotoUrl && (
+        <motion.div className="px-4 pb-2" variants={itemVariants}>
+          <button
+            aria-label="View full menu photo"
+            onClick={() => setMenuPhotoOpen(true)}
+            className="w-full rounded-[20px] overflow-hidden relative"
+            style={{
+              border: "1px solid rgba(180,170,158,0.28)",
+              boxShadow: "0 2px 12px rgba(80,60,40,0.08), 0 1px 3px rgba(80,60,40,0.06)",
+            }}
+          >
+            {/* Blurred menu photo hint */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={menuPhotoUrl}
+              alt=""
+              className="w-full object-cover"
+              style={{ height: 96, filter: "blur(2px) brightness(0.72)", transform: "scale(1.05)" }}
+            />
+            {/* Label overlay */}
+            <div
+              className="absolute inset-0 flex items-center justify-between px-4"
+              style={{ background: "rgba(26,22,18,0.36)" }}
+            >
+              <div className="flex items-center gap-2.5">
+                <ScrollTextIcon />
+                <span className="text-[15px] font-semibold" style={{ color: "rgba(255,255,255,0.95)", fontFamily: "var(--font-sans)" }}>Menu</span>
+              </div>
+              <ChevronRightIcon />
+            </div>
+          </button>
+        </motion.div>
+      )}
+
+      {/* Supabase-backed dish list: single-column accordion (Story 2-5) */}
+      {supabaseRecipeRows && supabaseRecipeRows.length > 0 && (
+        <motion.div variants={containerVariants} className="px-4 pb-4 flex flex-col gap-2">
+          {supabaseRecipeRows.map((recipe) => {
+            // Story 3.6: derive macroSource from denormalised macro totals on the recipe row.
+            // All three non-null → enrichment ran → provenance is USDA.
+            // Any null → not yet enriched → default to 'ai' (undefined omits the prop).
+            const macroSource =
+              recipe.totalProteinG != null &&
+              recipe.totalCarbsG != null &&
+              recipe.totalFatG != null
+                ? ('usda' as const)
+                : undefined
+
+            return (
+              <motion.div key={recipe.id} variants={itemVariants}>
+                <DishRowCompact
+                  recipe={recipe}
+                  totalProtein={recipe.totalProteinG}
+                  totalCarbs={recipe.totalCarbsG}
+                  totalFat={recipe.totalFatG}
+                  macroSource={macroSource}
+                  isExpanded={expandedDishId === recipe.id}
+                  onToggle={() =>
+                    setExpandedDishId((prev) => (prev === recipe.id ? null : recipe.id))
+                  }
+                />
+                <AnimatePresence initial={false}>
+                  {expandedDishId === recipe.id && (
+                    <motion.div
+                      key={`expanded-${recipe.id}`}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{
+                        height: "auto",
+                        opacity: 1,
+                        transition: reducedMotion ? { duration: 0 } : SPRING_CARD_EXPAND,
+                      }}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        transition: reducedMotion ? { duration: 0 } : SPRING_CARD_EXPAND,
+                      }}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div className="mt-1.5">
+                        <DishRowExpanded
+                          recipe={recipe}
+                          expandedRecipe={
+                            expandedRecipe?.id === recipe.id ? expandedRecipe : null
+                          }
+                          ingredientsError={expandedRecipeError}
+                          totalProtein={recipe.totalProteinG}
+                          totalCarbs={recipe.totalCarbsG}
+                          totalFat={recipe.totalFatG}
+                          totalFibre={recipe.totalFibreG}
+                          onCollapse={() => setExpandedDishId(null)}
+                          onAddToRecipes={() => {}} // TODO: Story 5-1
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )
+          })}
+        </motion.div>
+      )}
+
+      {/* Session-only recipes (not yet in Supabase): keep existing RecipeCard grid */}
+      {sessionOnlyRecipes.length > 0 && (
         <motion.div
           variants={containerVariants}
           className="px-4 pb-4 grid gap-3 grid-cols-2"
         >
-          {menuPhotoUrl && (
-            <motion.div className="col-span-2" variants={itemVariants}>
-              <button
-                onClick={() => setMenuPhotoOpen(true)}
-                className="w-full rounded-[20px] overflow-hidden relative"
-                style={{
-                  border: "1px solid rgba(180,170,158,0.28)",
-                  boxShadow: "0 2px 12px rgba(80,60,40,0.08), 0 1px 3px rgba(80,60,40,0.06)",
-                }}
-              >
-                {/* Blurred menu photo hint */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={menuPhotoUrl}
-                  alt=""
-                  className="w-full object-cover"
-                  style={{ height: 96, filter: "blur(2px) brightness(0.72)", transform: "scale(1.05)" }}
-                />
-                {/* Label overlay */}
-                <div
-                  className="absolute inset-0 flex items-center justify-between px-4"
-                  style={{ background: "rgba(26,22,18,0.36)" }}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <ScrollTextIcon />
-                    <span className="text-[15px] font-semibold" style={{ color: "rgba(255,255,255,0.95)", fontFamily: "var(--font-sans)" }}>Menu</span>
-                  </div>
-                  <ChevronRightIcon />
-                </div>
-              </button>
-            </motion.div>
-          )}
-          {recipes.map((recipe, i) => (
+          {sessionOnlyRecipes.map((recipe, i) => (
             <motion.div key={`${recipe.scanKey}-${recipe.dishIndex}-${i}`} variants={itemVariants}>
               <RecipeCard
                 recipe={recipe}
-                onTap={() =>
-                  router.push(`/recipe/${recipe.scanKey}?dish=${recipe.dishIndex}`)
-                }
+                onTap={() => router.push(`/recipe/${encodeURIComponent(recipe.scanKey)}?dish=${recipe.dishIndex}`)}
                 onDelete={() => setConfirmRecipe(recipe)}
               />
             </motion.div>
@@ -759,6 +885,22 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
             "calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)",
         }}
       />
+
+      {/* Scan confidence banner — camera-scan path only (AC2, AC3, AC5) */}
+      {/* Compare total visible recipes (Supabase + session-only) so the banner
+          dismisses correctly once all dishes have been persisted to Supabase. */}
+      <AnimatePresence>
+        {!recipesPending && totalDetected > 0 && recipes.length < totalDetected && (
+          <ScanConfidenceBanner
+            key="scan-confidence-banner"
+            recognisedCount={recipes.length}
+            totalDetected={totalDetected}
+            onRetake={() => console.warn("[ScanConfidenceBanner] retake — Story 6.2")}
+            onAddManually={() => console.warn("[ScanConfidenceBanner] add manually — Story 6.3")}
+            onContinue={() => console.warn("[ScanConfidenceBanner] continue — Story 6.1")}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Delete confirmation modal */}
       <AnimatePresence>

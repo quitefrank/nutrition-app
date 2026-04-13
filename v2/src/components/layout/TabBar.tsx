@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { SPRING_CARD_EXPAND } from "@/lib/springs";
 
 const tabs = [
-  { href: "/", label: "Home", Icon: RestaurantsIcon },
+  { href: "/restaurants", label: "Home", Icon: HomeIcon },
   { href: "/search", label: "Search", Icon: SearchIcon },
   { href: "/grocery", label: "Grocery", Icon: GroceryIcon },
   { href: "/recipes", label: "Recipes", Icon: RecipesIcon },
@@ -21,7 +21,7 @@ interface TabBarProps {
 
 // Routes that should keep the correct tab highlighted
 const ACTIVE_PREFIXES: Partial<Record<string, string[]>> = {
-  "/": ["/", "/restaurants"],
+  "/restaurants": ["/restaurants"],
   "/search": ["/search"],
   "/grocery": ["/grocery"],
   "/recipes": ["/recipes", "/recipe"],
@@ -53,10 +53,9 @@ export function TabBar({ onCameraPress = () => {}, isOnline = true }: TabBarProp
         }}
       >
         {tabs.map(({ href, label, Icon }) => {
-          const isActive =
-            href === "/"
-              ? pathname === "/" || pathname.startsWith("/restaurants")
-              : (ACTIVE_PREFIXES[href] ?? [href]).some((p) => pathname.startsWith(p));
+          const isActive = (ACTIVE_PREFIXES[href] ?? [href]).some((p) =>
+            pathname === p || pathname.startsWith(p + "/")
+          );
           return (
             <TabItem key={href} href={href} label={label} isActive={isActive}>
               <Icon filled={isActive} />
@@ -147,7 +146,7 @@ function TabItem({
 
 /* ─── Icons ─── */
 
-function RestaurantsIcon({ filled }: { filled: boolean }) {
+function HomeIcon({ filled }: { filled: boolean }) {
   return (
     <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path

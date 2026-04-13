@@ -7,6 +7,8 @@ import { AtmosphericBackground } from "@/components/ui/AtmosphericBackground";
 import { TabBar } from "@/components/layout/TabBar";
 import { ProcessingStrip, ProcessingState } from "@/components/layout/ProcessingStrip";
 import { CameraModal } from "@/components/capture/CameraModal";
+import { ScanConfirmationOverlay } from "@/components/scan/ScanConfirmationOverlay";
+import { CameraContext } from "@/contexts/CameraContext";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -26,6 +28,8 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
   const [processingMessage, setProcessingMessage] = useState<string | undefined>();
   const [resultId, setResultId] = useState<string | undefined>();
+  // scanKey set when a scan completes and is awaiting restaurant confirmation
+  const [confirmingScanKey, setConfirmingScanKey] = useState<string | null>(null);
 
   // Offline detection — navigator.onLine is synchronously available in browser
   const [isOnline, setIsOnline] = useState(
@@ -43,7 +47,11 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
     };
   }, []);
 
+  // openCamera respects the "no second scan while confirming" guard already used by TabBar
+  const openCamera = () => { if (!confirmingScanKey) setCameraOpen(true); };
+
   return (
+    <CameraContext.Provider value={{ openCamera }}>
     <div className="relative h-full">
       {/* Layer 0: Atmospheric background */}
       <AtmosphericBackground imageUrl={atmosphericImageUrl} restaurantId={atmosphericRestaurantId} />
@@ -74,7 +82,8 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
       {mounted && (
         <>
           {/* Layer 2: Tab bar with embedded camera FAB */}
-          <TabBar onCameraPress={() => setCameraOpen(true)} isOnline={isOnline} />
+          {/* P2: Prevent a second scan from replacing confirmingScanKey mid-save */}
+          <TabBar onCameraPress={openCamera} isOnline={isOnline} />
 
           {/* Layer 3: Processing strip (above tab bar) */}
           <ProcessingStrip
@@ -93,9 +102,10 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
               setProcessingState("processing");
               setProcessingMessage(msg);
             }}
-            onProcessingComplete={(id) => {
-              setProcessingState("ready");
-              setResultId(id);
+            onProcessingComplete={(scanKey) => {
+              // P4: Use "confirming" state — distinct from "processing" (API in-flight)
+              setConfirmingScanKey(scanKey);
+              setProcessingState("confirming");
               setProcessingMessage(undefined);
             }}
             onProcessingError={(msg) => {
@@ -103,9 +113,33 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
               setProcessingMessage(msg);
             }}
           />
+
+          {/* Layer 5: Restaurant confirmation overlay (shown after scan, before save) */}
+          {confirmingScanKey && (
+            <ScanConfirmationOverlay
+              scanKey={confirmingScanKey}
+              onComplete={(firstRecipeId) => {
+                setConfirmingScanKey(null);
+                // P6: Null firstRecipeId means save failed — show error rather than
+                // a "ready" strip with no navigable result
+                if (firstRecipeId) {
+                  setProcessingState("ready");
+                  setResultId(firstRecipeId);
+                } else {
+                  setProcessingState("error");
+                  setProcessingMessage("Couldn't save your dishes — tap to dismiss");
+                }
+              }}
+              onClose={() => {
+                setConfirmingScanKey(null);
+                setProcessingState("idle");
+              }}
+            />
+          )}
         </>
       )}
     </div>
+    </CameraContext.Provider>
   );
 }
 

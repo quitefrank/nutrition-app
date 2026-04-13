@@ -143,7 +143,8 @@ async function generateWithFallback(
     return await genAI.getGenerativeModel({ model: GEMINI_MODEL }).generateContent(parts)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('503')) {
+    const errStatus = (err as Record<string, unknown>).status
+    if (errStatus === 503 || msg.includes('503')) {
       console.warn('[auto-scan] gemini-2.5-flash 503 — retrying with gemini-2.0-flash')
       return genAI.getGenerativeModel({ model: GEMINI_FALLBACK_MODEL }).generateContent(parts)
     }
@@ -173,6 +174,12 @@ interface PhotoData {
   mimeType: string
 }
 
+// ─── Error helper ─────────────────────────────────────────────────────────────
+
+function apiError(message: string, code: string, status: 400 | 422 | 500 | 502 | 503) {
+  return NextResponse.json({ error: { message, code } }, { status })
+}
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -180,10 +187,7 @@ export async function POST(req: NextRequest) {
     // ── Resolve API keys ─────────────────────────────────────────────────────
     const { places: placesKey, gemini: geminiEnvKey } = getApiKeys()
     if (!placesKey) {
-      return NextResponse.json(
-        { error: 'Places service not configured', code: 'PLACES_SERVICE_UNAVAILABLE' },
-        { status: 503 }
-      )
+      return apiError('Places service not configured', 'PLACES_SERVICE_UNAVAILABLE', 503)
     }
 
     // SEC-DAT-1.00: never log the key value
@@ -195,10 +199,7 @@ export async function POST(req: NextRequest) {
     } else if (envKey) {
       apiKey = envKey
     } else {
-      return NextResponse.json(
-        { error: 'Scan service not configured', code: 'SCAN_SERVICE_UNAVAILABLE' },
-        { status: 503 }
-      )
+      return apiError('Scan service not configured', 'SCAN_SERVICE_UNAVAILABLE', 503)
     }
 
     // ── Parse request ────────────────────────────────────────────────────────
@@ -206,24 +207,18 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json()
     } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body', code: 'INVALID_REQUEST' },
-        { status: 400 }
-      )
+      return apiError('Invalid request body', 'INVALID_REQUEST', 400)
     }
 
     const parsed = RequestSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'placeId is required', code: 'INVALID_REQUEST' },
-        { status: 400 }
-      )
+      return apiError('placeId is required', 'VALIDATION_ERROR', 422)
     }
 
     const { placeId, restaurantName } = parsed.data
 
     // ── Cache check: return cached menu if available (skip Gemini entirely) ──
-    const cached = await getCachedMenu({ placeId, name: restaurantName })
+    const cached = await getCachedMenu({ placeId, name: restaurantName }).catch(() => null)
     if (cached) {
       const dishesWithPhotos = cached.dishes.map((d) => ({
         id: crypto.randomUUID(),
@@ -248,10 +243,7 @@ export async function POST(req: NextRequest) {
     // ── Step 1: Fetch photo URLs ─────────────────────────────────────────────
     const photoUrls = await getRestaurantPhotos({ placeId }, placesKey, 20)
     if (photoUrls.length < 2) {
-      return NextResponse.json(
-        { error: 'Not enough photos found for this restaurant', code: 'NO_PHOTOS' },
-        { status: 503 }
-      )
+      return apiError('Not enough photos found for this restaurant', 'NO_PHOTOS', 503)
     }
 
     // ── Step 2: Fetch + base64-encode photos in parallel (8s timeout each) ──
@@ -279,10 +271,7 @@ export async function POST(req: NextRequest) {
       .map((r) => r.value)
 
     if (photos.length === 0) {
-      return NextResponse.json(
-        { error: 'Could not retrieve restaurant photos', code: 'NO_PHOTOS' },
-        { status: 503 }
-      )
+      return apiError('Could not retrieve restaurant photos', 'NO_PHOTOS', 503)
     }
 
     // ── Step 3: Multi-image Gemini classification (batched for reliability) ──
@@ -290,7 +279,9 @@ export async function POST(req: NextRequest) {
     // We split into batches of 8, run in parallel, then merge results.
     const genAI = new GoogleGenerativeAI(apiKey)
 
-    const labelName = restaurantName ? `"${restaurantName}"` : 'this restaurant'
+    const labelName = restaurantName
+      ? `"${restaurantName.replace(/"/g, '\\"')}"`
+      : 'this restaurant'
     const BATCH_SIZE = 8
     const batches: PhotoData[][] = []
     for (let i = 0; i < photos.length; i += BATCH_SIZE) {
@@ -345,10 +336,7 @@ Return ONLY valid JSON, no markdown:
 
     if (menuIndices.length === 0 && dishPhotos.length === 0) {
       console.error('[auto-scan] all classification batches failed')
-      return NextResponse.json(
-        { error: 'Photo classification failed', code: 'SCAN_UNAVAILABLE' },
-        { status: 503 }
-      )
+      return apiError('Photo classification failed', 'SCAN_UNAVAILABLE', 503)
     }
 
     // Build indexed dish photos list (used for matching and fallback)
@@ -441,9 +429,6 @@ Return ONLY valid JSON, no markdown:
     })
   } catch (err) {
     console.error('[auto-scan] Unexpected error:', err instanceof Error ? err.message : err)
-    return NextResponse.json(
-      { error: 'Internal server error', code: 'INTERNAL_ERROR' },
-      { status: 500 }
-    )
+    return apiError('Internal server error', 'INTERNAL_ERROR', 500)
   }
 }

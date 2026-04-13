@@ -382,6 +382,13 @@ button, [role="button"], a {
   display: none;
 }
 
+/* ─── Keyframe animations ─── */
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ─── Reduced motion ─────────────────────────────────────────────────────────
    Framer Motion's useReducedMotion() hook handles JS animation suppression.
    This block handles CSS animation and transition fallback.
