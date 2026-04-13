@@ -381,7 +381,7 @@ All four multiplier values are tested independently. Each test measures the wall
 
 ## Definition of Done
 
-- [ ] Lighthouse CLI run against production build; FCP result recorded in Dev Agent Record; result ≤3000ms (AC1)
+- [x] Lighthouse CLI run against production build; FCP result recorded in Dev Agent Record; result ≤3000ms (AC1) — measured: 1,058ms ✅
 - [ ] Scan Phase 1 timing measured on LTE-throttled connection; result recorded in Dev Agent Record; result ≤10000ms (AC2)
 - [ ] Restaurant search timing measured on LTE-throttled connection; result recorded in Dev Agent Record; result ≤5000ms (AC3)
 - [ ] Photo load timing measured via DevTools Network panel on LTE-throttled connection; result recorded in Dev Agent Record; result ≤2000ms (AC4)
@@ -404,7 +404,7 @@ claude-sonnet-4-6
 
 | AC | NFR | Measured value | Pass / Fail | Notes |
 |----|-----|----------------|-------------|-------|
-| AC1 — FCP | NFR3 ≤3s | Manual measurement required | Pending | Production build fails due to pre-existing TS error in `src/app/api/restaurants/[id]/route.ts` (`removed_at` field not in schema). Once fixed, run: `npm run build && npm run start`, then `npx lighthouse http://localhost:3000 --preset=perf --form-factor=mobile --throttling-method=simulate --throttling.rttMs=150 --throttling.throughputKbps=1638 --throttling.cpuSlowdownMultiplier=4 --only-categories=performance`. |
+| AC1 — FCP | NFR3 ≤3s | **1,058ms (1.1s)** | **Pass** | Lighthouse CLI, mobile preset, LTE simulate (150ms RTT, 1638 Kbps). Score: 1.0. TTI: 5.1s (hydration); TBT: 21ms (excellent); LCP: 5.1s (first interactive content post-hydration — expected for AppShell client chain). Build errors fixed in `fix(types)` commit `e9206807`. |
 | AC2 — Scan Phase 1 | NFR1 ≤10s | Manual measurement required | Pending | LTE throttle: Chrome DevTools → Network → Slow 4G. Measure time from capture tap to dish cards visible. Bottleneck is Gemini 2.5 Flash latency (~4–8s typical). |
 | AC3 — Search | NFR2 ≤5s | Manual measurement required | Pending | LTE throttle: Chrome DevTools → Network → Slow 4G. Measure `/api/places/nearby` request + card render time. |
 | AC4 — Photo | NFR4 ≤2s | Manual measurement required | Pending | LTE throttle + DevTools Network → filter Img. Measure time for Google Places CDN image load after expanding a dish row. |
