@@ -202,7 +202,7 @@ export function RestaurantConfirmation({
               <button
                 onClick={() => onConfirm({ placeId: "", name: confirmedName.trim() || "Unknown Restaurant" })}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium"
-                style={{ background: "var(--color-accent)", color: "#fff" }}
+                style={{ background: "var(--color-accent)", color: "#fff", minHeight: 44 }}
                 aria-label="Confirm restaurant name"
               >
                 Confirm
@@ -213,6 +213,7 @@ export function RestaurantConfirmation({
                 style={{
                   background: "rgba(180,170,158,0.18)",
                   color: "var(--color-text-primary)",
+                  minHeight: 44,
                 }}
                 aria-label="Search instead"
               >
@@ -220,8 +221,8 @@ export function RestaurantConfirmation({
               </button>
               <button
                 onClick={onSkip}
-                className="px-3 py-2 rounded-full text-xs"
-                style={{ color: "var(--color-text-tertiary)" }}
+                className="flex items-center px-3 py-2 rounded-full text-xs"
+                style={{ color: "var(--color-text-tertiary)", minHeight: 44 }}
                 aria-label="Skip restaurant identification"
               >
                 Skip
@@ -256,7 +257,7 @@ export function RestaurantConfirmation({
               <button
                 onClick={requestGps}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium"
-                style={{ background: "var(--color-accent)", color: "#fff" }}
+                style={{ background: "var(--color-accent)", color: "#fff", minHeight: 44 }}
                 aria-label="Use my location to find nearby restaurants"
               >
                 <LocationIcon />
@@ -268,6 +269,7 @@ export function RestaurantConfirmation({
                 style={{
                   background: "rgba(180,170,158,0.18)",
                   color: "var(--color-text-primary)",
+                  minHeight: 44,
                 }}
                 aria-label="Search by restaurant name"
               >
@@ -276,8 +278,8 @@ export function RestaurantConfirmation({
               </button>
               <button
                 onClick={onSkip}
-                className="px-3 py-2 rounded-full text-xs"
-                style={{ color: "var(--color-text-tertiary)" }}
+                className="flex items-center px-3 py-2 rounded-full text-xs"
+                style={{ color: "var(--color-text-tertiary)", minHeight: 44 }}
                 aria-label="Skip restaurant identification"
               >
                 Skip
@@ -307,15 +309,15 @@ export function RestaurantConfirmation({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setMode("text")}
-                    className="px-3 py-2 rounded-full text-xs font-medium"
-                    style={{ background: "var(--color-accent)", color: "#fff" }}
+                    className="flex items-center px-3 py-2 rounded-full text-xs font-medium"
+                    style={{ background: "var(--color-accent)", color: "#fff", minHeight: 44 }}
                   >
                     Enter name
                   </button>
                   <button
                     onClick={onSkip}
-                    className="px-3 py-2 rounded-full text-xs"
-                    style={{ color: "var(--color-text-tertiary)" }}
+                    className="flex items-center px-3 py-2 rounded-full text-xs"
+                    style={{ color: "var(--color-text-tertiary)", minHeight: 44 }}
                   >
                     Skip
                   </button>
@@ -331,15 +333,15 @@ export function RestaurantConfirmation({
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setMode("text")}
-                    className="px-3 py-2 rounded-full text-xs font-medium"
-                    style={{ background: "var(--color-accent)", color: "#fff" }}
+                    className="flex items-center px-3 py-2 rounded-full text-xs font-medium"
+                    style={{ background: "var(--color-accent)", color: "#fff", minHeight: 44 }}
                   >
                     Enter name
                   </button>
                   <button
                     onClick={onSkip}
-                    className="px-3 py-2 rounded-full text-xs"
-                    style={{ color: "var(--color-text-tertiary)" }}
+                    className="flex items-center px-3 py-2 rounded-full text-xs"
+                    style={{ color: "var(--color-text-tertiary)", minHeight: 44 }}
                   >
                     Skip
                   </button>
@@ -363,8 +365,8 @@ export function RestaurantConfirmation({
                 </div>
                 <button
                   onClick={onSkip}
-                  className="text-xs self-start pt-1"
-                  style={{ color: "var(--color-text-tertiary)" }}
+                  className="flex items-center text-xs self-start"
+                  style={{ color: "var(--color-text-tertiary)", minHeight: 44 }}
                 >
                   None of these
                 </button>
@@ -431,8 +433,8 @@ export function RestaurantConfirmation({
 
             <button
               onClick={onSkip}
-              className="text-xs self-start"
-              style={{ color: "var(--color-text-tertiary)" }}
+              className="flex items-center text-xs self-start"
+              style={{ color: "var(--color-text-tertiary)", minHeight: 44 }}
             >
               Skip
             </button>
@@ -459,6 +461,7 @@ function RestaurantRow({
       style={{
         background: "rgba(196,98,45,0.07)",
         border: "1px solid rgba(196,98,45,0.15)",
+        minHeight: 44,
       }}
       whileTap={{ scale: 0.98 }}
       aria-label={`Select ${restaurant.name}`}

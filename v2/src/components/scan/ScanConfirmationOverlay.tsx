@@ -128,7 +128,7 @@ export function ScanConfirmationOverlay({ scanKey, onComplete, onClose }: ScanCo
       {/* Confirmation card — hidden while saving or toast is showing */}
       {!toast && !saving && (
         <div
-          className="fixed inset-x-0 z-40 px-4"
+          className="fixed inset-x-0 z-50 px-4"
           style={{
             bottom: "calc(max(env(safe-area-inset-bottom, 0px), 8px) + 96px)",
           }}
@@ -145,7 +145,7 @@ export function ScanConfirmationOverlay({ scanKey, onComplete, onClose }: ScanCo
       {/* P8: Saving indicator with visible text content for sighted and SR users */}
       {saving && !toast && (
         <div
-          className="fixed inset-x-0 z-40 flex justify-center px-4"
+          className="fixed inset-x-0 z-50 flex justify-center px-4"
           style={{
             bottom: "calc(max(env(safe-area-inset-bottom, 0px), 8px) + 96px)",
           }}
