@@ -473,9 +473,9 @@ function MetaChip({ label, accent = false }: { label: string; accent?: boolean }
       style={{
         background: accent ? "var(--color-accent-light)" : "var(--color-surface-raised)",
         /* WCAG 2.1 AA: terracotta (#C4622D) requires font-size ≥ 14px.
-           text-xs (12px) does not meet the threshold — use text-secondary instead.
-           The accent-light background still provides visual distinction. */
-        color: accent ? "var(--color-text-secondary)" : "var(--color-text-secondary)",
+           text-xs (12px) does not meet the threshold — use text-secondary for both variants.
+           The accent-light background provides visual distinction for the accent chip. */
+        color: "var(--color-text-secondary)",
         border: `1px solid ${accent ? "rgba(196,98,45,0.18)" : "var(--color-card-border)"}`,
       }}
     >

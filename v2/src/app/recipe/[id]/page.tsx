@@ -251,7 +251,7 @@ function RecipePageInner() {
           </p>
           <button
             onClick={() => router.replace("/")}
-            className="text-sm font-medium"
+            className="text-sm font-semibold"
             style={{ color: "var(--color-accent)" }}
           >
             Back to Home

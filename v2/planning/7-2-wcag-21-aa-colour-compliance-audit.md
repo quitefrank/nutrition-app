@@ -1,6 +1,6 @@
 # Story 7.2: WCAG 2.1 AA Colour Compliance Audit
 
-Status: review
+Status: done
 Epic: 7 — Accessibility, Offline & Production Hardening
 Story ID: 7.2
 Story Key: 7-2-wcag-21-aa-colour-compliance-audit

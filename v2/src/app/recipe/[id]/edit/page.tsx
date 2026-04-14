@@ -491,8 +491,8 @@ function EditPageInner() {
                 style={{
                   background: servings <= 1 ? 'rgba(180,170,158,0.1)' : 'var(--color-accent-light)',
                   color: servings <= 1 ? 'var(--color-text-disabled)' : 'var(--color-accent)',
-                  minHeight: 40,
-                  minWidth: 40,
+                  minHeight: 44,
+                  minWidth: 44,
                 }}
               >
                 <MinusIcon />
@@ -508,7 +508,7 @@ function EditPageInner() {
                 onClick={() => handleServingsChange(servings + 1)}
                 aria-label="Increase serving size"
                 className="flex items-center justify-center w-10 h-10 rounded-full"
-                style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)', minHeight: 40, minWidth: 40 }}
+                style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)', minHeight: 44, minWidth: 44 }}
               >
                 <PlusIcon />
               </button>

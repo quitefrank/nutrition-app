@@ -166,8 +166,7 @@ export function InstallPromptBanner() {
                   color: 'var(--color-text-tertiary)',
                   background: 'none',
                   border: 'none',
-                  minHeight: 28,
-                  height: 28,
+                  minHeight: 44,
                 }}
               >
                 Not now

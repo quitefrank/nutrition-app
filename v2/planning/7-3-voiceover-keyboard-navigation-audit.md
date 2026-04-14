@@ -1,6 +1,6 @@
 # Story 7.3: VoiceOver & Keyboard Navigation Audit
 
-Status: review
+Status: done
 Epic: 7 — Accessibility, Offline & Production Hardening
 Story ID: 7.3
 Story Key: 7-3-voiceover-keyboard-navigation-audit

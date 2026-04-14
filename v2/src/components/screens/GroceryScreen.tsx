@@ -269,7 +269,7 @@ export function GroceryScreen() {
             <button
               onClick={handleClearAll}
               className="text-[13px] font-medium"
-              style={{ color: "var(--color-accent)" }}
+              style={{ color: "var(--color-text-tertiary)" }}
             >
               Clear all
             </button>

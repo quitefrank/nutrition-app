@@ -1,5 +1,5 @@
 # generated: 2026-04-12
-# last_updated: 2026-04-13 # 7-1 → review; 7-2, 7-3, 7-4 → review (parallel implementation)
+# last_updated: 2026-04-13 # 7-1 → review; 7-2, 7-3, 7-4 → review (parallel implementation); 7-2, 7-3, 7-4 review patches applied → done
 # project: Plately v2
 # project_key: NOKEY
 # tracking_system: file-system
@@ -123,9 +123,9 @@ development_status:
   # ──────────────────────────────────────────────────────────
   epic-7: in-progress
   7-1-service-worker-offline-cache-strategy: done
-  7-2-wcag-21-aa-colour-compliance-audit: review
-  7-3-voiceover-keyboard-navigation-audit: review
-  7-4-performance-benchmark-validation: review
+  7-2-wcag-21-aa-colour-compliance-audit: done
+  7-3-voiceover-keyboard-navigation-audit: done
+  7-4-performance-benchmark-validation: done
   7-5-offline-read-only-access: ready-for-dev
   epic-7-retrospective: optional
 

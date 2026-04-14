@@ -1,6 +1,6 @@
 # Story 7.4: Performance Benchmark Validation
 
-Status: review
+Status: done
 Epic: 7 — Accessibility, Offline & Production Hardening
 Story ID: 7.4
 Story Key: 7-4-performance-benchmark-validation
