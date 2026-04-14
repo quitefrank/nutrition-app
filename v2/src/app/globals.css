@@ -262,7 +262,7 @@ button, [role="button"], a {
 .app-shell {
   max-width: 430px;
   margin: 0 auto;
-  min-height: 100dvh;
+  height: 100%;
   overflow-x: hidden;
   position: relative;
 }
@@ -291,7 +291,8 @@ button, [role="button"], a {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
-  height: 100%;
+  /* 100dvh is independent of the parent height chain — works with body { position: fixed } */
+  height: 100dvh;
   padding-bottom: calc(var(--tab-bar-height) + var(--space-safe-bottom) + 16px);
 }
 

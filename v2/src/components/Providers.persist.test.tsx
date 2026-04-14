@@ -108,11 +108,33 @@ describe('Providers — TanStack Query persistence', () => {
 
   // ── Structural: factory called with correct arguments ──────────────────────
 
-  it('creates persister with localStorage as storage', async () => {
+  it('creates persister with a quota-safe localStorage wrapper as storage', async () => {
     await act(async () => { render(<Providers><div /></Providers>); });
+    // Providers wraps window.localStorage in a quota-safe object rather than
+    // passing the raw reference — verify the wrapper exposes the Storage interface.
     expect(mockCreatePersister).toHaveBeenCalledWith(
-      expect.objectContaining({ storage: window.localStorage })
+      expect.objectContaining({
+        storage: expect.objectContaining({
+          getItem: expect.any(Function),
+          setItem: expect.any(Function),
+          removeItem: expect.any(Function),
+        }),
+      })
     );
+  });
+
+  it('quota-safe storage swallows QuotaExceededError on setItem', async () => {
+    // Verify the wrapper catches DOMException so a full localStorage does not crash the app.
+    await act(async () => { render(<Providers><div /></Providers>); });
+    const { storage } = mockCreatePersister.mock.calls[0][0] as { storage: Storage };
+
+    const original = window.localStorage.setItem.bind(window.localStorage);
+    const quota = new DOMException('QuotaExceededError', 'QuotaExceededError');
+    vi.spyOn(window.localStorage, 'setItem').mockImplementationOnce(() => { throw quota; });
+
+    expect(() => storage.setItem('plately-query-cache', '{}')).not.toThrow();
+
+    window.localStorage.setItem = original;
   });
 
   it('creates persister with key "plately-query-cache"', async () => {
@@ -158,12 +180,14 @@ describe('Providers — TanStack Query persistence', () => {
     expect(persistedKeys()).toContain('restaurants');
   });
 
-  it('whitelisted query key "grocery" is persisted', async () => {
-    await renderAndPersist(['grocery'], [{ id: 'g1', name: 'Basil' }]);
-    expect(persistedKeys()).toContain('grocery');
+  it('whitelisted query key "grocery-items" is persisted', async () => {
+    await renderAndPersist(['grocery-items'], [{ id: 'g1', name: 'Basil' }]);
+    expect(persistedKeys()).toContain('grocery-items');
   });
 
-  it('non-whitelisted "recipe" (single) is NOT persisted', async () => {
+  it('single recipe detail ["recipes", uuid] is NOT persisted', async () => {
+    // The real at-risk key: useRecipe(id) uses ['recipes', someUuid] — key[0] is
+    // "recipes" which previously matched the filter. Now excluded by length guard.
     const qcRef: React.MutableRefObject<QueryClient | null> = { current: null };
     const isRestoringRef: React.MutableRefObject<boolean> = { current: true };
 
@@ -177,14 +201,19 @@ describe('Providers — TanStack Query persistence', () => {
 
     act(() => {
       qcRef.current!.setQueryData(['recipes'], [{ id: '1' }]);
-      qcRef.current!.setQueryData(['recipe', 'id'], { id: 'id' });
+      qcRef.current!.setQueryData(['recipes', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'], { id: 'a1b2c3d4' });
     });
 
-    expect(persistedKeys()).toContain('recipes');
-    expect(persistedKeys()).not.toContain('recipe');
+    const keys = readPersistedCache()?.clientState?.queries?.map((q) => q.queryKey) ?? [];
+    // Collection ['recipes'] is persisted
+    expect(keys.some((k) => k.length === 1 && k[0] === 'recipes')).toBe(true);
+    // Detail ['recipes', uuid] is NOT persisted
+    expect(keys.some((k) => k.length === 2 && k[0] === 'recipes')).toBe(false);
   });
 
-  it('non-whitelisted "restaurant" (singular) is NOT persisted', async () => {
+  it('single restaurant detail ["restaurants", id] is NOT persisted', async () => {
+    // The real at-risk key: useRestaurant(id) uses ['restaurants', id] — key[0] is
+    // "restaurants" which previously matched the filter. Now excluded by sub check.
     const qcRef: React.MutableRefObject<QueryClient | null> = { current: null };
     const isRestoringRef: React.MutableRefObject<boolean> = { current: true };
 
@@ -198,11 +227,14 @@ describe('Providers — TanStack Query persistence', () => {
 
     act(() => {
       qcRef.current!.setQueryData(['restaurants'], [{ id: 'r1' }]);
-      qcRef.current!.setQueryData(['restaurant', 'r-id'], { id: 'r-id' });
+      qcRef.current!.setQueryData(['restaurants', 'some-restaurant-uuid'], { id: 'some-restaurant-uuid' });
     });
 
-    expect(persistedKeys()).toContain('restaurants');
-    expect(persistedKeys()).not.toContain('restaurant');
+    const keys = readPersistedCache()?.clientState?.queries?.map((q) => q.queryKey) ?? [];
+    // Collection ['restaurants'] is persisted
+    expect(keys.some((k) => k.length === 1 && k[0] === 'restaurants')).toBe(true);
+    // Detail ['restaurants', uuid] is NOT persisted
+    expect(keys.some((k) => k.length === 2 && k[0] === 'restaurants')).toBe(false);
   });
 
   it('persisted data survives remount (simulating app restart)', async () => {
@@ -241,27 +273,46 @@ describe('Providers — TanStack Query persistence', () => {
 
   // ── Whitelist unit test ────────────────────────────────────────────────────
 
-  it('shouldDehydrateQuery includes recipes/restaurants/grocery but not single-record keys', () => {
+  it('shouldDehydrateQuery: collections persisted, detail queries excluded', () => {
     const qc = new QueryClient();
 
+    // Whitelisted collections
     qc.setQueryData(['recipes'], [{ id: '1' }]);
+    qc.setQueryData(['recipes', 'kept'], [{ id: '2' }]);
+    qc.setQueryData(['recipes', 'restaurant', 'rest-1'], [{ id: '3' }]);
     qc.setQueryData(['restaurants'], [{ id: 'r1' }]);
-    qc.setQueryData(['grocery'], [{ id: 'g1' }]);
-    qc.setQueryData(['recipe', 'id-1'], { id: 'id-1' });
-    qc.setQueryData(['restaurant', 'r-id'], { id: 'r-id' });
+    qc.setQueryData(['grocery-items'], [{ id: 'g1' }]);
+    // Detail queries — must NOT be persisted
+    qc.setQueryData(['recipes', 'a1b2c3d4-uuid'], { id: 'a1b2c3d4' });
+    qc.setQueryData(['restaurants', 'some-uuid'], { id: 'some-uuid' });
+    qc.setQueryData(['restaurants', 'with-recipes'], [{ id: 'r1' }]);
 
     const shouldDehydrateQuery = (query: { queryKey: unknown[] }) => {
-      const key = query.queryKey[0];
-      return key === 'recipes' || key === 'restaurants' || key === 'grocery';
+      const [key, sub] = query.queryKey as [string, string | undefined];
+      if (key === 'grocery-items') return true;
+      // useRestaurantsWithRecipes() → ['restaurants', 'with-recipes'] is included
+      if (key === 'restaurants') return sub === undefined || sub === 'with-recipes';
+      if (key === 'recipes') {
+        if (sub === undefined) return true;
+        if (sub === 'kept') return true;
+        if (sub === 'restaurant') return true;
+        return false;
+      }
+      return false;
     };
 
     const dehydrated = dehydrate(qc, { shouldDehydrateQuery });
-    const keys = dehydrated.queries.map((q) => q.queryKey[0]);
+    const queryKeys = dehydrated.queries.map((q) => q.queryKey);
 
-    expect(keys).toContain('recipes');
-    expect(keys).toContain('restaurants');
-    expect(keys).toContain('grocery');
-    expect(keys).not.toContain('recipe');
-    expect(keys).not.toContain('restaurant');
+    // Included
+    expect(queryKeys).toContainEqual(['recipes']);
+    expect(queryKeys).toContainEqual(['recipes', 'kept']);
+    expect(queryKeys).toContainEqual(['recipes', 'restaurant', 'rest-1']);
+    expect(queryKeys).toContainEqual(['restaurants']);
+    expect(queryKeys).toContainEqual(['restaurants', 'with-recipes']); // joined view for home screen
+    expect(queryKeys).toContainEqual(['grocery-items']);
+    // Excluded (detail records — intentionally not persisted to avoid stale data)
+    expect(queryKeys).not.toContainEqual(['recipes', 'a1b2c3d4-uuid']);
+    expect(queryKeys).not.toContainEqual(['restaurants', 'some-uuid']);
   });
 });

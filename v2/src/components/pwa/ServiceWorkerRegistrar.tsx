@@ -16,17 +16,24 @@ export function ServiceWorkerRegistrar() {
     if (typeof window === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
 
-    // Capture cleanup so React can call it on unmount even though registration
-    // is async. The function is populated inside the .then() callback.
+    // Track mount state so we can bail out if the component unmounts before
+    // .register().then() resolves (fast navigation, React StrictMode double-invoke).
+    let mounted = true;
     let removeVisibilityListener: (() => void) | undefined;
+    let removeMessageListener: (() => void) | undefined;
 
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
       .then((registration) => {
+        if (!mounted) return; // unmounted before registration resolved — skip setup
+
         // Listen for replayed grocery actions from the SW (queued while offline).
         // localStorage is already up-to-date (the action was applied when the user
         // tapped). On replay we only need to sync the change to Supabase.
-        navigator.serviceWorker.addEventListener('message', (event) => {
+        // Capture the SW object reference now so the cleanup closure does not
+        // need to read navigator.serviceWorker again (it may be gone in tests).
+        const sw = navigator.serviceWorker;
+        const handleMessage = (event: MessageEvent) => {
           if (event.data?.type !== 'REPLAY_GROCERY_ACTION') return;
           const action = event.data.action as { kind: string; itemId: string };
           if (!action?.kind || !action?.itemId) return;
@@ -53,7 +60,9 @@ export function ServiceWorkerRegistrar() {
               .delete()
               .eq('id', action.itemId);
           }
-        });
+        };
+        sw.addEventListener('message', handleMessage);
+        removeMessageListener = () => sw.removeEventListener('message', handleMessage);
 
         // Check for waiting SW update on each page visibility change
         const handleVisibilityChange = () => {
@@ -70,7 +79,9 @@ export function ServiceWorkerRegistrar() {
       });
 
     return () => {
+      mounted = false;
       removeVisibilityListener?.();
+      removeMessageListener?.();
     };
   }, []);
 

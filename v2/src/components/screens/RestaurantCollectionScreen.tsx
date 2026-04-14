@@ -6,7 +6,6 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { RestaurantGridCard } from "@/components/ui/RestaurantGridCard";
 import { RemoveRestaurantSheet } from "@/components/ui/RemoveRestaurantSheet";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { RestaurantSearchOverlay } from "@/components/screens/RestaurantSearchOverlay";
 import { useRestaurantsWithRecipes } from "@/hooks/useRestaurants";
 import { useCameraContext } from "@/contexts/CameraContext";
 
@@ -71,9 +70,6 @@ export function RestaurantCollectionScreen({ onScanPress }: RestaurantCollection
     name: string;
     dishCount: number;
   } | null>(null);
-
-  // Search overlay state
-  const [searchOpen, setSearchOpen] = useState(false);
 
   // ── Loading state ───────────────────────────────────────────
   if (isPending) {
@@ -237,7 +233,7 @@ export function RestaurantCollectionScreen({ onScanPress }: RestaurantCollection
             {/* Ghost CTA: Find a restaurant (search path) */}
             <motion.button
               aria-label="Find a restaurant by name"
-              onClick={() => setSearchOpen(true)}
+              onClick={() => router.push('/search')}
               className="flex items-center justify-center gap-2 font-semibold"
               style={{
                 width: '100%',
@@ -265,9 +261,6 @@ export function RestaurantCollectionScreen({ onScanPress }: RestaurantCollection
           </div>
         </motion.div>
 
-        {searchOpen && (
-          <RestaurantSearchOverlay onDismiss={() => setSearchOpen(false)} />
-        )}
       </>
     );
   }
@@ -292,7 +285,7 @@ export function RestaurantCollectionScreen({ onScanPress }: RestaurantCollection
         <button
           type="button"
           aria-label="Find a restaurant by name"
-          onClick={() => setSearchOpen(true)}
+          onClick={() => router.push('/search')}
           style={{
             minWidth: 44,
             minHeight: 44,
@@ -359,9 +352,6 @@ export function RestaurantCollectionScreen({ onScanPress }: RestaurantCollection
         />
       )}
 
-      {searchOpen && (
-        <RestaurantSearchOverlay onDismiss={() => setSearchOpen(false)} />
-      )}
     </>
   );
 }

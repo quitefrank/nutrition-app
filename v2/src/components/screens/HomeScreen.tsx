@@ -22,7 +22,6 @@
  * Story 4.6 — AC 1–9.
  */
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { HeroCard } from '@/components/ui/HeroCard'
@@ -30,7 +29,6 @@ import { HomeSection } from '@/components/ui/HomeSection'
 import { RestaurantGridCard } from '@/components/ui/RestaurantGridCard'
 import { RecipeGridCard } from '@/components/ui/RecipeGridCard'
 import { ErrorState } from '@/components/ui/ErrorState'
-import { RestaurantSearchOverlay } from '@/components/screens/RestaurantSearchOverlay'
 import { useRestaurantsWithRecipes } from '@/hooks/useRestaurants'
 import { useCameraContext } from '@/contexts/CameraContext'
 import type { DomainRestaurant, DomainRecipe } from '@/types/database'
@@ -64,8 +62,6 @@ export function HomeScreen() {
   const router = useRouter()
   const { openCamera } = useCameraContext()
   const reducedMotion = useReducedMotion()
-  const [searchOpen, setSearchOpen] = useState(false)
-
   const { data: restaurants, isPending, isError, refetch } = useRestaurantsWithRecipes()
 
   const restaurantList = restaurants ?? []
@@ -235,7 +231,7 @@ export function HomeScreen() {
               {/* Ghost find-a-restaurant CTA */}
               <motion.button
                 aria-label="Find a restaurant by name"
-                onClick={() => setSearchOpen(true)}
+                onClick={() => router.push('/search')}
                 className="flex items-center justify-center gap-2 font-semibold"
                 style={{
                   width: '100%',
@@ -365,7 +361,6 @@ export function HomeScreen() {
         )}
       </AnimatePresence>
 
-      {searchOpen && <RestaurantSearchOverlay onDismiss={() => setSearchOpen(false)} />}
     </>
   )
 }

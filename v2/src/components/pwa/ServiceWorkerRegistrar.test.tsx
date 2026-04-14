@@ -34,6 +34,7 @@ function installServiceWorker() {
       addEventListener: vi.fn((type: string, handler: MessageHandler) => {
         if (type === 'message') messageListeners.push(handler);
       }),
+      removeEventListener: vi.fn(),
       controller: null,
     },
     writable: true,
@@ -210,6 +211,69 @@ describe('ServiceWorkerRegistrar', () => {
 
     expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
     removeSpy.mockRestore();
+  });
+
+  it('removes SW message listener on unmount', async () => {
+    const { messageListeners } = installServiceWorker();
+    // Spy on removeEventListener on the serviceWorker object
+    const swRemoveSpy = vi.fn();
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        ...navigator.serviceWorker,
+        removeEventListener: swRemoveSpy,
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    let unmount!: () => void;
+    await act(async () => {
+      ({ unmount } = render(<ServiceWorkerRegistrar />));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(messageListeners.length).toBeGreaterThan(0);
+
+    act(() => { unmount(); });
+
+    expect(swRemoveSpy).toHaveBeenCalledWith('message', expect.any(Function));
+  });
+
+  it('does NOT attach listeners if component unmounts before registration resolves', async () => {
+    // Simulate slow registration: promise never resolves during this test
+    let resolveRegistration!: (r: { update: () => Promise<void> }) => void;
+    const pendingRegister = vi.fn().mockReturnValue(
+      new Promise<{ update: () => Promise<void> }>((resolve) => { resolveRegistration = resolve; })
+    );
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        register: pendingRegister,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        controller: null,
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    const addDocSpy = vi.spyOn(document, 'addEventListener');
+
+    let unmount!: () => void;
+    await act(async () => {
+      ({ unmount } = render(<ServiceWorkerRegistrar />));
+    });
+
+    // Unmount before registration resolves
+    act(() => { unmount(); });
+
+    // Now resolve the registration — mounted guard should prevent listener attachment
+    await act(async () => {
+      resolveRegistration({ update: vi.fn().mockResolvedValue(undefined) });
+      await Promise.resolve();
+    });
+
+    expect(addDocSpy).not.toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    addDocSpy.mockRestore();
   });
 
   it('renders null (no visible output)', async () => {

@@ -24,14 +24,6 @@ vi.mock('@/contexts/CameraContext', () => ({
   CameraContext: { Provider: ({ children }: { children: React.ReactNode }) => children },
 }))
 
-// Mock RestaurantSearchOverlay to avoid rendering the full overlay in tests
-vi.mock('@/components/screens/RestaurantSearchOverlay', () => ({
-  RestaurantSearchOverlay: ({ onDismiss }: { onDismiss: () => void }) => (
-    <div data-testid="restaurant-search-overlay">
-      <button onClick={onDismiss}>Dismiss</button>
-    </div>
-  ),
-}))
 
 // ─── Test data ────────────────────────────────────────────────────────────────
 
@@ -216,16 +208,14 @@ describe('HomeScreen', () => {
     })
   })
 
-  // ── AC1: "Find a restaurant" CTA opens RestaurantSearchOverlay ───────────────
-  describe('AC7: Find a restaurant CTA opens search overlay', () => {
-    it('renders RestaurantSearchOverlay when "Find a restaurant" is tapped', async () => {
+  // ── AC7: "Find a restaurant" CTA navigates to /search ───────────────────────
+  describe('AC7: Find a restaurant CTA navigates to /search', () => {
+    it('calls router.push("/search") when "Find a restaurant" is tapped', async () => {
       setMockData([])
       const user = userEvent.setup()
       render(<HomeScreen />)
-      // Initially not shown
-      expect(screen.queryByTestId('restaurant-search-overlay')).toBeNull()
       await user.click(screen.getByRole('button', { name: /find a restaurant by name/i }))
-      expect(screen.getByTestId('restaurant-search-overlay')).toBeTruthy()
+      expect(mockPush).toHaveBeenCalledWith('/search')
     })
   })
 

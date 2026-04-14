@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
 import { recordSearchVisit } from "@/components/banners/SmartBanner";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -102,6 +103,8 @@ export function SearchScreen() {
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const isOnline = useOnlineStatus();
+
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [inputFocused, setInputFocused] = useState(false);
   const [results, setResults] = useState<RestaurantResult[]>([]);
@@ -144,6 +147,13 @@ export function SearchScreen() {
       return;
     }
 
+    // Offline guard — show specific offline state, don't attempt the API call
+    if (!isOnline) {
+      setResults([]);
+      setIsError(false); // not an error, just offline
+      return;
+    }
+
     let cancelled = false;
     setIsLoading(true);
     setIsError(false);
@@ -172,7 +182,7 @@ export function SearchScreen() {
   // coords is intentionally excluded: we don't want to re-fire the search
   // just because location resolved. It will be included on the next keystroke.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, isOnline]);
 
   const handleCardTap = (result: RestaurantResult) => {
     saveRecent(debouncedQuery.trim());
@@ -242,6 +252,26 @@ export function SearchScreen() {
           </div>
         </FrostedCard>
       </motion.div>
+
+      {/* Offline notice — shown when debounced query meets threshold but device is offline */}
+      {!isOnline && debouncedQuery.trim().length >= MIN_QUERY_LEN && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="px-4 py-3 text-center"
+          style={{
+            background: "rgba(251,243,226,0.95)", // amber tint — same as ScanConfidenceBanner
+            borderRadius: 12,
+            margin: "0 16px",
+            color: "var(--color-text-primary)",
+          }}
+        >
+          <p style={{ fontSize: 14, fontWeight: 600 }}>No internet connection</p>
+          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginTop: 4 }}>
+            Restaurant search requires network access. Your saved collection is available offline.
+          </p>
+        </div>
+      )}
 
       {/* Recent searches */}
       <AnimatePresence>
@@ -329,8 +359,8 @@ export function SearchScreen() {
               </motion.div>
             )}
 
-            {/* Empty state */}
-            {!isLoading && !isError && results.length === 0 && (
+            {/* Empty state — only shown when online; offline case shows the notice above */}
+            {!isLoading && !isError && isOnline && results.length === 0 && (
               <motion.div variants={rowVariants}>
                 <p
                   className="text-sm text-center py-6"

@@ -31,7 +31,7 @@ So that visiting a restaurant without signal doesn't leave me unable to access m
 **AC3 — Offline launch from home screen icon**
 **Given** the service worker cache and the collection data persister are both in place
 **When** the app is launched from the home screen icon with no network connection
-**Then** the cached app shell loads; the cached collection data is displayed; no network requests are attempted for data that is already cached
+**Then** the cached app shell loads; the cached collection data is displayed immediately; any stale-data background refetches are paused by TanStack Query's default `networkMode: "online"` until connectivity is restored — no network calls complete while the device is offline
 
 **AC4 — Stale-while-revalidate for cached resources**
 **Given** the cache strategy is implemented
@@ -200,18 +200,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
 ### Query key alignment
 
-The existing hooks already use the correct query keys:
+The existing hooks and their persistence status:
 
-| Hook | queryKey | Persisted? |
-|------|----------|-----------|
-| `useRecipes()` | `["recipes"]` | ✅ Yes |
-| `useKeptRecipes()` | `["recipes", "kept"]` | ✅ Yes |
-| `useRecipesByRestaurant(id)` | `["recipes", "restaurant", id]` | ✅ Yes (key[0] = "recipes") |
-| `useRestaurants()` | `["restaurants"]` | ✅ Yes |
-| `useGrocery()` | `["grocery"]` | ✅ Yes |
+| Hook | queryKey | Persisted? | Reason |
+|------|----------|-----------|--------|
+| `useRecipes()` | `["recipes"]` | ✅ Yes | collection |
+| `useKeptRecipes()` | `["recipes", "kept"]` | ✅ Yes | named subset |
+| `useRecipesByRestaurant(id)` | `["recipes", "restaurant", id]` | ✅ Yes | named subset |
+| `useRestaurants()` | `["restaurants"]` | ✅ Yes | collection |
+| `useGroceryItems()` | `["grocery-items"]` | ✅ Yes | collection |
+| `useRecipe(id)` | `["recipes", recipeId]` | ❌ No | single detail — key[0] matches "recipes" but length > 1 with non-named sub-key |
+| `useRestaurant(id)` | `["restaurants", id]` | ❌ No | single detail |
+| `useRestaurantsWithRecipes()` | `["restaurants", "with-recipes"]` | ❌ No | joined view, not needed offline |
+
+**Filter rule:** `shouldDehydrateQuery` checks `key[0]` AND the second segment for named sub-keys. A query passes only if:
+- `key === "grocery-items"` (any length)
+- `key === "restaurants"` AND no second segment (collection only)
+- `key === "recipes"` AND (no second segment, OR second segment is `"kept"` or `"restaurant"`)
 
 Do NOT add persistence for:
-- `["recipe", recipeId]` — single recipe detail; fetched on demand
+- `["recipes", recipeId]` — single recipe detail; second segment is a UUID (not a named key)
+- `["restaurants", id]` — single restaurant detail
 - Scan/enrichment results (session storage, not TanStack Query)
 
 ### sw.js — verified, no changes needed
@@ -263,7 +272,7 @@ When the user launches the app offline:
 1. SW serves the cached app shell (HTML from `'/'`, JS chunks from `_next/static/`)
 2. React hydrates; TanStack Query's `PersistQueryClientProvider` restores the persisted cache from `localStorage`
 3. Hooks like `useRecipes()`, `useRestaurants()` return the persisted data immediately — they do NOT go to the network
-4. TanStack Query marks the data as `stale` (past `staleTime`), but since the network is unavailable, the background refetch silently fails; the stale data remains displayed
+4. TanStack Query marks the data as `stale` (past `staleTime`), but with the default `networkMode: "online"`, background refetches are **paused** (not attempted) while the device is offline; the stale data remains displayed until connectivity is restored and the refetch runs
 5. Supabase SDK connection attempts fail silently; hooks gracefully degrade (existing `retry` config handles this)
 
 ### What does NOT change in this story

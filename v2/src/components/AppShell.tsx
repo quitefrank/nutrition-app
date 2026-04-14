@@ -9,6 +9,7 @@ import { ProcessingStrip, ProcessingState } from "@/components/layout/Processing
 import { CameraModal } from "@/components/capture/CameraModal";
 import { ScanConfirmationOverlay } from "@/components/scan/ScanConfirmationOverlay";
 import { CameraContext } from "@/contexts/CameraContext";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -31,33 +32,19 @@ export function AppShell({ children, atmosphericImageUrl, atmosphericRestaurantI
   // scanKey set when a scan completes and is awaiting restaurant confirmation
   const [confirmingScanKey, setConfirmingScanKey] = useState<string | null>(null);
 
-  // Offline detection — navigator.onLine is synchronously available in browser
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== "undefined" ? navigator.onLine : true
-  );
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
+  const isOnline = useOnlineStatus();
 
   // openCamera respects the "no second scan while confirming" guard already used by TabBar
   const openCamera = () => { if (!confirmingScanKey) setCameraOpen(true); };
 
   return (
     <CameraContext.Provider value={{ openCamera }}>
-    <div className="relative h-full">
+    <div className="relative">
       {/* Layer 0: Atmospheric background */}
       <AtmosphericBackground imageUrl={atmosphericImageUrl} restaurantId={atmosphericRestaurantId} />
 
-      {/* Layer 1: Page content */}
-      <div className="relative z-10 h-full scroll-content">{children}</div>
+      {/* Layer 1: Page content — scroll-content sets height: 100dvh explicitly */}
+      <div className="relative z-10 scroll-content">{children}</div>
 
       {/* Settings icon — persistent top-right, hidden on settings page itself.
           Deferred to client-only to avoid SSR/client pathname mismatch. */}

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { SPRING_CARD_EXPAND } from "@/lib/springs";
 
 const tabs = [
-  { href: "/restaurants", label: "Home", Icon: HomeIcon },
+  { href: "/", label: "Home", Icon: HomeIcon },
   { href: "/search", label: "Search", Icon: SearchIcon },
   { href: "/grocery", label: "Grocery", Icon: GroceryIcon },
   { href: "/recipes", label: "Recipes", Icon: RecipesIcon },
@@ -20,8 +20,9 @@ interface TabBarProps {
 }
 
 // Routes that should keep the correct tab highlighted
+// "/" must list "/restaurants" explicitly — startsWith("//") never matches.
 const ACTIVE_PREFIXES: Partial<Record<string, string[]>> = {
-  "/restaurants": ["/restaurants"],
+  "/": ["/", "/restaurants"],
   "/search": ["/search"],
   "/grocery": ["/grocery"],
   "/recipes": ["/recipes", "/recipe"],

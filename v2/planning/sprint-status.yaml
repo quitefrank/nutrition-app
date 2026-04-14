@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-12
-last_updated: 2026-04-13 # 5-2 review patches applied → done; 5-4 review patches applied → done; 5-3 review patches applied → done; epic-5 → done; epic-6 → in-progress; 6-1..6-5 → ready-for-dev; 6-1 → review; 6-1 review patches applied → done; 6-2 → review; 6-2 review patches applied → done; 6-3 → review; 6-3 review patches applied → done; 6-4 → review; 6-4 review patches applied → done; 6-5 review patches applied → done; epic-6 → done; epic-7 → in-progress; 7-1 → in-progress; 7-2 → ready-for-dev; 7-4 → ready-for-dev; 7-3 → ready-for-dev; 7-5 → ready-for-dev; 7-1 review patches applied → done
+last_updated: 2026-04-13 # 5-2 review patches applied → done; 5-4 review patches applied → done; 5-3 review patches applied → done; epic-5 → done; epic-6 → in-progress; 6-1..6-5 → ready-for-dev; 6-1 → review; 6-1 review patches applied → done; 6-2 → review; 6-2 review patches applied → done; 6-3 → review; 6-3 review patches applied → done; 6-4 → review; 6-4 review patches applied → done; 6-5 review patches applied → done; epic-6 → done; epic-7 → in-progress; 7-1 → in-progress; 7-2 → ready-for-dev; 7-4 → ready-for-dev; 7-3 → ready-for-dev; 7-5 → ready-for-dev; 7-1 review patches applied → done; 7-5 → review; 7-5 review patches applied → done
 project: Plately v2
 
 # 2026-04-12: 2-1 → done; 2-2 → done; 2-3 → review; 2-3 review patches applied (P1-P11 + IG1) → done; 2-4 review patches applied → done; 2-8 → in-progress → review
@@ -121,12 +121,12 @@ development_status:
   # ──────────────────────────────────────────────────────────
   # Epic 7: Accessibility, Offline & Production Hardening
   # ──────────────────────────────────────────────────────────
-  epic-7: in-progress
+  epic-7: done
   7-1-service-worker-offline-cache-strategy: done
   7-2-wcag-21-aa-colour-compliance-audit: done
   7-3-voiceover-keyboard-navigation-audit: done
   7-4-performance-benchmark-validation: done
-  7-5-offline-read-only-access: ready-for-dev
+  7-5-offline-read-only-access: done
   epic-7-retrospective: optional
 
   # ──────────────────────────────────────────────────────────
