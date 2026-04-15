@@ -1,25 +1,24 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
 // vi.hoisted ensures these are available when vi.mock factories run (which are
 // hoisted to the top of the module by Vitest at transform time).
-const { mockGenerateContent, MockGoogleGenerativeAI, mockGetGenerativeModel } = vi.hoisted(() => {
+const { mockGenerateContent, MockGoogleGenAI } = vi.hoisted(() => {
   const mockGenerateContent = vi.fn()
-  const mockGetGenerativeModel = vi.fn(() => ({ generateContent: mockGenerateContent }))
-  // Must use a regular function (not arrow) so vi.fn() supports 'new GoogleGenerativeAI(...)'
-  const MockGoogleGenerativeAI = vi.fn(function MockGoogleGenerativeAI() {
-    return { getGenerativeModel: mockGetGenerativeModel }
+  // Must use a regular function (not arrow) so vi.fn() supports 'new GoogleGenAI(...)'
+  const MockGoogleGenAI = vi.fn(function MockGoogleGenAI() {
+    return { models: { generateContent: mockGenerateContent } }
   })
-  return { mockGenerateContent, MockGoogleGenerativeAI, mockGetGenerativeModel }
+  return { mockGenerateContent, MockGoogleGenAI }
 })
 
 const mockGetApiKeys = vi.hoisted(() => vi.fn(() => ({ gemini: 'AItest123456789012345678901234567890' })))
 const mockGetCachedMenu = vi.hoisted(() => vi.fn().mockResolvedValue(null))
 const mockCacheMenu = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: MockGoogleGenerativeAI,
+vi.mock('@google/genai', () => ({
+  GoogleGenAI: MockGoogleGenAI,
 }))
 
 vi.mock('@/lib/api-keys', () => ({
@@ -49,17 +48,19 @@ function makeReq(body: Record<string, unknown>, headers?: Record<string, string>
 }
 
 function geminiSuccessResponse(overrides?: {
+  type?: 'menu' | 'dish'
   restaurantName?: string | null
   dishes?: Array<{ name: string; description: string; confidence?: number; ingredients?: unknown[] }>
 }) {
   const payload = {
-    type: 'menu',
+    type: overrides?.type ?? 'menu',
     restaurantName: overrides?.restaurantName ?? 'Test Restaurant',
     dishes: overrides?.dishes ?? [
       { name: 'Margherita Pizza', description: 'Classic tomato and mozzarella', confidence: 0.95, ingredients: [] },
+      { name: 'Caesar Salad', description: 'Crispy romaine with Caesar dressing', confidence: 0.9, ingredients: [] },
     ],
   }
-  return { response: { text: () => JSON.stringify(payload) } }
+  return { text: JSON.stringify(payload) }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -71,8 +72,6 @@ describe('POST /api/scan', () => {
     mockGetCachedMenu.mockResolvedValue(null)
     mockCacheMenu.mockResolvedValue(undefined)
     mockGenerateContent.mockResolvedValue(geminiSuccessResponse())
-    // Reset to one-model-per-call
-    mockGetGenerativeModel.mockReturnValue({ generateContent: mockGenerateContent })
   })
 
   // ─── Validation ─────────────────────────────────────────────────────────────
@@ -117,7 +116,7 @@ describe('POST /api/scan', () => {
         { 'X-User-Gemini-Key': userKey }
       )
       await POST(req)
-      expect(MockGoogleGenerativeAI).toHaveBeenCalledWith(userKey)
+      expect(MockGoogleGenAI).toHaveBeenCalledWith({ apiKey: userKey })
     })
 
     it('invalid key (too short) → falls back to system key', async () => {
@@ -128,7 +127,7 @@ describe('POST /api/scan', () => {
         { 'X-User-Gemini-Key': 'AIshort' } // < 39 chars
       )
       await POST(req)
-      expect(MockGoogleGenerativeAI).toHaveBeenCalledWith(systemKey)
+      expect(MockGoogleGenAI).toHaveBeenCalledWith({ apiKey: systemKey })
     })
   })
 
@@ -206,6 +205,7 @@ describe('POST /api/scan', () => {
           dishes: [
             { name: '', description: 'nameless', confidence: 0.5, ingredients: [] },
             { name: 'Pasta', description: 'Al dente', confidence: 0.9, ingredients: [] },
+            { name: 'Salad', description: 'Fresh garden salad', confidence: 0.85, ingredients: [] },
           ],
         })
       )
@@ -213,9 +213,9 @@ describe('POST /api/scan', () => {
       const res = await POST(req)
       expect(res.status).toBe(200)
       const body = await res.json()
-      // One dish returned, but two were detected (one had empty name)
-      expect(body.data.dishes.length).toBe(1)
-      expect(body.data.totalDetected).toBe(2)
+      // Two dishes returned, but three were detected (one had empty name)
+      expect(body.data.dishes.length).toBe(2)
+      expect(body.data.totalDetected).toBe(3)
     })
 
     it('all dishes empty name → 422 NO_DISHES (totalDetected is not in response)', async () => {
@@ -234,25 +234,80 @@ describe('POST /api/scan', () => {
     })
   })
 
-  // ─── Gemini fallback ─────────────────────────────────────────────────────────
+  // ─── Menu type validation ─────────────────────────────────────────────────────
 
-  describe('Gemini fallback', () => {
-    it('2.5 Flash throws 503 → 2.0 Flash called → 200', async () => {
-      const successResult = geminiSuccessResponse()
-      // First call (2.5 Flash) throws 503; second call (2.0 Flash) succeeds
-      mockGenerateContent
-        .mockRejectedValueOnce(new Error('503 Service Unavailable'))
-        .mockResolvedValueOnce(successResult)
+  describe('menu type validation', () => {
+    it('type:"dish" with 1 dish → 422, code: NOT_A_MENU', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiSuccessResponse({
+          type: 'dish',
+          dishes: [
+            { name: 'Swirled Soft Serve', description: 'Berry soft serve dessert', confidence: 0.92, ingredients: [] },
+          ],
+        })
+      )
+      const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
+      const res = await POST(req)
+      expect(res.status).toBe(422)
+      const body = await res.json()
+      expect(body.error.code).toBe('NOT_A_MENU')
+    })
 
+    it('type:"dish" with 2+ dishes → 200 (unusual but passes through)', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiSuccessResponse({
+          type: 'dish',
+          dishes: [
+            { name: 'Soft Serve', description: 'Berry swirl', confidence: 0.9, ingredients: [] },
+            { name: 'Waffle Cone', description: 'Crispy cone', confidence: 0.85, ingredients: [] },
+          ],
+        })
+      )
       const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
       const res = await POST(req)
       expect(res.status).toBe(200)
-      expect(mockGetGenerativeModel).toHaveBeenCalledTimes(2)
-      expect(mockGetGenerativeModel).toHaveBeenNthCalledWith(1, { model: 'gemini-2.5-flash' })
-      expect(mockGetGenerativeModel).toHaveBeenNthCalledWith(2, { model: 'gemini-2.0-flash' })
     })
 
-    it('both models fail → 503, code: AI_UNAVAILABLE', async () => {
+    it('type:"menu" with 1 dish → 422, code: INSUFFICIENT_MENU_ITEMS', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiSuccessResponse({
+          type: 'menu',
+          dishes: [
+            { name: 'Swirled Soft Serve', description: 'Hero item on a menu page', confidence: 0.88, ingredients: [] },
+          ],
+        })
+      )
+      const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
+      const res = await POST(req)
+      expect(res.status).toBe(422)
+      const body = await res.json()
+      expect(body.error.code).toBe('INSUFFICIENT_MENU_ITEMS')
+    })
+
+    it('type:"menu" with 2+ dishes → 200', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiSuccessResponse({
+          dishes: [
+            { name: 'Pasta', description: 'Al dente spaghetti', confidence: 0.95, ingredients: [] },
+            { name: 'Risotto', description: 'Creamy mushroom risotto', confidence: 0.9, ingredients: [] },
+          ],
+        })
+      )
+      const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
+      const res = await POST(req)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.data.dishes.length).toBe(2)
+    })
+  })
+
+  // ─── Gemini failure ──────────────────────────────────────────────────────────
+
+  describe('Gemini failure', () => {
+    it('Gemini throws → 503, code: AI_UNAVAILABLE', async () => {
+      // Transient errors trigger a 2s retry — both attempts must fail so the outer
+      // catch fires AI_UNAVAILABLE. A single mockRejectedValueOnce would let the
+      // retry succeed via the default beforeEach mock (→ 200), breaking the test.
       mockGenerateContent
         .mockRejectedValueOnce(new Error('503 Service Unavailable'))
         .mockRejectedValueOnce(new Error('503 Service Unavailable'))
@@ -274,6 +329,7 @@ describe('POST /api/scan', () => {
           dishes: [
             { name: '', description: 'nameless dish', confidence: 0.9, ingredients: [] },
             { name: 'Pasta', description: 'Al dente spaghetti', confidence: 0.9, ingredients: [] },
+            { name: 'Pizza', description: 'Margherita pizza', confidence: 0.9, ingredients: [] },
           ],
         })
       )
@@ -281,7 +337,7 @@ describe('POST /api/scan', () => {
       const res = await POST(req)
       expect(res.status).toBe(200)
       const body = await res.json()
-      expect(body.data.dishes.length).toBe(1)
+      expect(body.data.dishes.length).toBe(2)
       expect(body.data.dishes[0].name).toBe('Pasta')
     })
 
@@ -299,6 +355,46 @@ describe('POST /api/scan', () => {
       expect(res.status).toBe(422)
       const body = await res.json()
       expect(body.error.code).toBe('NO_DISHES')
+    })
+
+    it('duplicate dish names (different casing/whitespace) → deduped, first wins; unique names kept', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiSuccessResponse({
+          dishes: [
+            { name: 'Ice Cream', description: 'Vanilla ice cream', confidence: 0.9, ingredients: [] },
+            { name: 'ice cream', description: 'Duplicate entry', confidence: 0.8, ingredients: [] },
+            { name: '  Ice Cream  ', description: 'Whitespace variant', confidence: 0.7, ingredients: [] },
+            { name: 'Coffee Cake', description: 'Moist chocolate sponge', confidence: 0.85, ingredients: [] },
+          ],
+        })
+      )
+      const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
+      const res = await POST(req)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      // Three ice cream variants collapse to one; Coffee Cake is kept → 2 total
+      expect(body.data.dishes.length).toBe(2)
+      expect(body.data.dishes[0].name).toBe('Ice Cream')
+      expect(body.data.dishes[0].description).toBe('Vanilla ice cream')
+      expect(body.data.dishes[1].name).toBe('Coffee Cake')
+    })
+
+    it('different dish names after normalisation → all kept', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiSuccessResponse({
+          dishes: [
+            { name: 'Ice Cream', description: 'Vanilla', confidence: 0.9, ingredients: [] },
+            { name: 'Coffee Pudding', description: 'Coffee jelly', confidence: 0.9, ingredients: [] },
+            { name: 'アイスクリーム', description: 'Japanese label (cross-language, not deduped here)', confidence: 0.7, ingredients: [] },
+          ],
+        })
+      )
+      const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
+      const res = await POST(req)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      // Route dedup does not collapse cross-language duplicates (that is handled at the prompt level)
+      expect(body.data.dishes.length).toBe(3)
     })
   })
 
@@ -331,7 +427,7 @@ describe('POST /api/scan', () => {
 
   describe('API key', () => {
     it('no API key configured → 503, code: SCAN_SERVICE_UNAVAILABLE', async () => {
-      mockGetApiKeys.mockReturnValue({ gemini: undefined })
+      mockGetApiKeys.mockReturnValue({ gemini: undefined as unknown as string })
       const req = makeReq({ imageBase64: 'base64data', mimeType: 'image/jpeg' })
       const res = await POST(req)
       expect(res.status).toBe(503)

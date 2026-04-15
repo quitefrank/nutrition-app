@@ -315,7 +315,7 @@ export function SettingsScreen() {
             {/* WCAG 2.1 AA: explicit height/minHeight: 40 overrides the global min-height: 44px. */}
             <button
               onClick={() => setConfirmingDeleteAll(true)}
-              className="btn-pill text-sm font-medium px-4"
+              className="btn-pill text-sm font-medium px-4 w-full"
               style={{
                 minHeight: 44,
                 background: "rgba(251,234,234,0.95)",

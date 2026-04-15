@@ -30,7 +30,7 @@ export function PhotoFrame({ photoStatus, dishImageUrl, dishName, className }: P
 
   if (photoStatus === "suppressed") return null;
 
-  if (photoStatus === "confirmed" && dishImageUrl && !imageError) {
+  if (dishImageUrl && !imageError) {
     return (
       <div className={`relative overflow-hidden rounded-xl ${className ?? ""}`}>
         <Image

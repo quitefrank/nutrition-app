@@ -399,84 +399,26 @@ describe('DishRowExpanded', () => {
     })
   })
 
-  describe('portion stepper', () => {
-    it('default portion is 1× — MacroBar receives unscaled values', () => {
-      render(<DishRowExpanded {...defaultProps} totalProtein={12} totalCarbs={48} totalFat={14} />)
-      // Stepper group is present
-      expect(screen.getByRole('group', { name: /serving size/i })).toBeTruthy()
-      // Calorie display is unscaled
-      expect(screen.getByText('520 cal')).toBeTruthy()
-      // 1× pill is active by default
-      expect(screen.getByRole('button', { name: '1 serving' }).getAttribute('aria-pressed')).toBe('true')
-      // MacroBar shows unscaled values
-      expect(screen.getByText('12g')).toBeTruthy()
-      expect(screen.getByText('48g')).toBeTruthy()
-      expect(screen.getByText('14g')).toBeTruthy()
-    })
+  it('MacroBar receives correct values from props', () => {
+    render(<DishRowExpanded {...defaultProps} totalProtein={12} totalCarbs={48} totalFat={14} />)
+    expect(screen.getByText('520 cal')).toBeTruthy()
+    expect(screen.getByText('12g')).toBeTruthy()
+    expect(screen.getByText('48g')).toBeTruthy()
+    expect(screen.getByText('14g')).toBeTruthy()
+  })
 
-    it('tapping 2× scales calories × 2 in the calorie header', async () => {
-      const user = userEvent.setup()
-      render(<DishRowExpanded {...defaultProps} />)
-      await user.click(screen.getByRole('button', { name: /2 servings/i }))
-      expect(screen.getByText('1040 cal')).toBeTruthy()
-    })
-
-    it('tapping 2× scales protein, carbs, fat, fibre × 2 in MacroBar', async () => {
-      const user = userEvent.setup()
-      render(<DishRowExpanded {...defaultProps} totalProtein={12} totalCarbs={48} totalFat={14} totalFibre={10} />)
-      await user.click(screen.getByRole('button', { name: /2 servings/i }))
-      expect(screen.getByText('24g')).toBeTruthy()
-      expect(screen.getByText('96g')).toBeTruthy()
-      expect(screen.getByText('28g')).toBeTruthy()
-      expect(screen.getByText('20g')).toBeTruthy()
-    })
-
-    it('tapping 0.5× halves the calorie display', async () => {
-      const user = userEvent.setup()
-      render(<DishRowExpanded {...defaultProps} />)
-      await user.click(screen.getByRole('button', { name: /0.5 serving/i }))
-      expect(screen.getByText('260 cal')).toBeTruthy()
-    })
-
-    it('collapsing resets portion to 1× (next render shows 1× pill as active)', async () => {
-      const user = userEvent.setup()
-      const onCollapse = vi.fn()
-      render(<DishRowExpanded {...defaultProps} onCollapse={onCollapse} />)
-      // Select 2× first
-      await user.click(screen.getByRole('button', { name: /2 servings/i }))
-      expect(screen.getByRole('button', { name: '2 servings' }).getAttribute('aria-pressed')).toBe('true')
-      // Collapse resets portion to 1×
-      await user.click(screen.getByLabelText('Collapse'))
-      expect(screen.getByRole('button', { name: '1 serving' }).getAttribute('aria-pressed')).toBe('true')
-      expect(screen.getByRole('button', { name: '2 servings' }).getAttribute('aria-pressed')).toBe('false')
-    })
-
-    it('when totalProtein is null, scaledProtein passed to MacroBar is also null (not 0)', async () => {
-      const user = userEvent.setup()
-      render(
-        <DishRowExpanded
-          {...defaultProps}
-          totalProtein={null}
-          totalCarbs={null}
-          totalFat={null}
-          totalFibre={null}
-        />
-      )
-      await user.click(screen.getByRole('button', { name: /2 servings/i }))
-      // All 4 macro cells show — because null propagates (not coerced to 0)
-      const dashes = screen.getAllByText('—')
-      expect(dashes).toHaveLength(4)
-      // If null were coerced to 0, MacroBar would render "0g" — assert it does not
-      expect(screen.queryByText('0g')).toBeNull()
-    })
-
-    it('portion pills have aria-pressed set correctly (active = true, inactive = false)', () => {
-      render(<DishRowExpanded {...defaultProps} />)
-      // Default: 1× is active, rest are inactive
-      expect(screen.getByRole('button', { name: '0.5 serving' }).getAttribute('aria-pressed')).toBe('false')
-      expect(screen.getByRole('button', { name: '1 serving' }).getAttribute('aria-pressed')).toBe('true')
-      expect(screen.getByRole('button', { name: '1.5 servings' }).getAttribute('aria-pressed')).toBe('false')
-      expect(screen.getByRole('button', { name: '2 servings' }).getAttribute('aria-pressed')).toBe('false')
-    })
+  it('when totalProtein is null, MacroBar receives null (not 0)', () => {
+    render(
+      <DishRowExpanded
+        {...defaultProps}
+        totalProtein={null}
+        totalCarbs={null}
+        totalFat={null}
+        totalFibre={null}
+      />
+    )
+    const dashes = screen.getAllByText('—')
+    expect(dashes).toHaveLength(4)
+    expect(screen.queryByText('0g')).toBeNull()
   })
 })

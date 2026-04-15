@@ -635,8 +635,6 @@ function RecipePageInner() {
           </motion.div>
         )}
 
-        {/* Bottom padding for tab bar */}
-        <div style={{ height: "calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)" }} />
       </motion.div>
     </AppShell>
   );

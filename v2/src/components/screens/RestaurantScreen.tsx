@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { FrostedCard } from "@/components/ui/FrostedCard";
-import { DishRowCompact } from "@/components/scan/DishRowCompact";
-import { DishRowExpanded } from "@/components/scan/DishRowExpanded";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { PhotoFrame } from "@/components/ui/PhotoFrame";
+import { DishCard } from "@/components/scan/DishCard";
 import { ScanConfidenceBanner } from "@/components/scan/ScanConfidenceBanner";
 import { CameraModal } from "@/components/capture/CameraModal";
 import { ManualDishEntrySheet } from "@/components/scan/ManualDishEntrySheet";
@@ -15,7 +14,6 @@ import { useRecipesByRestaurant, useRemoveRecipe, useRecipe, useUpdateRecipe } f
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 import { supabase } from "@/lib/supabase";
 import { useEnrichment } from "@/hooks/useEnrichment";
-import { SPRING_CARD_EXPAND } from "@/lib/springs";
 import type { DomainRestaurant, DomainRecipe } from "@/types/database";
 
 // ─── Types ─────────────────────────────────────────────────
@@ -245,11 +243,11 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nameFromUrl = searchParams.get("name") ?? null;
+  const photoFromUrl = searchParams.get("photoUrl") ?? null;
   const queryClient = useQueryClient();
   const { enrich } = useEnrichment();
   const removeRecipe = useRemoveRecipe();
   const updateRecipe = useUpdateRecipe();
-  const reducedMotion = useReducedMotion();
   const [sessionRecipes, setSessionRecipes] = useState<SavedRecipe[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [confirmRecipe, setConfirmRecipe] = useState<SavedRecipe | null>(null);
@@ -280,6 +278,10 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const fallbackScannedRef = useRef(false);
   // Guards against running the photo backfill more than once per page load.
   const photoBackfillRef = useRef(false);
+  // Guards against saving the search photoUrl more than once per page load.
+  const photoSaveRef = useRef(false);
+  // Guards against calling places/enrich more than once per page load.
+  const placesEnrichRef = useRef(false);
 
   // ── SessionStorage ─────────────────────────────────────────
   useEffect(() => {
@@ -297,6 +299,54 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
 
   const supabaseRestaurant: DomainRestaurant | null =
     allRestaurants?.find((r) => r.placeId === placeId) ?? null;
+
+  // ── Save search photo URL ───────────────────────────────────
+  // When arriving from SearchScreen, the Places photo URL is passed as a URL
+  // param. Persist it immediately so the restaurant cover photo is available
+  // on HomeScreen without waiting for places/enrich to run.
+  useEffect(() => {
+    if (!supabaseRestaurant?.id) return;
+    if (supabaseRestaurant.referenceImageUrl) return; // already set
+    if (!photoFromUrl) return;
+    if (photoSaveRef.current) return;
+    photoSaveRef.current = true;
+
+    void supabase
+      .from('restaurants')
+      .update({ reference_image_url: photoFromUrl })
+      .eq('id', supabaseRestaurant.id)
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+        void queryClient.invalidateQueries({ queryKey: ['restaurants', 'with-recipes'] });
+      });
+  }, [supabaseRestaurant?.id, supabaseRestaurant?.referenceImageUrl, photoFromUrl]);
+
+  // ── Places photo enrichment ─────────────────────────────────
+  // Fires once per mount when a Supabase restaurant ID is known.
+  // Sets reference_image_url (if still null) and assigns Google Places
+  // photos round-robin to all placeholder-status recipes.
+  // Server handles idempotency — returns skipped: true when already done.
+  useEffect(() => {
+    if (!supabaseRestaurant?.id) return;
+    if (placesEnrichRef.current) return;
+    placesEnrichRef.current = true;
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/places/enrich', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restaurantId: supabaseRestaurant.id }),
+        });
+        if (!res.ok) return;
+        void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+        void queryClient.invalidateQueries({ queryKey: ['restaurants', 'with-recipes'] });
+        void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant', supabaseRestaurant.id] });
+      } catch {
+        // Non-blocking — enrichment is best-effort
+      }
+    })();
+  }, [supabaseRestaurant?.id]);
 
   const { data: supabaseRecipeRows, isPending: recipesPending } = useRecipesByRestaurant(
     supabaseRestaurant?.id ?? null
@@ -396,7 +446,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           .map((d) =>
             supabase
               .from("recipes")
-              .update({ dish_image_url: d.photoUrl })
+              .update({ dish_image_url: d.photoUrl, photo_status: "confirmed" })
               .eq("id", dishToRecipeMap[d.id!])
           );
 
@@ -405,6 +455,8 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
           void queryClient.invalidateQueries({ queryKey: ["recipes", "restaurant"] });
           void queryClient.invalidateQueries({ queryKey: ["recipes", "kept"] });
           void queryClient.invalidateQueries({ queryKey: ["recipes"] });
+          void queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+          void queryClient.invalidateQueries({ queryKey: ["restaurants", "with-recipes"] });
         }
       } catch {
         // Non-blocking — photo backfill is best-effort
@@ -693,13 +745,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
       setMenuPhotoUrl(loadMenuPhotoUrl(placeId));
       setTotalDetected(dishCount);
       setAutoScanStep('done');
-      autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
+      autoSaveToSupabase(scanKey).then((result) => {
         // P2-C: reset after save resolves so the banner doesn't flicker back
         // during the async tail when recipes.length is still catching up.
         setBannerDismissed(false);
         void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
         void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
-        enrich(scanKey, dishToRecipeMap);
+        enrich(scanKey, result?.dishToRecipeMap ?? null);
       });
     } catch {
       clearTimeout(stepTimer);
@@ -766,10 +818,10 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
         setSessionRecipes(loadRecipesForRestaurant(placeId));
         setBannerDismissed(false);
         setTotalDetected(scanPhotoTotal);
-        autoSaveToSupabase(scanKey).then((dishToRecipeMap) => {
+        autoSaveToSupabase(scanKey).then((result) => {
           void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant'] });
           void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
-          enrich(scanKey, dishToRecipeMap);
+          enrich(scanKey, result?.dishToRecipeMap ?? null);
         });
       } catch {
         // Non-blocking — best-effort dish photo scan
@@ -981,88 +1033,61 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
         </motion.div>
       )}
 
-      {/* Supabase-backed dish list: single-column accordion (Story 2-5) */}
+      {/* Supabase-backed dish list: morphing DishCard (Story 2-5) */}
       {supabaseRecipeRows && supabaseRecipeRows.length > 0 && (
-        <motion.div variants={containerVariants} className="px-4 pb-4 flex flex-col gap-2">
-          {supabaseRecipeRows.map((recipe) => {
-            // Story 3.6: derive macroSource from denormalised macro totals on the recipe row.
-            // All three non-null → enrichment ran → provenance is USDA.
-            // Any null → not yet enriched → default to 'ai' (undefined omits the prop).
-            const macroSource =
-              recipe.totalProteinG != null &&
-              recipe.totalCarbsG != null &&
-              recipe.totalFatG != null
-                ? ('usda' as const)
-                : undefined
+        <LayoutGroup>
+          <motion.div variants={containerVariants} className="px-4 pb-4 flex flex-col gap-2">
+            {supabaseRecipeRows.map((recipe) => {
+              // Story 3.6: derive macroSource from denormalised macro totals on the recipe row.
+              // All three non-null → enrichment ran → provenance is USDA.
+              // Any null → not yet enriched → default to 'ai' (undefined omits the prop).
+              const macroSource =
+                recipe.totalProteinG != null &&
+                recipe.totalCarbsG != null &&
+                recipe.totalFatG != null
+                  ? ('usda' as const)
+                  : undefined
 
-            return (
-              <motion.div key={recipe.id} variants={itemVariants}>
-                <DishRowCompact
-                  recipe={recipe}
-                  totalProtein={recipe.totalProteinG}
-                  totalCarbs={recipe.totalCarbsG}
-                  totalFat={recipe.totalFatG}
-                  macroSource={macroSource}
-                  isExpanded={expandedDishId === recipe.id}
-                  onToggle={() =>
-                    setExpandedDishId((prev) => (prev === recipe.id ? null : recipe.id))
-                  }
-                />
-                <AnimatePresence initial={false}>
-                  {expandedDishId === recipe.id && (
-                    <motion.div
-                      key={`expanded-${recipe.id}`}
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{
-                        height: "auto",
-                        opacity: 1,
-                        transition: reducedMotion ? { duration: 0 } : SPRING_CARD_EXPAND,
-                      }}
-                      exit={{
-                        height: 0,
-                        opacity: 0,
-                        transition: reducedMotion ? { duration: 0 } : SPRING_CARD_EXPAND,
-                      }}
-                      style={{ overflow: "hidden" }}
-                    >
-                      <div className="mt-1.5">
-                        <DishRowExpanded
-                          recipe={recipe}
-                          expandedRecipe={
-                            expandedRecipe?.id === recipe.id ? expandedRecipe : null
-                          }
-                          ingredientsError={expandedRecipeError}
-                          totalProtein={recipe.totalProteinG}
-                          totalCarbs={recipe.totalCarbsG}
-                          totalFat={recipe.totalFatG}
-                          totalFibre={recipe.totalFibreG}
-                          onCollapse={() => setExpandedDishId(null)}
-                          onAddToRecipes={(onError) => {
-                            updateRecipe.mutate(
-                              { id: recipe.id, updates: { status: 'kept' } },
-                              { onError }
-                            )
-                          }}
-                        />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            )
-          })}
-        </motion.div>
+              return (
+                <motion.div key={recipe.id} variants={itemVariants} layout>
+                  <DishCard
+                    recipe={recipe}
+                    expandedRecipe={
+                      expandedRecipe?.id === recipe.id ? expandedRecipe : null
+                    }
+                    ingredientsError={expandedRecipeError}
+                    totalProtein={recipe.totalProteinG}
+                    totalCarbs={recipe.totalCarbsG}
+                    totalFat={recipe.totalFatG}
+                    totalFibre={recipe.totalFibreG}
+                    macroSource={macroSource}
+                    isExpanded={expandedDishId === recipe.id}
+                    onToggle={() =>
+                      setExpandedDishId((prev) => (prev === recipe.id ? null : recipe.id))
+                    }
+                    onAddToRecipes={(onError) => {
+                      updateRecipe.mutate(
+                        { id: recipe.id, updates: { status: 'kept' } },
+                        { onError }
+                      )
+                    }}
+                  />
+                </motion.div>
+              )
+            })}
+          </motion.div>
+        </LayoutGroup>
       )}
 
-      {/* Session-only recipes (not yet in Supabase): keep existing RecipeCard grid */}
+      {/* Session-only recipes (not yet in Supabase): same row layout as Supabase section */}
       {sessionOnlyRecipes.length > 0 && (
         <motion.div
           variants={containerVariants}
-          className="px-4 pb-4 grid gap-3 grid-cols-2"
+          className="px-4 pb-4 flex flex-col gap-2"
         >
           {sessionOnlyRecipes.map((recipe, i) => (
             <motion.div key={`${recipe.scanKey}-${recipe.dishIndex}-${i}`} variants={itemVariants}>
-              <RecipeCard
+              <SessionDishRow
                 recipe={recipe}
                 onTap={() => router.push(`/recipe/${encodeURIComponent(recipe.scanKey)}?dish=${recipe.dishIndex}`)}
                 onDelete={() => setConfirmRecipe(recipe)}
@@ -1072,13 +1097,6 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
         </motion.div>
       )}
 
-      {/* Bottom padding for tab bar */}
-      <div
-        style={{
-          height:
-            "calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)",
-        }}
-      />
 
       {/* Scan confidence banner — camera-scan path only (AC2, AC3, AC5) */}
       {/* Compare total visible recipes (Supabase + session-only) so the banner
@@ -1219,9 +1237,11 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   );
 }
 
-// ─── RecipeCard ─────────────────────────────────────────────
+// ─── SessionDishRow ──────────────────────────────────────────
+// Matches DishRowCompact's visual style for session-only recipes so the layout
+// is stable regardless of whether data is in session storage or Supabase.
 
-function RecipeCard({
+function SessionDishRow({
   recipe,
   onTap,
   onDelete,
@@ -1233,13 +1253,24 @@ function RecipeCard({
   const { dish } = recipe;
 
   return (
-    <FrostedCard
-      noPadding
-      className="relative overflow-hidden cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:outline-none"
-      onClick={onTap}
+    <div
+      className="relative flex items-center gap-3 cursor-pointer"
+      style={{
+        background: "var(--glass-base)",
+        backdropFilter: "var(--blur-base)",
+        WebkitBackdropFilter: "var(--blur-base)",
+        border: "var(--border-glass)",
+        borderRadius: 16,
+        padding: 12,
+      }}
       role="button"
       tabIndex={0}
-      aria-label={`View ${dish.name}`}
+      aria-label={
+        dish.calorieEstimate != null
+          ? `${dish.name}, ${dish.calorieEstimate} calories`
+          : dish.name
+      }
+      onClick={onTap}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -1247,55 +1278,36 @@ function RecipeCard({
         }
       }}
     >
-      {/* Photo + text overlay */}
-      <div className="relative w-full" style={{ height: 140 }}>
-        {dish.photoUrl ? (
-          <img
-            src={dish.photoUrl}
-            alt={dish.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: "var(--color-surface)" }}
-            aria-hidden="true"
-          >
-            <PlateIcon dim />
-          </div>
-        )}
+      <PhotoFrame
+        photoStatus={dish.photoUrl ? "confirmed" : "placeholder"}
+        dishImageUrl={dish.photoUrl ?? null}
+        dishName={dish.name}
+        className="w-[72px] h-[72px] flex-shrink-0"
+      />
 
-        {/* Gradient scrim — photo only */}
-        {dish.photoUrl && (
-          <div
-            className="absolute inset-0"
-            aria-hidden="true"
-            style={{
-              background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.38) 48%, transparent 72%)",
-            }}
-          />
-        )}
-
-        {/* Title + calories */}
-        <div className="absolute bottom-0 left-0 right-0 p-3">
+      <div className="flex-1 min-w-0">
+        <p
+          className="text-[15px] font-semibold leading-snug"
+          style={{
+            color: "var(--color-text-primary)",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {dish.name}
+        </p>
+        {dish.calorieEstimate != null && (
           <p
-            className="text-sm font-semibold leading-snug line-clamp-2"
-            style={{ color: dish.photoUrl ? "#fff" : "var(--color-text-primary)" }}
+            className="text-[14px] font-semibold mt-0.5"
+            style={{ color: "var(--color-accent)" }}
           >
-            {dish.name}
+            {dish.calorieEstimate} cal
           </p>
-          {dish.calorieEstimate && (
-            <p
-              className="text-xs mt-0.5"
-              style={{ color: dish.photoUrl ? "rgba(255,255,255,0.72)" : "var(--color-text-tertiary)" }}
-            >
-              {dish.calorieEstimate} cal
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Delete button — inside the card so it isn't displaced by backdrop-filter stacking context */}
       {onDelete && (
         <button
           onClick={(e) => {
@@ -1305,10 +1317,8 @@ function RecipeCard({
           aria-label={`Remove ${dish.name}`}
           className="absolute top-2 right-2 z-10 rounded-full flex items-center justify-center"
           style={{
-            width: 32,
-            height: 32,
-            minWidth: "unset",
-            minHeight: "unset",
+            width: 28,
+            height: 28,
             background: "rgba(255,252,247,0.90)",
             boxShadow: "0 1px 6px rgba(80,60,40,0.16)",
           }}
@@ -1318,7 +1328,7 @@ function RecipeCard({
           </svg>
         </button>
       )}
-    </FrostedCard>
+    </div>
   );
 }
 

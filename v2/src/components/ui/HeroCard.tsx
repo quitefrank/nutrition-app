@@ -248,7 +248,7 @@ export function HeroCard({
 // ─── Dish thumbnail ───────────────────────────────────────────────────────────
 
 function DishThumbnail({ dish }: { dish: DomainRecipe }) {
-  const hasPhoto = dish.photoStatus === 'confirmed' && dish.dishImageUrl
+  const hasPhoto = dish.photoStatus !== 'suppressed' && dish.dishImageUrl
 
   return (
     <div

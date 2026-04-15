@@ -119,10 +119,27 @@ describe('useEnrichment macro writes', () => {
       const macroCall = allUpdateCalls(builders).find(([fields]) => 'total_protein_g' in fields)
       expect(macroCall).toBeDefined()
       expect(macroCall![0]).toMatchObject({
+        estimated_calories: 520,
         total_protein_g: 25,
         total_carbs_g: 48,
         total_fat_g: 14,
       })
+    })
+  })
+
+  it('writes estimated_calories to Supabase alongside macros', async () => {
+    const builders = makeFromMock()
+
+    const { result } = renderHook(() => useEnrichment(), { wrapper: createWrapper() })
+
+    act(() => {
+      result.current.enrich(SCAN_KEY, { [DISH_ID]: RECIPE_UUID })
+    })
+
+    await waitFor(() => {
+      const macroCall = allUpdateCalls(builders).find(([fields]) => 'total_protein_g' in fields)
+      expect(macroCall).toBeDefined()
+      expect(macroCall![0].estimated_calories).toBe(520)
     })
   })
 
@@ -143,7 +160,7 @@ describe('useEnrichment macro writes', () => {
   })
 
   it('skips macro write for dishes with all-null macro values (P2 null guard)', async () => {
-    const nullMacroDish = { ...ENRICHED_DISH, totalProtein: null, totalFat: null, totalCarbs: null }
+    const nullMacroDish = { ...ENRICHED_DISH, totalCalories: null, totalProtein: null, totalFat: null, totalCarbs: null }
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ data: { dishes: [nullMacroDish] } }),

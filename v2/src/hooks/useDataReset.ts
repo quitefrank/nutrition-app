@@ -37,11 +37,27 @@ export function useDataReset() {
         }
       }
     },
-    onSuccess: () => {
-      // Clear the in-memory query cache and the persisted localStorage snapshot
-      // so the next launch does not restore stale data after a settings reset.
+    onSuccess: async () => {
+      // 1. Clear TanStack Query in-memory cache
       queryClient.clear();
-      localStorage.removeItem("plately-query-cache");
+
+      // 2. Wipe all localStorage (covers query-cache, grocery list, recent searches,
+      //    banner dismissals, tip flags, scan keys, view preferences, API key, etc.)
+      try { localStorage.clear(); } catch { /* ignore — private browsing */ }
+
+      // 3. Wipe sessionStorage (any plately_* scan session data)
+      try { sessionStorage.clear(); } catch { /* ignore */ }
+
+      // 4. Delete all service-worker caches (shell + API caches)
+      if (typeof caches !== "undefined") {
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        } catch { /* ignore */ }
+      }
+
+      // 5. Delete the SW IndexedDB (offline grocery sync queue: plately-sw-db)
+      try { indexedDB.deleteDatabase("plately-sw-db"); } catch { /* ignore */ }
     },
   });
 }

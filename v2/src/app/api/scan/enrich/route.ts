@@ -1,6 +1,6 @@
 import 'server-only'
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { getApiKeys } from "@/lib/api-keys";
 import { supabase } from "@/lib/supabase";
@@ -227,10 +227,28 @@ Rules:
 
 async function inferIngredients(dishName: string, geminiKey: string, description?: string, restaurantName?: string): Promise<{ servings: number; ingredients: InferredIngredient[] }> {
   try {
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    const result = await model.generateContent(INFER_PROMPT(dishName, description, restaurantName));
-    const text = result.response.text();
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    const params = {
+      model: GEMINI_MODEL,
+      contents: INFER_PROMPT(dishName, description, restaurantName),
+    };
+    let geminiResult;
+    try {
+      geminiResult = await ai.models.generateContent(params);
+    } catch (primaryErr) {
+      const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+      const isTransient =
+        msg.includes("503") || msg.includes("UNAVAILABLE") ||
+        msg.includes("overloaded") || msg.includes("429") || msg.includes("quota");
+      if (isTransient) {
+        console.warn("[enrich/gemini] transient error, retrying in 2s:", msg.slice(0, 120));
+        await new Promise((r) => setTimeout(r, 2000));
+        geminiResult = await ai.models.generateContent(params);
+      } else {
+        throw primaryErr;
+      }
+    }
+    const text = geminiResult.text ?? "";
     const clean = text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
     const schemaResult = GeminiInferenceSchema.safeParse(JSON.parse(clean));
     if (!schemaResult.success) {
@@ -268,11 +286,7 @@ async function getDishRating(
   geminiKey: string
 ): Promise<DishRating> {
   try {
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
-      tools: [{ googleSearch: {} }] as never,
-    });
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
 
     const context = restaurantName?.trim()
       ? `"${dishName}" dish at "${restaurantName}" restaurant`
@@ -281,8 +295,12 @@ async function getDishRating(
     const prompt = `Search for customer reviews and ratings of ${context}. Based on what you find, reply with ONLY a JSON object and nothing else:
 {"rating": <number between 1.0 and 5.0, or null if insufficient data>, "snippet": "<one sentence summary of customer sentiment, or null>"}`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const result = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] },
+    });
+    const text = result.text ?? "";
 
     const jsonMatch = text.match(/\{[\s\S]*?\}/);
     if (!jsonMatch) return { dishRating: null, dishReviewSnippet: null };
@@ -524,7 +542,7 @@ export async function POST(req: NextRequest) {
           if (enrichedDish.photoUrl) {
             await sb
               .from("recipes")
-              .update({ dish_image_url: enrichedDish.photoUrl })
+              .update({ dish_image_url: enrichedDish.photoUrl, photo_status: "confirmed" })
               .eq("id", recipeId);
           }
 

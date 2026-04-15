@@ -8,8 +8,12 @@ export type ProcessingState = "idle" | "processing" | "confirming" | "ready" | "
 interface ProcessingStripProps {
   state: ProcessingState;
   message?: string;
-  /** Recipe ID to navigate to when tapped in "ready" state */
+  /** Unused — kept for callers that pass it; navigation target is the restaurant */
   resultId?: string;
+  /** Restaurant ID to navigate to when tapped in "ready" state */
+  restaurantId?: string;
+  /** Confirmed restaurant name — appended as ?name= so RestaurantScreen can display it */
+  restaurantName?: string;
   onDismiss?: () => void;
 }
 
@@ -30,7 +34,7 @@ const stateConfig: Record<
     border: "rgba(180, 170, 158, 0.28)",
   },
   ready: {
-    label: "Your dish is ready — tap to view",
+    label: "Your menu is ready — tap to view",
     icon: <ReadyIcon />,
     bg: "rgba(232, 245, 238, 0.95)",
     border: "rgba(61, 125, 94, 0.25)",
@@ -46,7 +50,9 @@ const stateConfig: Record<
 export function ProcessingStrip({
   state,
   message,
-  resultId,
+  resultId: _resultId,
+  restaurantId,
+  restaurantName,
   onDismiss,
 }: ProcessingStripProps) {
   const router = useRouter();
@@ -54,8 +60,11 @@ export function ProcessingStrip({
   const config = visible ? stateConfig[state] : null;
 
   const handleTap = () => {
-    if (state === "ready" && resultId) {
-      router.push(`/recipe/${resultId}`);
+    if (state === "ready" && restaurantId) {
+      const nameParam = restaurantName
+        ? `?name=${encodeURIComponent(restaurantName)}`
+        : "";
+      router.push(`/restaurants/${restaurantId}${nameParam}`);
       onDismiss?.();
     } else if (state === "error") {
       onDismiss?.();

@@ -131,12 +131,15 @@ export function useEnrichment() {
                 (d) =>
                   d.id &&
                   dishToRecipeMap[d.id!] &&
-                  (d.totalProtein != null || d.totalCarbs != null || d.totalFat != null)
+                  (d.totalCalories != null || d.totalProtein != null || d.totalCarbs != null || d.totalFat != null)
               )
               .map((d) =>
                 supabase
                   .from('recipes')
                   .update({
+                    // Only overwrite estimated_calories when USDA returned a value —
+                    // preserves the Phase 1 Gemini estimate when USDA lookup failed.
+                    ...(d.totalCalories != null ? { estimated_calories: d.totalCalories } : {}),
                     total_protein_g: d.totalProtein,
                     total_carbs_g: d.totalCarbs,
                     total_fat_g: d.totalFat,

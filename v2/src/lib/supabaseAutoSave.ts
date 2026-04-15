@@ -45,10 +45,34 @@ interface StoredDish {
  * Persist a completed scan to Supabase.
  *
  * @param scanKey  sessionStorage key holding the ScanResult JSON
- * @returns        Map of Gemini dish ID → Supabase recipe UUID for all saved dishes,
- *                 or null if Supabase is not configured or no dishes were saved.
+ * @returns        Saved dish map and restaurantId, or null if nothing was saved.
  */
-export async function autoSaveToSupabase(scanKey: string): Promise<Record<string, string> | null> {
+export interface AutoSaveResult {
+  dishToRecipeMap: Record<string, string>;
+  restaurantId: string;
+}
+
+export async function autoSaveToSupabase(scanKey: string): Promise<AutoSaveResult | null> {
+  // Guard against silent network hangs: Supabase fetch calls have no built-in
+  // client-side timeout. If any query stalls (connection established but no
+  // response), the function would never resolve, locking the confirmation UI.
+  // 15s covers the worst-case sequential path (restaurant upsert + visit insert +
+  // N recipe inserts) on a slow connection, without leaving users stuck forever.
+  const TIMEOUT_MS = 15_000;
+  let tid: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    tid = setTimeout(() => {
+      console.warn("[supabaseAutoSave] timed out after 15s — unblocking UI");
+      resolve(null);
+    }, TIMEOUT_MS);
+  });
+  return Promise.race([
+    _doAutoSave(scanKey).finally(() => clearTimeout(tid)),
+    timeout,
+  ]);
+}
+
+async function _doAutoSave(scanKey: string): Promise<AutoSaveResult | null> {
   // 1. Load scan result from sessionStorage
   type ExtendedScanResult = ScanResult & {
     allDishes: StoredDish[];
@@ -210,10 +234,12 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
           estimated_calories: estimatedCalories,
           status: "auto_captured",
           gemini_confidence: typeof dish.confidence === "number" ? dish.confidence : null,
-          // photo_status: confidence < 0.3 → suppressed (card hidden); otherwise placeholder until enrichment
+          // photo_status: confidence < 0.3 → suppressed (card hidden); has URL → confirmed; otherwise placeholder
           photo_status: typeof dish.confidence === "number" && dish.confidence < 0.3
             ? "suppressed"
-            : "placeholder",
+            : dish.photoUrl
+              ? "confirmed"
+              : "placeholder",
         })
         .select("id")
         .single();
@@ -258,12 +284,14 @@ export async function autoSaveToSupabase(scanKey: string): Promise<Record<string
     if (firstRecipeId) {
       window.dispatchEvent(
         new CustomEvent("plately:supabase-saved", {
-          detail: { scanKey, recipeId: firstRecipeId },
+          detail: { scanKey, recipeId: firstRecipeId, restaurantId },
         })
       );
     }
 
-    return Object.keys(dishToRecipeMap).length > 0 ? dishToRecipeMap : null;
+    return Object.keys(dishToRecipeMap).length > 0
+      ? { dishToRecipeMap, restaurantId }
+      : null;
   } catch (err) {
     // Never crash the UX — auto-save is best-effort
     console.warn(

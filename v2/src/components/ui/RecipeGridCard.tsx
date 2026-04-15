@@ -34,7 +34,7 @@ interface RecipeGridCardProps {
 export function RecipeGridCard({ recipe, onPress }: RecipeGridCardProps) {
   const reducedMotion = useReducedMotion()
 
-  const hasPhoto = recipe.photoStatus === 'confirmed' && recipe.dishImageUrl
+  const hasPhoto = recipe.photoStatus !== 'suppressed' && recipe.dishImageUrl
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Enter' || e.key === ' ') {

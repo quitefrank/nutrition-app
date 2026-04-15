@@ -1,13 +1,12 @@
 import 'server-only'
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { getCachedMenu, cacheMenu } from "@/lib/menuCache";
 import { supabase } from "@/lib/supabase";
 import { getApiKeys } from "@/lib/api-keys";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -46,6 +45,10 @@ Rules:
 - calorieEstimate: typical serving calories, or null if uncertain
 - ingredients: for a dish photo, list what you can see or infer; for a menu item, leave as []
 - If not food, return { "type": "dish", "restaurantName": null, "dishes": [] }
+- Many menus display the same dishes in multiple languages (e.g. English and Japanese side-by-side or in separate sections). These are the SAME dish — return ONLY ONE entry per unique dish.
+- For each dish, prefer the English name and English description. If no English name is visible, use a romanised or translated name instead.
+- A MENU must contain visible printed or written text listing the names of multiple dishes. A photo of a prepared dish with no such text listing is always a PLATED DISH, not a menu.
+- Only return type: "menu" when you can identify 2 or more distinct named dishes from visible text.
 - Return valid JSON only — no prose, no markdown fences`;
 
 // ─── Zod validation ───────────────────────────────────────
@@ -110,6 +113,8 @@ type ErrorCode =
   | "GEMINI_RESPONSE_UNPARSEABLE"
   | "GEMINI_RESPONSE_INVALID"
   | "NO_DISHES"
+  | "NOT_A_MENU"
+  | "INSUFFICIENT_MENU_ITEMS"
   | "INTERNAL_ERROR";
 
 function apiError(message: string, code: ErrorCode, status: 400 | 422 | 500 | 503) {
@@ -233,33 +238,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ─── Call Gemini (with 2.0-flash fallback on 503) ─────────
+    // ─── Call Gemini (with retry on transient 503/overload) ───────────────────
 
     let rawText: string;
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const parts = [
-        { inlineData: { data: imageBase64, mimeType } },
-        { text: SCAN_PROMPT },
-      ];
+      const ai = new GoogleGenAI({ apiKey });
 
-      // SEC-DAT-1.00: image data only exists in memory during this call; never persisted
-      let result;
+      const generateParams = {
+        model: GEMINI_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              // SEC-DAT-1.00: image data only exists in memory during this call; never persisted
+              { inlineData: { data: imageBase64, mimeType } },
+              { text: SCAN_PROMPT },
+            ],
+          },
+        ],
+      };
+
+      let response;
       try {
-        result = await genAI.getGenerativeModel({ model: GEMINI_MODEL }).generateContent(parts);
+        response = await ai.models.generateContent(generateParams);
       } catch (primaryErr) {
         const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-        // Fall back on any transient server-side error (503 overload, 429 quota, 500 internal)
-        const isTransient = msg.includes("503") || msg.includes("429") || msg.includes("500") || msg.includes("overloaded") || msg.includes("quota");
+        const isTransient = msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("overloaded") || msg.includes("429") || msg.includes("quota");
         if (isTransient) {
-          console.warn("[scan] gemini-2.5-flash transient error — retrying with gemini-2.0-flash:", msg);
-          result = await genAI.getGenerativeModel({ model: GEMINI_FALLBACK_MODEL }).generateContent(parts);
+          console.warn("[scan] Gemini transient error — retrying in 2s:", msg.slice(0, 120));
+          await new Promise((r) => setTimeout(r, 2000));
+          response = await ai.models.generateContent(generateParams);
         } else {
           throw primaryErr;
         }
       }
 
-      rawText = result.response.text();
+      rawText = response.text ?? "";
     } catch (err) {
       console.error("[scan] Gemini error:", err instanceof Error ? err.message : err);
       return apiError("Scan service temporarily unavailable", "AI_UNAVAILABLE", 503);
@@ -292,8 +306,38 @@ export async function POST(req: NextRequest) {
       return apiError("No dishes identified", "NO_DISHES", 422);
     }
 
+    // Reject single-dish photos: Gemini classified the image as a plated dish
+    // rather than a menu, meaning the user scanned a food photo instead of a menu page.
+    if (validated.data.type === 'dish' && validDishes.length < 2) {
+      return apiError(
+        "That looks like a dish photo, not a menu. Try scanning a menu page.",
+        "NOT_A_MENU",
+        422
+      );
+    }
+
+    // Require at least 2 distinct dishes from a menu scan. A single result most
+    // likely means a dominant hero image caused Gemini to read only one item instead
+    // of the full menu — prompt the user to try a clearer shot.
+    if (validDishes.length < 2) {
+      return apiError(
+        "Only one dish detected. Try scanning a page showing multiple menu items.",
+        "INSUFFICIENT_MENU_ITEMS",
+        422
+      );
+    }
+
+    // Deduplicate by normalised name — catches casing/whitespace variants the prompt may still produce
+    const seen = new Set<string>();
+    const dedupedDishes = validDishes.filter((d) => {
+      const key = d.name.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     // Assign stable IDs for position-independent enrichment merging
-    const dishesWithIds = validDishes.map((dish) => ({
+    const dishesWithIds = dedupedDishes.map((dish) => ({
       ...dish,
       ingredients: dish.ingredients.filter((i) => i.name.trim().length > 0),
       id: crypto.randomUUID(),

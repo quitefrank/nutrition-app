@@ -294,7 +294,7 @@ export function HomeScreen() {
                         <RecipeGridCard
                           key={recipe.id}
                           recipe={recipe}
-                          onPress={() => router.push(`/recipes/${recipe.id}`)}
+                          onPress={() => router.push(`/recipe/${recipe.id}`)}
                         />
                       ))}
                     </div>

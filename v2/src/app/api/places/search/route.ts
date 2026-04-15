@@ -11,6 +11,7 @@ const RequestSchema = z.object({
   query: z.string().min(1).max(200).trim(),
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
+  pageToken: z.string().optional(),
 }).refine(
   (data) => (data.lat === undefined) === (data.lng === undefined),
   { message: "lat and lng must both be provided or both be absent", path: ["lat"] }
@@ -29,6 +30,7 @@ const PlacesResponseSchema = z.object({
       userRatingCount: z.number().optional().catch(undefined),
     })
   ).catch([]),
+  nextPageToken: z.string().optional().catch(undefined),
 });
 
 // ─── Error helper ────────────────────────────────────────────
@@ -58,19 +60,18 @@ export async function POST(req: NextRequest) {
     return apiError("query is required", "VALIDATION_ERROR", 422);
   }
 
-  const { query, lat, lng } = parsed.data;
+  const { query, lat, lng, pageToken } = parsed.data;
 
   // ─── Supabase cache check ─────────────────────────────────
-  // Before hitting Places API, check for a previously confirmed restaurant
-  // matching this name. Cache is populated by the Restaurant Confirmation
-  // step (Story 2.3 / 4.2) — this route only reads, never writes.
-  try {
+  // Only for fresh queries — pageToken requests go straight to Places API
+  // because the cache has no concept of pagination.
+  if (!pageToken) try {
     const { data: cached, error: cacheError } = await supabase
       .from("restaurants")
       .select("id, name, place_id, address, rating, user_ratings_total, reference_image_url")
       .ilike("name", query.trim())
       .not("place_id", "is", null)
-      .limit(5);
+      .limit(20);
 
     if (cacheError) {
       // Non-fatal: log and fall through to live Places call
@@ -94,21 +95,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Google Places API (New): when paginating, pageToken must accompany all
+  // original request parameters — sending only pageToken causes a 400.
   const requestBody: Record<string, unknown> = {
     textQuery: query,
     languageCode: "en",
     includedType: "restaurant",
+    pageSize: 20,
+    ...(pageToken ? { pageToken } : {}),
+    ...(lat !== undefined && lng !== undefined
+      ? {
+          locationBias: {
+            circle: {
+              center: { latitude: lat, longitude: lng },
+              radius: 50000,
+            },
+          },
+          rankPreference: "DISTANCE",
+        }
+      : {}),
   };
-
-  if (lat !== undefined && lng !== undefined) {
-    requestBody.locationBias = {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: 50000, // 50 km soft bias
-      },
-    };
-    requestBody.rankPreference = "DISTANCE";
-  }
 
   try {
     const controller = new AbortController();
@@ -123,7 +129,7 @@ export async function POST(req: NextRequest) {
           headers: {
             "X-Goog-Api-Key": apiKey,
             "X-Goog-FieldMask":
-              "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
+              "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,nextPageToken",
             "Content-Type": "application/json",
           },
           body: JSON.stringify(requestBody),
@@ -144,9 +150,9 @@ export async function POST(req: NextRequest) {
       return apiError("Restaurant search unavailable", "PLACES_UNAVAILABLE", 503);
     }
 
-    const { places } = PlacesResponseSchema.parse(await response.json());
+    const parsed = PlacesResponseSchema.parse(await response.json());
 
-    const baseResults = places
+    const baseResults = parsed.places
       .filter((p) => p.id && p.displayName?.text)
       .map((p) => ({
         placeId: p.id,
@@ -154,8 +160,7 @@ export async function POST(req: NextRequest) {
         address: p.formattedAddress ?? "",
         rating: p.rating ?? null,
         userRatingCount: p.userRatingCount ?? null,
-      }))
-      .slice(0, 5); // AC2: cap at 5 results
+      }));
 
     // Resolve one photo per result in parallel — best-effort, degrades to null
     const results = await Promise.all(
@@ -165,7 +170,10 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    return NextResponse.json({ data: results });
+    return NextResponse.json({
+      data: results,
+      ...(parsed.nextPageToken ? { nextPageToken: parsed.nextPageToken } : {}),
+    });
   } catch (err) {
     console.error(
       "[places/search] Unexpected error:",

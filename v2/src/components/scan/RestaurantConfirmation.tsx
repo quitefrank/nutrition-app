@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FrostedCard } from "@/components/ui/FrostedCard";
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -148,6 +147,18 @@ export function RestaurantConfirmation({
     );
   };
 
+  // Frosted glass styles applied directly on motion.div (the Framer Motion compositor
+  // layer). backdrop-filter must live on the composited element itself — applying it
+  // to a child of a transformed element prevents it from seeing content outside the
+  // compositor layer, which is why the card appeared opaque before.
+  const frostedStyle: React.CSSProperties = {
+    background: "var(--glass-base)",
+    backdropFilter: "var(--blur-base)",
+    WebkitBackdropFilter: "var(--blur-base)",
+    border: "var(--border-glass)",
+    boxShadow: "var(--shadow-card)",
+  };
+
   const cardAnim = {
     initial: { opacity: 0, y: 8 },
     animate: { opacity: 1, y: 0, transition: { type: "spring" as const, damping: 28, stiffness: 360 } },
@@ -157,8 +168,7 @@ export function RestaurantConfirmation({
   return (
     <AnimatePresence mode="wait">
       {mode === "confirm" && (
-        <motion.div key="confirm" {...cardAnim}>
-          <FrostedCard className="flex flex-col gap-3">
+        <motion.div key="confirm" {...cardAnim} className="flex flex-col gap-3 p-4 rounded-[24px]" style={frostedStyle}>
             <div className="flex items-start gap-3">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
@@ -228,13 +238,11 @@ export function RestaurantConfirmation({
                 Skip
               </button>
             </div>
-          </FrostedCard>
         </motion.div>
       )}
 
       {mode === "idle" && (
-        <motion.div key="idle" {...cardAnim}>
-          <FrostedCard className="flex flex-col gap-3">
+        <motion.div key="idle" {...cardAnim} className="flex flex-col gap-3 p-4 rounded-[24px]" style={frostedStyle}>
             <div className="flex items-start gap-3">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
@@ -285,13 +293,11 @@ export function RestaurantConfirmation({
                 Skip
               </button>
             </div>
-          </FrostedCard>
         </motion.div>
       )}
 
       {mode === "gps" && (
-        <motion.div key="gps" {...cardAnim}>
-          <FrostedCard className="flex flex-col gap-3">
+        <motion.div key="gps" {...cardAnim} className="flex flex-col gap-3 p-4 rounded-[24px]" style={frostedStyle}>
             {gpsState === "loading" && (
               <div className="flex items-center gap-3">
                 <SpinnerIcon />
@@ -372,13 +378,11 @@ export function RestaurantConfirmation({
                 </button>
               </>
             )}
-          </FrostedCard>
         </motion.div>
       )}
 
       {mode === "text" && (
-        <motion.div key="text" {...cardAnim}>
-          <FrostedCard className="flex flex-col gap-3">
+        <motion.div key="text" {...cardAnim} className="flex flex-col gap-3 p-4 rounded-[24px]" style={frostedStyle}>
             <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--color-text-tertiary)" }}>
               Search by name
             </p>
@@ -438,7 +442,6 @@ export function RestaurantConfirmation({
             >
               Skip
             </button>
-          </FrostedCard>
         </motion.div>
       )}
     </AnimatePresence>

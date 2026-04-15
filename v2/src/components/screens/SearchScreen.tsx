@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { FrostedCard } from "@/components/ui/FrostedCard";
@@ -13,6 +13,8 @@ interface RestaurantResult {
   placeId: string;
   name: string;
   address: string;
+  rating?: number | null;
+  userRatingCount?: number | null;
   photoUrl?: string | null;
 }
 
@@ -109,8 +111,11 @@ export function SearchScreen() {
   const [inputFocused, setInputFocused] = useState(false);
   const [results, setResults] = useState<RestaurantResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [isError, setIsError] = useState(false);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Request location on mount — fires the native browser prompt once.
   // Silently degrades to unbiased search if denied or unavailable.
@@ -143,6 +148,7 @@ export function SearchScreen() {
     const trimmed = debouncedQuery.trim();
     if (trimmed.length < MIN_QUERY_LEN) {
       setResults([]);
+      setNextPageToken(null);
       setIsError(false);
       return;
     }
@@ -150,6 +156,7 @@ export function SearchScreen() {
     // Offline guard — show specific offline state, don't attempt the API call
     if (!isOnline) {
       setResults([]);
+      setNextPageToken(null);
       setIsError(false); // not an error, just offline
       return;
     }
@@ -157,6 +164,7 @@ export function SearchScreen() {
     let cancelled = false;
     setIsLoading(true);
     setIsError(false);
+    setNextPageToken(null);
 
     fetch("/api/places/search", {
       method: "POST",
@@ -167,9 +175,10 @@ export function SearchScreen() {
         if (!res.ok) throw new Error(`status ${res.status}`);
         return res.json();
       })
-      .then((json: { data?: RestaurantResult[] }) => {
+      .then((json: { data?: RestaurantResult[]; nextPageToken?: string }) => {
         if (cancelled) return;
         setResults(json.data ?? []);
+        setNextPageToken(json.nextPageToken ?? null);
       })
       .catch(() => {
         if (!cancelled) setIsError(true);
@@ -184,10 +193,61 @@ export function SearchScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, isOnline]);
 
+  // Fetch the next page and append to existing results
+  const fetchMore = useCallback(() => {
+    if (!nextPageToken || isFetchingMore || isLoading) return;
+    const trimmed = debouncedQuery.trim();
+    if (trimmed.length < MIN_QUERY_LEN) return;
+
+    setIsFetchingMore(true);
+
+    fetch("/api/places/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: trimmed, ...(coords ?? {}), pageToken: nextPageToken }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((json: { data?: RestaurantResult[]; nextPageToken?: string }) => {
+        setResults((prev) => [...prev, ...(json.data ?? [])]);
+        setNextPageToken(json.nextPageToken ?? null);
+      })
+      .catch((err) => {
+        console.error("[fetchMore] failed:", err);
+        // Non-fatal — user can scroll back to re-trigger
+      })
+      .finally(() => {
+        setIsFetchingMore(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextPageToken, isFetchingMore, isLoading, debouncedQuery]);
+
+  // Keep a stable ref to the latest fetchMore so the observer never needs to
+  // re-subscribe just because isFetchingMore flipped — that was causing the loop.
+  const fetchMoreRef = useRef<() => void>(() => {});
+  useEffect(() => { fetchMoreRef.current = fetchMore; }, [fetchMore]);
+
+  // IntersectionObserver — only re-subscribes when nextPageToken changes
+  // (i.e. a new page has loaded), not on every isFetchingMore state flip.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !nextPageToken) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) fetchMoreRef.current(); },
+      { rootMargin: "200px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [nextPageToken]);
+
   const handleCardTap = (result: RestaurantResult) => {
     saveRecent(debouncedQuery.trim());
     recordSearchVisit(result.name, 0);
-    router.push(`/restaurants/${encodeURIComponent(result.placeId)}?name=${encodeURIComponent(result.name)}`);
+    const photoParam = result.photoUrl ? `&photoUrl=${encodeURIComponent(result.photoUrl)}` : '';
+    router.push(`/restaurants/${encodeURIComponent(result.placeId)}?name=${encodeURIComponent(result.name)}${photoParam}`);
   };
 
   const handleRecentTap = (term: string) => {
@@ -377,6 +437,13 @@ export function SearchScreen() {
                 <RestaurantCard result={result} onTap={handleCardTap} />
               </motion.div>
             ))}
+
+            {/* Lazy-load sentinel + spinner */}
+            {nextPageToken && (
+              <div ref={sentinelRef} className="flex justify-center py-4">
+                {isFetchingMore && <SpinnerIcon />}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -402,12 +469,6 @@ export function SearchScreen() {
         Try: &apos;carbonara&apos;, &apos;sushi&apos;, &apos;bistro near me&apos;
       </p>
 
-      {/* Bottom padding for tab bar */}
-      <div
-        style={{
-          height: "calc(var(--tab-bar-height) + var(--space-safe-bottom))",
-        }}
-      />
     </div>
   );
 }
@@ -474,6 +535,19 @@ function RestaurantCard({
             {result.address}
           </p>
         )}
+        {result.rating != null && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <StarIcon />
+            <span style={{ fontSize: 11, color: "var(--color-text-secondary)", lineHeight: 1 }}>
+              {result.rating.toFixed(1)}
+            </span>
+            {result.userRatingCount != null && (
+              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", lineHeight: 1 }}>
+                ({result.userRatingCount.toLocaleString()})
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </FrostedCard>
   );
@@ -528,6 +602,14 @@ function ClockIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
       <circle cx="12" cy="12" r="9" stroke="var(--color-text-tertiary)" strokeWidth="1.5" />
       <path d="M12 7v5l3 3" stroke="var(--color-text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StarIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--color-accent)" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
     </svg>
   );
 }

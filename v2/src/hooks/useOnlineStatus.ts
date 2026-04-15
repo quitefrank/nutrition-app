@@ -8,13 +8,13 @@ import { useState, useEffect } from "react";
  * SSR-safe: defaults to true on the server.
  */
 export function useOnlineStatus(): boolean {
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== "undefined" ? navigator.onLine : true
-  );
+  // Always initialize to true so the server render and first client render match.
+  // The useEffect below immediately syncs to the real navigator.onLine value after
+  // hydration, preventing the SSR/client mismatch that occurs when the device is
+  // already offline at first paint.
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    // Re-read the real value immediately on mount. Closes the hydration gap where
-    // SSR defaults to true but the device is already offline at first paint.
     setIsOnline(navigator.onLine);
 
     const handleOnline = () => setIsOnline(true);

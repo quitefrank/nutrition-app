@@ -14,7 +14,7 @@ interface CameraModalProps {
   /** Whether the modal is open. Defaults to true (for retake mode, control via conditional render). */
   open?: boolean;
   onClose: () => void;
-  onProcessingStart?: (message: string) => void;
+  onProcessingStart?: (message: string, scanKey: string) => void;
   onProcessingComplete?: (scanKey: string) => void;
   onProcessingError?: (message: string) => void;
   /** 'scan' — normal first-time capture; 'retake' — merge scan. Defaults to 'scan'. */
@@ -84,6 +84,10 @@ export function CameraModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // D5: AbortController to cancel in-flight /api/scan requests when the modal closes.
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Guard: when a scan is in-flight, closing the modal should NOT abort the request.
+  // The scanning page polls sessionStorage directly, so the fetch can complete even
+  // after CameraModal unmounts (navigation happens during scan).
+  const scanInFlightRef = useRef(false);
 
   const [permissionPhase, setPermissionPhase] = useState<PermissionPhase>("unknown");
   const [cameraReady, setCameraReady] = useState(false);
@@ -145,9 +149,13 @@ export function CameraModal({
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setCameraReady(false);
-    // D5: Cancel any in-flight scan request to avoid orphaned side-effects.
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
+    // D5: Cancel in-flight scan request to avoid orphaned side-effects.
+    // Guard: don't abort when a scan is in-flight — the scanning page polls
+    // sessionStorage and needs the fetch to complete even after navigation.
+    if (!scanInFlightRef.current) {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+    }
   }, []);
 
   // ─── Permission check on open ─────────────────────────────────────────────
@@ -266,7 +274,11 @@ export function CameraModal({
   async function submitImage(image: Blob | File) {
     stopCamera();
     setIsScanning(true);
-    onProcessingStart?.("Identifying your dish…");
+    // Pre-generate scanKey so AppShell can navigate to the scanning page immediately.
+    // This must happen before onProcessingStart fires (which triggers navigation).
+    const scanKey = `${SCAN_KEY_PREFIX}${crypto.randomUUID()}`;
+    scanInFlightRef.current = true;
+    onProcessingStart?.("Identifying your dish…", scanKey);
 
     try {
       // 1. Compress before upload — keeps payload under Vercel's 4.5 MB body limit.
@@ -332,8 +344,7 @@ export function CameraModal({
       const firstDish = data?.dishes?.[0];
       if (!firstDish) throw new Error("No dish identified");
 
-      // 3. Store initial Gemini-only result immediately
-      const scanKey = `${SCAN_KEY_PREFIX}${crypto.randomUUID()}`;
+      // 3. Store initial Gemini-only result immediately (scanKey pre-generated above)
       const initialResult: ScanResult = {
         type: data.type,
         restaurantName: data.restaurantName ?? null,
@@ -378,6 +389,8 @@ export function CameraModal({
       // AC1 (Story 6.5): Gemini scan failures show inline — do NOT call onProcessingError.
       // onProcessingError is reserved for hardware camera errors (cameraError path).
       setScanError(msg);
+    } finally {
+      scanInFlightRef.current = false;
     }
   }
 

@@ -78,7 +78,6 @@ export function DishRowExpanded({
 }: DishRowExpandedProps) {
   // Dismissed after first collapse tap to prevent rapid double-tap re-firing
   const [dismissed, setDismissed] = useState(false)
-  const [portion, setPortion] = useState(1)
   const [savedState, setSavedState] = useState<SavedState>(() => initialSavedState(recipe.status))
   const reducedMotion = useReducedMotion()
   // Timeout IDs for the checkmark → saved animation sequence — cleared on unmount
@@ -106,16 +105,26 @@ export function DishRowExpanded({
     })
   }, [recipe.status])
 
+  const handleCollapse = () => {
+    if (dismissed) return
+    setDismissed(true)
+    try {
+      onCollapse()
+    } catch {
+      setDismissed(false)
+    }
+  }
+
   const ingredients = expandedRecipe?.ingredients ?? null
 
   // Number.isFinite() rejects null, undefined, NaN, and Infinity — matches DishRowCompact guard pattern.
   const scaledCalories = Number.isFinite(recipe.estimatedCalories)
-    ? Math.round((recipe.estimatedCalories as number) * portion)
+    ? Math.round(recipe.estimatedCalories as number)
     : null
-  const scaledProtein = Number.isFinite(totalProtein) ? (totalProtein as number) * portion : null
-  const scaledCarbs   = Number.isFinite(totalCarbs)   ? (totalCarbs   as number) * portion : null
-  const scaledFat     = Number.isFinite(totalFat)     ? (totalFat     as number) * portion : null
-  const scaledFibre   = Number.isFinite(totalFibre)   ? (totalFibre   as number) * portion : null
+  const scaledProtein = Number.isFinite(totalProtein) ? (totalProtein as number) : null
+  const scaledCarbs   = Number.isFinite(totalCarbs)   ? (totalCarbs   as number) : null
+  const scaledFat     = Number.isFinite(totalFat)     ? (totalFat     as number) : null
+  const scaledFibre   = Number.isFinite(totalFibre)   ? (totalFibre   as number) : null
 
   const hasMacroValues = scaledProtein != null || scaledCarbs != null || scaledFat != null
   const macroSource = deriveMacroSource(ingredients)
@@ -135,9 +144,10 @@ export function DishRowExpanded({
         overflow: "hidden",
       }}
     >
-      {/* Hero photo: 156px height; suppressed dishes skip photo entirely */}
+      {/* Hero photo: 156px height; suppressed dishes skip photo entirely.
+          Tapping the image also collapses the card (same behaviour as chevron). */}
       {recipe.photoStatus !== "suppressed" && (
-        <div className="w-full" style={{ height: 156 }}>
+        <div className="w-full" style={{ height: 156, cursor: "pointer" }} onClick={handleCollapse}>
           <PhotoFrame
             photoStatus={recipe.photoStatus}
             dishImageUrl={recipe.dishImageUrl}
@@ -165,15 +175,7 @@ export function DishRowExpanded({
           </h2>
           <button
             type="button"
-            onClick={() => {
-              setPortion(1)
-              setDismissed(true)
-              try {
-                onCollapse()
-              } catch {
-                setDismissed(false)
-              }
-            }}
+            onClick={handleCollapse}
             disabled={dismissed}
             aria-label="Collapse"
             style={{
@@ -215,39 +217,7 @@ export function DishRowExpanded({
           </motion.div>
         )}
 
-        {/* Portion stepper — 4 fixed options */}
-        <div
-          role="group"
-          aria-label="Serving size"
-          style={{ display: "flex", gap: 8 }}
-        >
-          {([0.5, 1, 1.5, 2] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setPortion(value)}
-              aria-pressed={portion === value}
-              aria-label={`${value} serving${value > 1 ? "s" : ""}`}
-              style={{
-                flex: 1,
-                /* WCAG 2.1 AA: explicit height: 34 overrides the global button min-height: 44px.
-                   Replace with minHeight: 44 to meet the 44×44px touch target requirement. */
-                minHeight: 44,
-                borderRadius: 9999,
-                border: portion === value ? "none" : "var(--border-glass)",
-                background: portion === value ? "var(--color-accent)" : "var(--glass-base)",
-                color: portion === value ? "#ffffff" : "var(--color-text-secondary)",
-                fontSize: 13,
-                fontWeight: portion === value ? 600 : 400,
-                cursor: "pointer",
-              }}
-            >
-              {value}×
-            </button>
-          ))}
-        </div>
-
-        {/* Provenance badge — between portion stepper and MacroBar */}
+        {/* Provenance badge — above MacroBar */}
         {macroSource !== null && (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <ProvenanceBadge source={macroSource} />

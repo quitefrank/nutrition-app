@@ -44,38 +44,6 @@ describe('DishRowExpanded — ARIA and keyboard accessibility', () => {
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeTruthy()
   })
 
-  it('portion stepper group has role="group" and aria-label="Serving size"', () => {
-    render(<DishRowExpanded {...defaultProps} />)
-    const group = screen.getByRole('group', { name: /serving size/i })
-    expect(group).toBeTruthy()
-  })
-
-  it('each portion stepper button has aria-pressed attribute', () => {
-    render(<DishRowExpanded {...defaultProps} />)
-    const portionNames = ['0.5 serving', '1 serving', '1.5 servings', '2 servings']
-    portionNames.forEach((name) => {
-      const btn = screen.getByRole('button', { name })
-      // aria-pressed should be present (either "true" or "false")
-      expect(btn.getAttribute('aria-pressed')).not.toBeNull()
-    })
-  })
-
-  it('aria-pressed is "true" only for the selected portion value (default: 1×)', () => {
-    render(<DishRowExpanded {...defaultProps} />)
-    expect(screen.getByRole('button', { name: '0.5 serving' }).getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByRole('button', { name: '1 serving' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: '1.5 servings' }).getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByRole('button', { name: '2 servings' }).getAttribute('aria-pressed')).toBe('false')
-  })
-
-  it('aria-pressed updates when a different portion is selected', async () => {
-    const user = userEvent.setup()
-    render(<DishRowExpanded {...defaultProps} />)
-    await user.click(screen.getByRole('button', { name: '2 servings' }))
-    expect(screen.getByRole('button', { name: '2 servings' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: '1 serving' }).getAttribute('aria-pressed')).toBe('false')
-  })
-
   it('sr-only live region has aria-live="polite" and aria-atomic="true"', () => {
     const { container } = render(<DishRowExpanded {...defaultProps} />)
     // The sr-only div is hidden visually but present in the DOM
@@ -127,23 +95,6 @@ describe('DishRowExpanded — ARIA and keyboard accessibility', () => {
 // ─── Story 7-2: Touch target compliance ──────────────────────────────────────
 
 describe('DishRowExpanded — touch target compliance (Story 7-2)', () => {
-  it('each portion stepper button has minHeight ≥ 44px (no explicit height override)', () => {
-    render(<DishRowExpanded {...defaultProps} />)
-    const group = screen.getByRole('group', { name: /serving size/i })
-    const buttons = Array.from(group.querySelectorAll('button'))
-    expect(buttons).toHaveLength(4)
-    for (const button of buttons) {
-      // Must NOT have explicit height: 34 (the original violation)
-      const explicitHeight = (button as HTMLElement).style.height
-      if (explicitHeight) {
-        expect(parseInt(explicitHeight, 10)).toBeGreaterThanOrEqual(44)
-      }
-      // minHeight must be ≥ 44
-      const minH = (button as HTMLElement).style.minHeight
-      expect(parseInt(minH, 10)).toBeGreaterThanOrEqual(44)
-    }
-  })
-
   it('collapse button does not have an explicit height below 44px', () => {
     render(<DishRowExpanded {...defaultProps} />)
     const collapseButton = screen.getByRole('button', { name: 'Collapse' })

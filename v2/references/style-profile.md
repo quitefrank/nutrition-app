@@ -1,6 +1,6 @@
 # Design Style Profile
 
-_Last updated: 2026-04-05_
+_Last updated: 2026-04-13_
 
 > **Reference priority:**
 > - **Navigation & system components** → Apple TV + Apple Music (primary)
@@ -26,7 +26,9 @@ _Last updated: 2026-04-05_
 - Apple Music iOS 49.png
 - Apple Music iOS 105.png
 - Apple Music iOS 108.png
-- Apple Music iOS 108 (1).png
+- Apple TV iOS 64.png
+- Apple Music iOS 2.png
+- TIDE iOS 76.png
 - TIDE iOS 27.png
 - TIDE iOS 58.png
 - TIDE iOS 62.png

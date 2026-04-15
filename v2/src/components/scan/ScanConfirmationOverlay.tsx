@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 import { RestaurantConfirmation, type RestaurantInfo } from "@/components/scan/RestaurantConfirmation";
 import { AutoCaptureToast } from "@/components/scan/AutoCaptureToast";
 import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
@@ -9,8 +10,8 @@ import { autoSaveToSupabase } from "@/lib/supabaseAutoSave";
 interface ScanConfirmationOverlayProps {
   /** sessionStorage key for the scan result (format: `plately:scan:{uuid}`) */
   scanKey: string;
-  /** Called with the first saved recipe UUID when the save is complete */
-  onComplete: (firstRecipeId: string | null) => void;
+  /** Called with the first saved recipe UUID and restaurant UUID when the save is complete */
+  onComplete: (firstRecipeId: string | null, restaurantId: string | null) => void;
   /** Called when the overlay should be dismissed without a save result (e.g. session error) */
   onClose: () => void;
 }
@@ -44,16 +45,13 @@ function updateScanResult(scanKey: string, patch: Record<string, unknown>) {
 }
 
 export function ScanConfirmationOverlay({ scanKey, onComplete, onClose }: ScanConfirmationOverlayProps) {
+  const queryClient = useQueryClient();
   // Read sessionStorage once on mount — avoids stale re-reads on re-renders
   const scanResultRef = useRef(readScanResult(scanKey));
   const [saving, setSaving] = useState(false);
   // P1: recipeId stored in toast state so the toast's own onDismiss calls onComplete —
   // eliminating the dual-timer race between the overlay setTimeout and the toast timer.
-  const [toast, setToast] = useState<{ name: string; count: number; recipeId: string | null } | null>(null);
-
-  // P3: Guard setState calls after unmount (e.g. if parent replaces confirmingScanKey mid-save)
-  const isMountedRef = useRef(true);
-  useEffect(() => () => { isMountedRef.current = false; }, []);
+  const [toast, setToast] = useState<{ name: string; count: number; recipeId: string | null; restaurantId: string | null } | null>(null);
 
   // Keep a stable ref to onClose so the effect below doesn't re-run on re-renders
   const onCloseRef = useRef(onClose);
@@ -85,20 +83,19 @@ export function ScanConfirmationOverlay({ scanKey, onComplete, onClose }: ScanCo
       restaurantUserRatingsTotal: restaurant.userRatingsTotal ?? null,
     });
 
-    if (isMountedRef.current) setSaving(true);
+    setSaving(true);
     try {
-      const map = await autoSaveToSupabase(scanKey);
-      const firstRecipeId = map ? Object.values(map)[0] ?? null : null;
-      const savedCount = map ? Object.keys(map).length : dishCount;
-
-      if (isMountedRef.current) {
-        setToast({ name: restaurant.name, count: savedCount, recipeId: firstRecipeId });
-      }
+      const result = await autoSaveToSupabase(scanKey);
+      const firstRecipeId = result ? Object.values(result.dishToRecipeMap)[0] ?? null : null;
+      const savedCount = result ? Object.keys(result.dishToRecipeMap).length : dishCount;
+      const restaurantId = result?.restaurantId ?? null;
+      if (result) void queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+      setToast({ name: restaurant.name, count: savedCount, recipeId: firstRecipeId, restaurantId });
     } catch {
       // Auto-save failure — surface as null so AppShell can show error state
-      onComplete(null);
+      onComplete(null, null);
     } finally {
-      if (isMountedRef.current) setSaving(false);
+      setSaving(false);
     }
   }
 
@@ -107,19 +104,18 @@ export function ScanConfirmationOverlay({ scanKey, onComplete, onClose }: ScanCo
     // sessionStorage concurrently and overwrite restaurantName after the await.
     const nameSnapshot = extractedName ?? "Restaurant";
 
-    if (isMountedRef.current) setSaving(true);
+    setSaving(true);
     try {
-      const map = await autoSaveToSupabase(scanKey);
-      const firstRecipeId = map ? Object.values(map)[0] ?? null : null;
-      const savedCount = map ? Object.keys(map).length : dishCount;
-
-      if (isMountedRef.current) {
-        setToast({ name: nameSnapshot, count: savedCount, recipeId: firstRecipeId });
-      }
+      const result = await autoSaveToSupabase(scanKey);
+      const firstRecipeId = result ? Object.values(result.dishToRecipeMap)[0] ?? null : null;
+      const savedCount = result ? Object.keys(result.dishToRecipeMap).length : dishCount;
+      const restaurantId = result?.restaurantId ?? null;
+      if (result) void queryClient.invalidateQueries({ queryKey: ["restaurants"] });
+      setToast({ name: nameSnapshot, count: savedCount, recipeId: firstRecipeId, restaurantId });
     } catch {
-      onComplete(null);
+      onComplete(null, null);
     } finally {
-      if (isMountedRef.current) setSaving(false);
+      setSaving(false);
     }
   }
 
@@ -169,7 +165,7 @@ export function ScanConfirmationOverlay({ scanKey, onComplete, onClose }: ScanCo
             // P1: Single timer source — the toast's own 2500ms timer fires onDismiss,
             // which calls onComplete. This eliminates the dual-timer race between the
             // overlay's setTimeout and AutoCaptureToast's internal timer.
-            onDismiss={() => onComplete(toast.recipeId)}
+            onDismiss={() => onComplete(toast.recipeId, toast.restaurantId)}
           />
         )}
       </AnimatePresence>

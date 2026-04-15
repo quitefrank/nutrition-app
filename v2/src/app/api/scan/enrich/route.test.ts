@@ -2,14 +2,13 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
-const { mockGenerateContent, MockGoogleGenerativeAI } = vi.hoisted(() => {
+const { mockGenerateContent, MockGoogleGenAI } = vi.hoisted(() => {
   const mockGenerateContent = vi.fn()
-  const MockGoogleGenerativeAI = vi.fn(function MockGoogleGenerativeAI() {
-    return {
-      getGenerativeModel: vi.fn(() => ({ generateContent: mockGenerateContent })),
-    }
+  // Must be a regular function (not arrow) so vi.fn() supports `new GoogleGenAI(...)`
+  const MockGoogleGenAI = vi.fn(function MockGoogleGenAI() {
+    return { models: { generateContent: mockGenerateContent } }
   })
-  return { mockGenerateContent, MockGoogleGenerativeAI }
+  return { mockGenerateContent, MockGoogleGenAI }
 })
 
 const mockGetApiKeys = vi.hoisted(() =>
@@ -22,8 +21,8 @@ const mockGetApiKeys = vi.hoisted(() =>
   }))
 )
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: MockGoogleGenerativeAI,
+vi.mock('@google/genai', () => ({
+  GoogleGenAI: MockGoogleGenAI,
 }))
 
 vi.mock('@/lib/api-keys', () => ({
@@ -55,7 +54,7 @@ function geminiIngredientsResponse(ingredients: unknown[] = [
   { name: 'Chicken breast', usda_name: 'chicken breast skinless', quantity: '150', unit: 'g' },
 ]) {
   const payload = { servings: 1, ingredients }
-  return { response: { text: () => JSON.stringify(payload) } }
+  return { text: JSON.stringify(payload) }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -142,7 +141,7 @@ describe('POST /api/scan/enrich', () => {
 
     it('Gemini returns bad JSON → empty ingredients, dish still in response', async () => {
       mockGenerateContent.mockResolvedValue({
-        response: { text: () => 'this is not json at all' },
+        text: 'this is not json at all',
       })
       const req = makeReq({ dishes: [{ id: 'd1', name: 'Mystery Dish' }] })
       const res = await POST(req)
@@ -156,7 +155,7 @@ describe('POST /api/scan/enrich', () => {
       // This exercises the safeParse failure path specifically: JSON.parse succeeds,
       // but the result is a top-level array, not the expected { servings, ingredients } object.
       mockGenerateContent.mockResolvedValue({
-        response: { text: () => '[]' },
+        text: '[]',
       })
       const req = makeReq({ dishes: [{ id: 'd1', name: 'Tacos' }] })
       const res = await POST(req)

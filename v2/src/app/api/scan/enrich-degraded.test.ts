@@ -12,14 +12,13 @@ import { NextRequest } from 'next/server'
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
 
-const { mockGenerateContent, MockGoogleGenerativeAI } = vi.hoisted(() => {
+const { mockGenerateContent, MockGoogleGenAI } = vi.hoisted(() => {
   const mockGenerateContent = vi.fn()
-  const MockGoogleGenerativeAI = vi.fn(function MockGoogleGenerativeAI() {
-    return {
-      getGenerativeModel: vi.fn(() => ({ generateContent: mockGenerateContent })),
-    }
+  // Must be a regular function (not arrow) so vi.fn() supports `new GoogleGenAI(...)`
+  const MockGoogleGenAI = vi.fn(function MockGoogleGenAI() {
+    return { models: { generateContent: mockGenerateContent } }
   })
-  return { mockGenerateContent, MockGoogleGenerativeAI }
+  return { mockGenerateContent, MockGoogleGenAI }
 })
 
 const mockGetApiKeys = vi.hoisted(() =>
@@ -32,8 +31,8 @@ const mockGetApiKeys = vi.hoisted(() =>
   }))
 )
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: MockGoogleGenerativeAI,
+vi.mock('@google/genai', () => ({
+  GoogleGenAI: MockGoogleGenAI,
 }))
 
 vi.mock('@/lib/api-keys', () => ({
@@ -64,7 +63,7 @@ function makeReq(body: Record<string, unknown>) {
 function geminiIngredientsResponse(ingredients: unknown[] = [
   { name: 'Chicken breast', usda_name: 'chicken breast skinless', quantity: '150', unit: 'g' },
 ]) {
-  return { response: { text: () => JSON.stringify({ servings: 1, ingredients }) } }
+  return { text: JSON.stringify({ servings: 1, ingredients }) }
 }
 
 /** Well-formed USDA success response for chicken breast (per-100g values). */
@@ -280,7 +279,7 @@ describe('/api/scan/enrich — Gemini ingredient inference degraded states', () 
 
   it('returns empty ingredients array when Gemini returns invalid JSON', async () => {
     mockGenerateContent.mockResolvedValue({
-      response: { text: () => 'definitely not json at all }{' },
+      text: 'definitely not json at all }{',
     })
 
     const res = await POST(makeReq({ dishes: [{ id: 'd1', name: 'Mystery Dish' }] }))
@@ -293,7 +292,7 @@ describe('/api/scan/enrich — Gemini ingredient inference degraded states', () 
     // JSON.parse('[]') → [] — this is valid JSON but fails GeminiInferenceSchema
     // (which expects { servings, ingredients }), so safeParse returns false → empty []
     mockGenerateContent.mockResolvedValue({
-      response: { text: () => '[]' },
+      text: '[]',
     })
 
     const res = await POST(makeReq({ dishes: [{ id: 'd1', name: 'Mystery Dish' }] }))
@@ -308,8 +307,8 @@ describe('/api/scan/enrich — Gemini ingredient inference degraded states', () 
     // array order: [dish1.inference, dish2.inference, dish1.rating, dish2.rating].
     // Using mockRejectedValueOnce + mockResolvedValue (not Once) covers all orderings.
     mockGenerateContent
-      .mockRejectedValueOnce(new Error('Gemini overloaded'))  // call 1: dish1 inference fails
-      .mockResolvedValue(                                       // calls 2+: all others succeed
+      .mockRejectedValueOnce(new Error('Gemini network error'))  // call 1: dish1 inference fails (non-transient → no retry)
+      .mockResolvedValue(                                          // calls 2+: all others succeed
         geminiIngredientsResponse([
           { name: 'Lettuce', usda_name: 'romaine lettuce', quantity: '80', unit: 'g' },
         ])

@@ -628,8 +628,6 @@ function EditPageInner() {
             </button>
           </div>
 
-          {/* Bottom spacer */}
-          <div style={{ height: 'calc(var(--tab-bar-height) + var(--space-safe-bottom) + 24px)' }} />
         </motion.div>
       </div>
 

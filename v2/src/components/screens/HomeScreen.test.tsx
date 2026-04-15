@@ -351,13 +351,13 @@ describe('HomeScreen', () => {
       )
     })
 
-    it('navigates to /recipes/[id] when RecipeGridCard is tapped in State 2', async () => {
+    it('navigates to /recipe/[id] when RecipeGridCard is tapped in State 2', async () => {
       setMockData([{ ...baseRestaurant, recipes: [baseRecipe] }])
       const user = userEvent.setup()
       render(<HomeScreen />)
       // RecipeGridCard renders with aria-label = recipe.name
       await user.click(screen.getByRole('button', { name: /pad thai/i }))
-      expect(mockPush).toHaveBeenCalledWith('/recipes/recipe-1')
+      expect(mockPush).toHaveBeenCalledWith('/recipe/recipe-1')
     })
 
     it('navigates to restaurant page when HeroCard is tapped', async () => {
