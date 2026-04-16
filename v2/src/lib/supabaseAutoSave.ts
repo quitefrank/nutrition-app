@@ -56,8 +56,8 @@ export async function autoSaveToSupabase(scanKey: string): Promise<AutoSaveResul
   // Guard against silent network hangs: Supabase fetch calls have no built-in
   // client-side timeout. If any query stalls (connection established but no
   // response), the function would never resolve, locking the confirmation UI.
-  // 15s covers the worst-case sequential path (restaurant upsert + visit insert +
-  // N recipe inserts) on a slow connection, without leaving users stuck forever.
+  // 15s covers the worst-case path (restaurant upsert + visit insert +
+  // batch recipe insert + batch ingredient insert) on a slow connection.
   const TIMEOUT_MS = 15_000;
   let tid: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
@@ -192,68 +192,97 @@ async function _doAutoSave(scanKey: string): Promise<AutoSaveResult | null> {
     const visitId = visitData?.id ?? null;
 
     // 4. Insert recipe + ingredients for every dish ───────────────────────────
+    // Batched: one SELECT for dedup + one INSERT for all new recipes + one INSERT
+    // for all ingredients. Replaces the previous per-dish serial loop (3N calls).
     const dishToRecipeMap: Record<string, string> = {};
 
-    for (const dish of dishes) {
-      const estimatedCalories =
-        typeof dish.calorieEstimate === "number" && dish.calorieEstimate > 0
-          ? Math.round(dish.calorieEstimate)
-          : null;
+    // Step A: one-shot dedup — fetch all existing recipes at this restaurant by name
+    const { data: existingRecipes } = await supabase
+      .from("recipes")
+      .select("id, name, dish_image_url")
+      .eq("restaurant_id", restaurantId)
+      .in("name", dishes.map((d) => d.name))
+      .neq("status", "removed");
+    const existingByName = new Map(existingRecipes?.map((r) => [r.name, r]) ?? []);
 
-      // Dedup: if the same dish name already exists at this restaurant (and hasn't been removed),
-      // reuse the existing recipe UUID rather than inserting a duplicate row.
-      const { data: existingRecipe } = await supabase
-        .from("recipes")
-        .select("id, dish_image_url")
-        .eq("restaurant_id", restaurantId)
-        .eq("name", dish.name)
-        .neq("status", "removed")
-        .limit(1)
-        .single();
+    // Step B: photo backfills for existing recipes that lack a photo — run in parallel
+    const photoBackfills = dishes
+      .filter((d) => {
+        const ex = existingByName.get(d.name);
+        return ex && !ex.dish_image_url && d.photoUrl;
+      })
+      .map((d) =>
+        supabase
+          .from("recipes")
+          .update({ dish_image_url: d.photoUrl as string, photo_status: "confirmed" })
+          .eq("id", existingByName.get(d.name)!.id)
+      );
+    await Promise.allSettled(photoBackfills);
 
-      if (existingRecipe) {
-        if (dish.id) dishToRecipeMap[dish.id] = existingRecipe.id;
-        // Backfill the photo if the stored row has none but this scan provides one
-        if (!existingRecipe.dish_image_url && dish.photoUrl) {
-          await supabase
-            .from("recipes")
-            .update({ dish_image_url: dish.photoUrl, photo_status: "confirmed" })
-            .eq("id", existingRecipe.id);
-        }
-        continue;
+    // Step C: populate dishToRecipeMap from already-existing recipes
+    // Gemini dishes rarely carry an id — fall back to name so the map is
+    // always populated and useEnrichment can write photos/macros to Supabase.
+    for (const [name, existing] of existingByName) {
+      const dish = dishes.find((d) => d.name === name);
+      if (dish) {
+        const key = dish.id ?? dish.name;
+        if (key) dishToRecipeMap[key] = existing.id;
       }
+    }
 
-      const { data: recipeData, error: recipeError } = await supabase
+    // Step D: batch insert all new (non-duplicate) recipes in one call
+    const newDishes = dishes.filter((d) => !existingByName.has(d.name));
+    let insertedRecipes: Array<{ id: string; name: string }> = [];
+    if (newDishes.length > 0) {
+      const { data: recipeRows, error: recipeInsertErr } = await supabase
         .from("recipes")
-        .insert({
-          restaurant_id: restaurantId,
-          visit_id: visitId,
-          name: dish.name,
-          description: dish.description ?? null,
-          dish_image_url: dish.photoUrl ?? null,
-          estimated_calories: estimatedCalories,
-          status: "auto_captured",
-          gemini_confidence: typeof dish.confidence === "number" ? dish.confidence : null,
-          // photo_status: confidence < 0.3 → suppressed (card hidden); has URL → confirmed; otherwise placeholder
-          photo_status: typeof dish.confidence === "number" && dish.confidence < 0.3
-            ? "suppressed"
-            : dish.photoUrl
-              ? "confirmed"
-              : "placeholder",
-        })
-        .select("id")
-        .single();
-
-      if (recipeError || !recipeData) {
-        console.warn("[supabaseAutoSave] recipe insert failed for", dish.name, recipeError?.message);
-        continue;
+        .insert(
+          newDishes.map((d) => {
+            const estimatedCalories =
+              typeof d.calorieEstimate === "number" && d.calorieEstimate > 0
+                ? Math.round(d.calorieEstimate)
+                : null;
+            return {
+              restaurant_id: restaurantId,
+              visit_id: visitId,
+              name: d.name,
+              description: d.description ?? null,
+              dish_image_url: (d.photoUrl ?? null) as string | null,
+              estimated_calories: estimatedCalories,
+              status: "auto_captured" as const,
+              gemini_confidence: typeof d.confidence === "number" ? d.confidence : null,
+              // photo_status: confidence < 0.3 → suppressed; has URL → confirmed; else placeholder
+              photo_status: (
+                typeof d.confidence === "number" && d.confidence < 0.3
+                  ? "suppressed"
+                  : d.photoUrl
+                    ? "confirmed"
+                    : "placeholder"
+              ) as "suppressed" | "confirmed" | "placeholder",
+            };
+          })
+        )
+        .select("id, name");
+      if (recipeInsertErr) {
+        console.warn("[supabaseAutoSave] batch recipe insert failed:", recipeInsertErr.message);
       }
+      insertedRecipes = recipeRows ?? [];
+    }
 
-      const recipeId = recipeData.id;
-      if (dish.id) dishToRecipeMap[dish.id] = recipeId;
+    // Populate dishToRecipeMap for newly inserted recipes
+    for (const inserted of insertedRecipes) {
+      const dish = newDishes.find((d) => d.name === inserted.name);
+      if (dish) {
+        const key = dish.id ?? dish.name;
+        if (key) dishToRecipeMap[key] = inserted.id;
+      }
+    }
 
-      // Insert ingredients (if any exist on this dish)
-      const ingredientsToInsert = (dish.ingredients ?? [])
+    // Step E: batch insert all ingredients for new recipes in one call
+    const allIngredients = insertedRecipes.flatMap(({ id: recipeId, name }) => {
+      const dish = newDishes.find((d) => d.name === name);
+      const ings = (dish?.ingredients ?? []) as NonNullable<StoredDish["ingredients"]>;
+      return ings
         .filter((ing) => ing.name?.trim())
         .map((ing) => ({
           recipe_id: recipeId,
@@ -266,16 +295,14 @@ async function _doAutoSave(scanKey: string): Promise<AutoSaveResult | null> {
           fat_g: ing.fat_g ?? null,
           carbs_g: ing.carbs_g ?? null,
         }));
-
-      if (ingredientsToInsert.length > 0) {
-        const { error: ingError } = await supabase
-          .from("recipe_ingredients")
-          .insert(ingredientsToInsert);
-
-        if (ingError) {
-          console.warn("[supabaseAutoSave] ingredients insert failed:", ingError.message);
-          // Non-blocking — recipe is still saved, ingredients are best-effort
-        }
+    });
+    if (allIngredients.length > 0) {
+      const { error: ingError } = await supabase
+        .from("recipe_ingredients")
+        .insert(allIngredients);
+      if (ingError) {
+        console.warn("[supabaseAutoSave] batch ingredients insert failed:", ingError.message);
+        // Non-blocking — recipes are still saved, ingredients are best-effort
       }
     }
 

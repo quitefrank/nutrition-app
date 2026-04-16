@@ -111,14 +111,18 @@ export function useEnrichment() {
 
           // 4. Write dish photos + macro totals back to Supabase
           if (dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0) {
-            // Photo writes — only for dishes that received a Places photo
+            // Gemini dishes rarely carry an id — supabaseAutoSave keys the map by
+          // dish.id ?? dish.name, so we look up by the same fallback here.
+          const recipeId = (d: EnrichedDish) => dishToRecipeMap[d.id ?? d.name]
+
+          // Photo writes — only for dishes that received a Places photo
             const photoWrites = enrichedDishes
-              .filter((d) => d.photoUrl && d.id && dishToRecipeMap[d.id!])
+              .filter((d) => d.photoUrl && recipeId(d))
               .map((d) =>
                 supabase
                   .from('recipes')
                   .update({ dish_image_url: d.photoUrl, photo_status: 'confirmed' })
-                  .eq('id', dishToRecipeMap[d.id!])
+                  .eq('id', recipeId(d))
               )
 
             // Macro total writes — only for dishes that received actual USDA macro data.
@@ -129,8 +133,7 @@ export function useEnrichment() {
             const macroWrites = enrichedDishes
               .filter(
                 (d) =>
-                  d.id &&
-                  dishToRecipeMap[d.id!] &&
+                  recipeId(d) &&
                   (d.totalCalories != null || d.totalProtein != null || d.totalCarbs != null || d.totalFat != null)
               )
               .map((d) =>
@@ -145,7 +148,7 @@ export function useEnrichment() {
                     total_fat_g: d.totalFat,
                     total_fibre_g: null,
                   })
-                  .eq('id', dishToRecipeMap[d.id!])
+                  .eq('id', recipeId(d))
               )
 
             // 5. Await all writes before invalidating so the refetch sees all persisted data

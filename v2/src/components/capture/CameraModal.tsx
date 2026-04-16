@@ -57,6 +57,38 @@ async function checkCameraPermission(): Promise<"granted" | "denied" | "prompt" 
 /** Low-confidence threshold: scores below this percentage trigger InferenceState */
 const CONFIDENCE_THRESHOLD = 70;
 
+/**
+ * Fire-and-forget: POST to /api/scan/name and write restaurantName to sessionStorage
+ * before the full scan completes. Never throws — this is a best-effort hint only.
+ * Guards against overwriting a full scan result that may have arrived first.
+ */
+async function fetchNamePhase(base64: string, mimeType: string, scanKey: string): Promise<void> {
+  try {
+    const res = await fetch("/api/scan/name", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageBase64: base64, mimeType }),
+    });
+    if (!res.ok) return;
+    const { restaurantName } = await res.json() as { restaurantName?: string | null };
+    if (!restaurantName) return;
+    // Only write if the full scan hasn't arrived yet (no allDishes in storage)
+    try {
+      const existing = sessionStorage.getItem(scanKey);
+      const parsed = existing ? (JSON.parse(existing) as Record<string, unknown>) : null;
+      if (parsed?.allDishes) return; // full scan beat us — don't overwrite
+      sessionStorage.setItem(
+        scanKey,
+        JSON.stringify({ ...(parsed ?? {}), restaurantName })
+      );
+    } catch {
+      // sessionStorage unavailable — non-critical
+    }
+  } catch {
+    // Network errors are non-fatal — the full scan will still populate the name
+  }
+}
+
 /** Prefix for sessionStorage keys — architecture contract ARCH13 (see planning/architecture.md) */
 const SCAN_KEY_PREFIX = "plately:scan:";
 
@@ -294,6 +326,10 @@ export function CameraModal({
         reader.readAsDataURL(compressed);
       });
 
+      // Priority 1: Fire name-only call in parallel — pre-fills restaurant name ~3s early.
+      // Non-blocking: writes { restaurantName } to sessionStorage if full scan hasn't arrived yet.
+      void fetchNamePhase(base64, mimeType, scanKey);
+
       // BYOAK: attach user-provided Gemini key if present (SSR-safe guard)
       const scanHeaders: Record<string, string> = { "Content-Type": "application/json" };
       try {
@@ -386,6 +422,13 @@ export function CameraModal({
       }
       console.error("[CameraModal] scan error:", err);
       const msg = err instanceof Error ? err.message : "Couldn't identify the dish — tap to try again.";
+      // Write error sentinel to sessionStorage so ScanRestaurantScreen can detect the
+      // failure immediately instead of waiting 30s for the polling timeout.
+      try {
+        sessionStorage.setItem(scanKey, JSON.stringify({ error: msg }));
+      } catch {
+        // non-critical
+      }
       // AC1 (Story 6.5): Gemini scan failures show inline — do NOT call onProcessingError.
       // onProcessingError is reserved for hardware camera errors (cameraError path).
       setScanError(msg);

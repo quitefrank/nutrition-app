@@ -1,5 +1,5 @@
 import 'server-only'
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { getApiKeys } from "@/lib/api-keys";
@@ -231,6 +231,8 @@ async function inferIngredients(dishName: string, geminiKey: string, description
     const params = {
       model: GEMINI_MODEL,
       contents: INFER_PROMPT(dishName, description, restaurantName),
+      // Structured JSON extraction — no reasoning required; disable thinking to cut latency
+      config: { thinkingConfig: { thinkingBudget: 0 } },
     };
     let geminiResult;
     try {
@@ -298,7 +300,7 @@ async function getDishRating(
     const result = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: prompt,
-      config: { tools: [{ googleSearch: {} }] },
+      config: { tools: [{ googleSearch: {} }], thinkingConfig: { thinkingBudget: 0 } },
     });
     const text = result.text ?? "";
 
@@ -468,10 +470,22 @@ export async function POST(req: NextRequest) {
   // Enrich each dish in parallel
   const enrichedDishes = await Promise.all(
     dishes.map(async (dish, i) => {
-      // Step A: Gemini inference — get full ingredient list
-      const { servings, ingredients: inferredIngredients } = await inferIngredients(dish.name, geminiKey, dish.description, restaurantName ?? undefined);
+      // Steps A and C start simultaneously — neither depends on the other.
+      // A: Gemini ingredient inference (needed before USDA can start)
+      // C: Photo + rating (only needs dish.name — no dependency on A or B)
+      const ingredientsPromise = inferIngredients(dish.name, geminiKey, dish.description, restaurantName ?? undefined);
+      // Prefer CSE (stable web images) when configured; fall back to TheMealDB
+      // (free, no key, covers thousands of common dishes with stable photos).
+      const photoPromise: Promise<string | null> = cseKey && cseCx
+        ? getDishPhoto(dish.name, cseKey, cseCx)
+        : getDishPhotoFromMealDB(dish.name);
+      const ratingPromise = getDishRating(dish.name, restaurantName ?? null, geminiKey);
 
-      // Step B: USDA macro lookup for each ingredient (parallel)
+      // Await A — ingredient names are required before USDA (Step B) can start
+      const { servings, ingredients: inferredIngredients } = await ingredientsPromise;
+
+      // Step B: USDA macro lookup for each ingredient (parallel).
+      // Starts immediately after A resolves while photo/rating (C) are still in-flight.
       let enrichedIngredients: Array<InferredIngredient & UsdaMacros> = [];
       if (usdaKey && inferredIngredients.length > 0) {
         const macroResults = await Promise.allSettled(
@@ -491,15 +505,8 @@ export async function POST(req: NextRequest) {
         }));
       }
 
-      // Step C: Photo + rating in parallel
-      // Prefer CSE (stable web images) when configured; fall back to TheMealDB
-      // (free, no key, covers thousands of common dishes with stable photos).
-      const [photoUrl, ratingResult] = await Promise.all([
-        cseKey && cseCx
-          ? getDishPhoto(dish.name, cseKey, cseCx)
-          : getDishPhotoFromMealDB(dish.name),
-        getDishRating(dish.name, restaurantName ?? null, geminiKey),
-      ]);
+      // Await C results — photo and rating are likely already settled while B was running
+      const [photoUrl, ratingResult] = await Promise.all([photoPromise, ratingPromise]);
       const { dishRating, dishReviewSnippet } = ratingResult;
 
       // Compute totals
@@ -524,17 +531,19 @@ export async function POST(req: NextRequest) {
     })
   );
 
-  // ─── Persist enriched macros back to Supabase (fire-and-forget) ──────────
-  // If the caller provided a dishToRecipeMap, write the USDA-enriched macro
-  // values back to each recipe_ingredients row. This runs after the response
-  // is ready so it never delays the enrichment result.
+  // ─── Persist enriched macros back to Supabase ────────────────────────────
+  // `after()` schedules this block to run after the response is flushed.
+  // Unlike `void (async () => {...})()`, the runtime waits for after() callbacks
+  // to complete before tearing down the execution context — so writes are
+  // guaranteed to finish on Vercel serverless (no more silent truncation).
   if (dishToRecipeMap && Object.keys(dishToRecipeMap).length > 0) {
-    void (async () => {
+    after(async () => {
       try {
         const sb = supabase;
 
         for (const enrichedDish of enrichedDishes) {
-          const recipeId = enrichedDish.id ? dishToRecipeMap[enrichedDish.id] : undefined;
+          const lookupKey = enrichedDish.id ?? enrichedDish.name;
+          const recipeId = lookupKey ? dishToRecipeMap[lookupKey] : undefined;
           if (!recipeId) continue;
 
           // Write dish photo independently so a missing rating column never
@@ -566,33 +575,52 @@ export async function POST(req: NextRequest) {
             carbs_g: number | null;
           }>;
 
-          if (ings.length === 0) continue;
+          // Ingredient upsert — only when Gemini inferred at least one ingredient
+          if (ings.length > 0) {
+            // Upsert all ingredients in one call.
+            // The unique constraint on (recipe_id, name) ensures concurrent write-backs
+            // from parallel enrichment runs don't produce duplicate rows.
+            const rows = ings.map((ing) => ({
+              recipe_id: recipeId,
+              name: ing.name,
+              quantity: ing.quantity ?? null,
+              unit: ing.unit ?? null,
+              confidence: "medium" as const,
+              calories_per_serving: ing.calories_kcal,
+              protein_g: ing.protein_g,
+              fat_g: ing.fat_g,
+              carbs_g: ing.carbs_g,
+            }));
 
-          // Upsert all ingredients in one call.
-          // The unique constraint on (recipe_id, name) ensures concurrent write-backs
-          // from parallel enrichment runs don't produce duplicate rows.
-          const rows = ings.map((ing) => ({
-            recipe_id: recipeId,
-            name: ing.name,
-            quantity: ing.quantity ?? null,
-            unit: ing.unit ?? null,
-            confidence: "medium" as const,
-            calories_per_serving: ing.calories_kcal,
-            protein_g: ing.protein_g,
-            fat_g: ing.fat_g,
-            carbs_g: ing.carbs_g,
-          }));
+            const { error } = await sb
+              .from("recipe_ingredients")
+              .upsert(rows, { onConflict: "recipe_id,name" });
 
-          const { error } = await sb
-            .from("recipe_ingredients")
-            .upsert(rows, { onConflict: "recipe_id,name" });
+            if (error) console.warn("[enrich] ingredient upsert failed:", recipeId, error.message);
+          }
 
-          if (error) console.warn("[enrich] ingredient upsert failed:", recipeId, error.message);
+          // Sync recipe-level macro totals so the home page card (which reads
+          // recipes.estimated_calories) stays consistent with the ingredient sum.
+          // Runs regardless of ingredient count — a dish with no Gemini-inferred
+          // ingredients may still have USDA totals from Phase 1.
+          // Only write estimated_calories when USDA returned a value — preserves
+          // the Phase 1 Gemini estimate when USDA lookup failed entirely.
+          const recipeUpdates: Record<string, unknown> = {
+            total_protein_g: enrichedDish.totalProtein,
+            total_carbs_g: enrichedDish.totalCarbs,
+            total_fat_g: enrichedDish.totalFat,
+            total_fibre_g: null,
+          };
+          if (enrichedDish.totalCalories != null) {
+            recipeUpdates.estimated_calories = enrichedDish.totalCalories;
+          }
+          const { error: recipeErr } = await sb.from("recipes").update(recipeUpdates).eq("id", recipeId);
+          if (recipeErr) console.warn("[enrich] recipe macro update failed:", recipeId, recipeErr.message);
         }
       } catch (err) {
         console.warn("[enrich] Supabase write-back error (non-blocking):", err instanceof Error ? err.message : err);
       }
-    })();
+    });
   }
 
   return NextResponse.json({ data: { dishes: enrichedDishes } });

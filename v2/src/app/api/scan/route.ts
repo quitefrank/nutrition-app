@@ -275,8 +275,13 @@ export async function POST(req: NextRequest) {
 
       rawText = response.text ?? "";
     } catch (err) {
-      console.error("[scan] Gemini error:", err instanceof Error ? err.message : err);
-      return apiError("Scan service temporarily unavailable", "AI_UNAVAILABLE", 503);
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error("[scan] Gemini error:", detail);
+      // Surface the raw Gemini error in development so it shows in the browser console.
+      const msg = process.env.NODE_ENV === "development"
+        ? `Scan service temporarily unavailable — ${detail}`
+        : "Scan service temporarily unavailable";
+      return apiError(msg, "AI_UNAVAILABLE", 503);
     }
 
     // ─── Parse + validate ──────────────────────────────────

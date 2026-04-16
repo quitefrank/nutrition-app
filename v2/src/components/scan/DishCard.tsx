@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { Fragment, useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import { PhotoFrame } from "@/components/ui/PhotoFrame"
 import { MacroDisplay } from "@/components/ui/MacroDisplay"
@@ -323,7 +323,7 @@ export function DishCard({
             </motion.div>
 
             {/* Calories — fontSize 14 (compact) ↔ 19 (expanded) */}
-            {scaledCalories != null && (
+            {scaledCalories != null ? (
               <motion.p
                 layout
                 transition={springTransition}
@@ -336,10 +336,17 @@ export function DishCard({
               >
                 {scaledCalories} cal
               </motion.p>
+            ) : !isExpanded && (
+              /* Phase-1 skeleton: Gemini scan still running */
+              <div
+                className="animate-pulse rounded-full"
+                aria-hidden="true"
+                style={{ height: 12, width: 52, background: "rgba(180,170,158,0.18)" }}
+              />
             )}
 
             {/* MacroDisplay — always mounted; isExpanded drives chip ↔ bar morph */}
-            {hasMacroValues && (
+            {hasMacroValues ? (
               <MacroDisplay
                 proteinG={scaledProtein}
                 carbsG={scaledCarbs}
@@ -348,6 +355,21 @@ export function DishCard({
                 isEstimated={derivedMacroSource === "ai"}
                 isExpanded={isExpanded}
               />
+            ) : scaledCalories != null && !isExpanded && (
+              /* Phase-2 skeleton: calories arrived, USDA pipeline still running */
+              <div className="flex items-center" aria-hidden="true">
+                {([36, 32, 32] as const).map((w, i) => (
+                  <Fragment key={i}>
+                    <div
+                      className="animate-pulse rounded-full"
+                      style={{ height: 20, width: w, background: "rgba(180,170,158,0.14)" }}
+                    />
+                    {i < 2 && (
+                      <span style={{ fontSize: 10, color: "var(--color-text-tertiary)", margin: "0 2px" }}>·</span>
+                    )}
+                  </Fragment>
+                ))}
+              </div>
             )}
 
             {/* ── Expanded-only content ─────────────────────────────────── */}

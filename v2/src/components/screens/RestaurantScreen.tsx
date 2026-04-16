@@ -368,9 +368,13 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     supabaseRecipes.map((r) => r.dish.name.toLowerCase().trim())
   );
 
-  const sessionOnlyRecipes = sessionRecipes.filter(
-    (r) => !supabaseNames.has(r.dish.name.toLowerCase().trim())
-  );
+  // Suppress session-only rows (which render with X remove buttons) until the
+  // Supabase query has resolved. In the scan flow, autoSave completes before
+  // navigation, so by the time the query returns the dishes are already persisted
+  // and will render as DishCard (no X button) instead of SessionDishRow.
+  const sessionOnlyRecipes = recipesPending
+    ? []
+    : sessionRecipes.filter((r) => !supabaseNames.has(r.dish.name.toLowerCase().trim()));
 
   // When merging Supabase and session recipes, prefer the session photo URL
   // when the Supabase row has dish_image_url: null (write-back may not have
