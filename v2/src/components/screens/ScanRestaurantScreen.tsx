@@ -328,7 +328,64 @@ export function ScanRestaurantScreen() {
           </div>
         </FrostedCard>
 
-        {/* Save error — shown inline below the input when confirm fails */}
+        {/* Confirm button — appears when scan is done, name is filled, and no Places overlay is open */}
+        <AnimatePresence>
+          {scanDone && name.trim().length > 0 && placeResults.length === 0 && !saving && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, marginTop: 0 }}
+              animate={{ opacity: 1, height: "auto", marginTop: 10 }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ overflow: "hidden" }}
+            >
+              <button
+                type="button"
+                onClick={() => void handleConfirm()}
+                aria-label="Confirm restaurant name and save"
+                className="w-full font-semibold"
+                style={{
+                  height: 48,
+                  borderRadius: 9999,
+                  border: "none",
+                  background: "var(--color-accent)",
+                  color: "var(--color-on-accent, #fff)",
+                  fontSize: 15,
+                  cursor: "pointer",
+                }}
+              >
+                Confirm
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Saving state — replaces the confirm button while the save is in flight */}
+        <AnimatePresence>
+          {saving && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, marginTop: 0 }}
+              animate={{ opacity: 1, height: "auto", marginTop: 10 }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ overflow: "hidden" }}
+            >
+              <div
+                className="w-full flex items-center justify-center font-semibold"
+                style={{
+                  height: 48,
+                  borderRadius: 9999,
+                  background: "rgba(180,170,158,0.22)",
+                  color: "var(--color-text-tertiary)",
+                  fontSize: 15,
+                }}
+              >
+                Saving…
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Save error — shown inline below the button when confirm fails */}
         {saveError && (
           <p
             className="text-sm text-center mt-2"
