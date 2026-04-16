@@ -275,9 +275,15 @@ export async function POST(req: NextRequest) {
 
       rawText = response.text ?? "";
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      // Gemini SDK errors often encode the response body as a JSON string in err.message.
+      // Extract the human-readable message so dev output isn't a raw JSON blob.
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw) as { error?: { message?: string } };
+        if (parsed?.error?.message) detail = parsed.error.message;
+      } catch { /* not JSON — use raw as-is */ }
       console.error("[scan] Gemini error:", detail);
-      // Surface the raw Gemini error in development so it shows in the browser console.
       const msg = process.env.NODE_ENV === "development"
         ? `Scan service temporarily unavailable — ${detail}`
         : "Scan service temporarily unavailable";
