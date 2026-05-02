@@ -161,12 +161,25 @@ interface InferredIngredient {
   unit: string | null;
 }
 
+interface InferenceResult {
+  servings: number;
+  ingredients: InferredIngredient[];
+  estimatedCalories: number | null;
+  estimatedProteinG: number | null;
+  estimatedCarbsG: number | null;
+  estimatedFatG: number | null;
+}
+
 const INFER_PROMPT = (dishName: string, description?: string, restaurantName?: string) =>
   `You are a culinary expert and nutritionist. List the ingredients for a single restaurant serving of: "${dishName}".
 ${restaurantName?.trim() ? `\nThis dish is served at: "${restaurantName}". Use this to calibrate portion sizes and cooking style.\n` : ""}${description ? `\nThe menu describes it as: "${description}"\nUse this description to identify the exact ingredients — do not substitute or add ingredients not implied by the description.\n` : ""}
 Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 {
   "servings": 1,
+  "estimatedCalories": 450,
+  "estimatedProteinG": 35,
+  "estimatedCarbsG": 40,
+  "estimatedFatG": 18,
   "ingredients": [
     { "name": "string", "usda_name": "string", "quantity": "string", "unit": "g" }
   ]
@@ -223,9 +236,19 @@ Rules:
 - unit: always "g" — convert everything to grams
 - If a menu description is provided, extract ALL ingredients listed in it — the description is your source of truth regardless of whether the dish name is familiar
 - If NO description is provided AND the dish name is not a recognisable food, return { "servings": 1, "ingredients": [] }
+- estimatedCalories / estimatedProteinG / estimatedCarbsG / estimatedFatG: your best estimate for the WHOLE dish as served. Always provide realistic positive numbers — never null. These are used as a fallback when database lookups fail.
 - Return valid JSON only`;
 
-async function inferIngredients(dishName: string, geminiKey: string, description?: string, restaurantName?: string): Promise<{ servings: number; ingredients: InferredIngredient[] }> {
+const EMPTY_INFERENCE: InferenceResult = {
+  servings: 1,
+  ingredients: [],
+  estimatedCalories: null,
+  estimatedProteinG: null,
+  estimatedCarbsG: null,
+  estimatedFatG: null,
+};
+
+async function inferIngredients(dishName: string, geminiKey: string, description?: string, restaurantName?: string): Promise<InferenceResult> {
   try {
     const ai = new GoogleGenAI({ apiKey: geminiKey });
     const params = {
@@ -255,9 +278,9 @@ async function inferIngredients(dishName: string, geminiKey: string, description
     const schemaResult = GeminiInferenceSchema.safeParse(JSON.parse(clean));
     if (!schemaResult.success) {
       console.warn("[enrich/gemini] schema validation failed for:", dishName, schemaResult.error.issues);
-      return { servings: 1, ingredients: [] };
+      return EMPTY_INFERENCE;
     }
-    const { servings, ingredients: raw } = schemaResult.data;
+    const { servings, ingredients: raw, estimatedCalories, estimatedProteinG, estimatedCarbsG, estimatedFatG } = schemaResult.data;
     const ingredients: InferredIngredient[] = raw
       .filter((i) => i.name.trim().length > 0)
       .map((i) => ({
@@ -268,10 +291,17 @@ async function inferIngredients(dishName: string, geminiKey: string, description
           : (i.quantity ?? null),
         unit: i.unit ?? null,
       }));
-    return { servings, ingredients };
+    return {
+      servings,
+      ingredients,
+      estimatedCalories: estimatedCalories ?? null,
+      estimatedProteinG: estimatedProteinG ?? null,
+      estimatedCarbsG: estimatedCarbsG ?? null,
+      estimatedFatG: estimatedFatG ?? null,
+    };
   } catch (err) {
     console.warn("[enrich/gemini] inference failed for:", dishName, err instanceof Error ? err.message : err);
-    return { servings: 1, ingredients: [] };
+    return EMPTY_INFERENCE;
   }
 }
 
@@ -397,6 +427,10 @@ const UsdaSearchResponseSchema = z.object({
 
 const GeminiInferenceSchema = z.object({
   servings: z.number().positive().catch(1),
+  estimatedCalories: z.number().positive().nullable().optional().catch(null),
+  estimatedProteinG: z.number().min(0).nullable().optional().catch(null),
+  estimatedCarbsG: z.number().min(0).nullable().optional().catch(null),
+  estimatedFatG: z.number().min(0).nullable().optional().catch(null),
   ingredients: z.array(
     z.object({
       name: z.string().catch(""),
@@ -482,7 +516,14 @@ export async function POST(req: NextRequest) {
       const ratingPromise = getDishRating(dish.name, restaurantName ?? null, geminiKey);
 
       // Await A — ingredient names are required before USDA (Step B) can start
-      const { servings, ingredients: inferredIngredients } = await ingredientsPromise;
+      const {
+        servings,
+        ingredients: inferredIngredients,
+        estimatedCalories: geminiCalories,
+        estimatedProteinG: geminiProtein,
+        estimatedCarbsG: geminiCarbs,
+        estimatedFatG: geminiFat,
+      } = await ingredientsPromise;
 
       // Step B: USDA macro lookup for each ingredient (parallel).
       // Starts immediately after A resolves while photo/rating (C) are still in-flight.
@@ -509,11 +550,20 @@ export async function POST(req: NextRequest) {
       const [photoUrl, ratingResult] = await Promise.all([photoPromise, ratingPromise]);
       const { dishRating, dishReviewSnippet } = ratingResult;
 
-      // Compute totals
+      // Compute USDA totals; fall back to Gemini dish-level estimates when USDA fails
       const sumOrNull = (vals: (number | null)[]) => {
         const nums = vals.filter((v): v is number => v !== null);
         return nums.length > 0 ? Math.round(nums.reduce((a, b) => a + b, 0) * 10) / 10 : null;
       };
+
+      const usdaCalories = sumOrNull(enrichedIngredients.map((i) => i.calories_kcal));
+      const usdaProtein  = sumOrNull(enrichedIngredients.map((i) => i.protein_g));
+      const usdaFat      = sumOrNull(enrichedIngredients.map((i) => i.fat_g));
+      const usdaCarbs    = sumOrNull(enrichedIngredients.map((i) => i.carbs_g));
+
+      // macroSource: "usda" when USDA produced all three macros; "ai" when falling back
+      const macroSource: "usda" | "ai" =
+        usdaProtein != null && usdaCarbs != null && usdaFat != null ? "usda" : "ai";
 
       return {
         id: dish.id,
@@ -523,10 +573,11 @@ export async function POST(req: NextRequest) {
         photoUrl,
         dishRating,
         dishReviewSnippet,
-        totalCalories: sumOrNull(enrichedIngredients.map((i) => i.calories_kcal)),
-        totalProtein: sumOrNull(enrichedIngredients.map((i) => i.protein_g)),
-        totalFat: sumOrNull(enrichedIngredients.map((i) => i.fat_g)),
-        totalCarbs: sumOrNull(enrichedIngredients.map((i) => i.carbs_g)),
+        macroSource,
+        totalCalories: usdaCalories ?? geminiCalories,
+        totalProtein:  usdaProtein  ?? geminiProtein,
+        totalFat:      usdaFat      ?? geminiFat,
+        totalCarbs:    usdaCarbs    ?? geminiCarbs,
       };
     })
   );

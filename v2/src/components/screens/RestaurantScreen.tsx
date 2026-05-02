@@ -282,6 +282,8 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const photoSaveRef = useRef(false);
   // Guards against calling places/enrich more than once per page load.
   const placesEnrichRef = useRef(false);
+  // Guards against re-enriching null-macro dishes more than once per page load.
+  const macroReEnrichRef = useRef(false);
 
   // ── SessionStorage ─────────────────────────────────────────
   useEffect(() => {
@@ -295,10 +297,31 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   // ── Supabase ───────────────────────────────────────────────
   // Look up the Supabase restaurant entity by its Google placeId.
   // useRestaurants() returns all restaurants; we find the matching one.
-  const { data: allRestaurants, isPending: restaurantsPending } = useRestaurants();
+  const { data: allRestaurants, isPending: restaurantsPending, isError: restaurantsError } = useRestaurants();
 
   const supabaseRestaurant: DomainRestaurant | null =
-    allRestaurants?.find((r) => r.placeId === placeId) ?? null;
+    allRestaurants?.find((r) => r.placeId === placeId) ??
+    // Legacy fallback: restaurants saved before Places integration may have place_id = null.
+    // Match by name so they're recognised instead of triggering a fresh auto-scan.
+    (nameFromUrl
+      ? allRestaurants?.find(
+          (r) => !r.placeId && r.name.toLowerCase().trim() === nameFromUrl.toLowerCase().trim()
+        ) ?? null
+      : null);
+
+  // Backfill place_id for restaurants found by name that pre-date Places integration.
+  // Once written, future fresh loads find the restaurant by placeId directly.
+  useEffect(() => {
+    if (!supabaseRestaurant?.id) return;
+    if (supabaseRestaurant.placeId) return;
+    void supabase
+      .from('restaurants')
+      .update({ place_id: placeId })
+      .eq('id', supabaseRestaurant.id)
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+      });
+  }, [supabaseRestaurant?.id, supabaseRestaurant?.placeId, placeId, queryClient]);
 
   // ── Save search photo URL ───────────────────────────────────
   // When arriving from SearchScreen, the Places photo URL is passed as a URL
@@ -351,6 +374,85 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   const { data: supabaseRecipeRows, isPending: recipesPending } = useRecipesByRestaurant(
     supabaseRestaurant?.id ?? null
   );
+
+  // ── Re-enrich dishes missing macro data ────────────────────
+  // Fires once per page load when all of the following are true:
+  //   1. Recipes have loaded from Supabase
+  //   2. At least one dish is missing all three macro totals (null P, C, F)
+  //   3. A restaurant name is available (needed for INFER_PROMPT calibration)
+  // Calls /api/scan/enrich, which now always populates macros via Gemini fallback.
+  useEffect(() => {
+    if (recipesPending) return;
+    if (!supabaseRecipeRows || supabaseRecipeRows.length === 0) return;
+    if (macroReEnrichRef.current) return;
+
+    const nullMacroDishes = supabaseRecipeRows.filter(
+      (r) => r.totalProteinG == null && r.totalCarbsG == null && r.totalFatG == null
+    );
+    if (nullMacroDishes.length === 0) return;
+
+    macroReEnrichRef.current = true;
+
+    const restaurantName = supabaseRestaurant?.name ?? null;
+    const dishToRecipeMap: Record<string, string> = {};
+    for (const r of nullMacroDishes) {
+      dishToRecipeMap[r.id] = r.id;
+    }
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/scan/enrich', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dishes: nullMacroDishes.map((r) => ({
+              id: r.id,
+              name: r.name,
+              description: r.description ?? undefined,
+            })),
+            restaurantName,
+            dishToRecipeMap,
+          }),
+        });
+        if (!res.ok) return;
+
+        // Write macros directly to Supabase and AWAIT before invalidating.
+        // The enrich route's after() callback races with cache invalidation —
+        // if we invalidate first, the refetch still sees null. Writing here
+        // (same pattern as useEnrichment) ensures data is persisted before
+        // the query refetches.
+        const enrichData = await res.json() as { data?: { dishes: Array<{ id?: string; name: string; totalCalories?: number | null; totalProtein?: number | null; totalCarbs?: number | null; totalFat?: number | null }> } };
+        const enrichedDishes = enrichData?.data?.dishes ?? [];
+
+        const writes = enrichedDishes
+          .filter((d) => {
+            const rid = dishToRecipeMap[d.id ?? d.name];
+            return rid && (d.totalProtein != null || d.totalCarbs != null || d.totalFat != null);
+          })
+          .map((d) => {
+            const rid = dishToRecipeMap[d.id ?? d.name];
+            return supabase
+              .from('recipes')
+              .update({
+                ...(d.totalCalories != null ? { estimated_calories: d.totalCalories } : {}),
+                total_protein_g: d.totalProtein ?? null,
+                total_carbs_g: d.totalCarbs ?? null,
+                total_fat_g: d.totalFat ?? null,
+              })
+              .eq('id', rid);
+          });
+
+        if (writes.length > 0) {
+          await Promise.allSettled(writes);
+        }
+
+        void queryClient.invalidateQueries({ queryKey: ['recipes', 'restaurant', supabaseRestaurant?.id] });
+        void queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      } catch {
+        // Non-blocking — best-effort re-enrichment
+      }
+    })();
+  }, [recipesPending, supabaseRecipeRows, supabaseRestaurant?.id, supabaseRestaurant?.name, queryClient]);
 
   // Lazy-load ingredients for the expanded dish (Story 2-5)
   const { data: expandedRecipe, isError: expandedRecipeError } = useRecipe(expandedDishId);
@@ -483,6 +585,8 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
   useEffect(() => {
     if (!loaded) return;
     if (restaurantsPending) return;
+    // If restaurant lookup errored, don't auto-scan — wait for user to retry
+    if (restaurantsError) return;
     // If restaurant exists in DB, wait for its recipes to resolve too
     if (supabaseRestaurant && recipesPending) return;
     if (sessionRecipes.length > 0 || supabaseRecipes.length > 0) return;
@@ -491,7 +595,7 @@ export function RestaurantScreen({ placeId }: RestaurantScreenProps) {
     void handleAutoScan();
   // handleAutoScan is stable (useCallback); include all reactive values
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, restaurantsPending, recipesPending, supabaseRestaurant,
+  }, [loaded, restaurantsPending, restaurantsError, recipesPending, supabaseRestaurant,
       sessionRecipes.length, supabaseRecipes.length, autoScanStep]);
 
   // ── Create a search visit record (fire-and-forget) ────────
@@ -1352,14 +1456,6 @@ function ChevronLeftIcon() {
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.75" />
-      <path d="M16.5 16.5L21 21" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 function SpinnerIcon({ size = 24, color = "currentColor" }: { size?: number; color?: string }) {
   return (

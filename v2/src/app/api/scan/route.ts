@@ -30,7 +30,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
     {
       "name": "string",
       "description": "string",
-      "calorieEstimate": number or null,
+      "calorieEstimate": number,
       "confidence": 0.0-1.0,
       "ingredients": [
         { "name": "string", "quantity": "string or null", "unit": "string or null", "confidenceLevel": "high" | "medium" | "low" }
@@ -42,7 +42,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 Rules:
 - For a menu: list every visible dish with name, brief description, calorie estimate. Extract restaurant name from header/logo if visible.
 - For a dish: identify the single primary dish with its ingredients
-- calorieEstimate: typical serving calories, or null if uncertain
+- calorieEstimate: always provide a realistic calorie estimate for a typical restaurant serving (positive integer). Never null. If uncertain, give your best guess.
 - ingredients: for a dish photo, list what you can see or infer; for a menu item, leave as []
 - If not food, return { "type": "dish", "restaurantName": null, "dishes": [] }
 - Many menus display the same dishes in multiple languages (e.g. English and Japanese side-by-side or in separate sections). These are the SAME dish — return ONLY ONE entry per unique dish.
