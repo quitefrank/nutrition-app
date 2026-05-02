@@ -1,0 +1,2200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plately Architecture Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <style>
+    :root {
+      --bg: #1A1612;
+      --surface: #252118;
+      --card: #2D2920;
+      --accent: #C4622D;
+      --accent-dim: rgba(196,98,45,0.15);
+      --warning: #E8A838;
+      --warning-dim: rgba(232,168,56,0.15);
+      --success: #5A9E6F;
+      --text-pri: #F5F0E8;
+      --text-sec: #9E9589;
+      --text-ter: #6B6458;
+      --border: #3D3830;
+      --border-bright: #5A5248;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text-pri);
+      font-family: 'DM Sans', sans-serif;
+      margin: 0;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    #toolbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      z-index: 100;
+      padding: 8px 16px;
+    }
+
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .toolbar-row + .toolbar-row {
+      margin-top: 6px;
+    }
+
+    .app-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-pri);
+      margin-right: 8px;
+    }
+
+    .toolbar-sep {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 4px;
+    }
+
+    .btn {
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-sec);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 140ms ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      border-color: var(--border-bright);
+      color: var(--text-pri);
+    }
+
+    .btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn.active-warning {
+      background: var(--warning-dim);
+      border-color: var(--warning);
+      color: var(--warning);
+    }
+
+    .btn-small {
+      padding: 4px 10px;
+      font-size: 13px;
+    }
+
+    #diagram-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #content {
+      margin-top: 98px;
+      height: calc(100vh - 98px);
+      overflow: hidden;
+    }
+
+    #tab-diagram {
+      height: 100%;
+      position: relative;
+    }
+
+    #diagram-container {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #arch-svg {
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #arch-svg:active {
+      cursor: grabbing;
+    }
+
+    /* Node styles */
+    .node-rect {
+      fill: var(--card);
+      stroke: var(--border);
+      stroke-width: 1.5;
+      rx: 8;
+      transition: opacity 160ms ease;
+    }
+
+    .node-rect.selected {
+      stroke: var(--accent);
+      stroke-width: 3;
+      filter: drop-shadow(0 0 8px rgba(196,98,45,0.5));
+    }
+
+    .node-rect.dimmed {
+      opacity: 0.1;
+    }
+
+    .node-rect.flow-active {
+      fill: rgba(196,98,45,0.2);
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+
+    .node-rect.flow-visited {
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+
+    .node-rect.has-fail {
+      stroke: var(--warning);
+      stroke-width: 2;
+    }
+
+    .node-rect.deg1 {
+      stroke: rgba(196,98,45,0.75);
+      stroke-width: 2;
+    }
+
+    .node-rect.deg2 {
+      stroke: rgba(196,98,45,0.35);
+      stroke-width: 1.5;
+    }
+
+    .node-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      fill: var(--text-pri);
+      pointer-events: none;
+      dominant-baseline: middle;
+      text-anchor: middle;
+    }
+
+    .node-type-badge {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      fill: var(--text-ter);
+      pointer-events: none;
+      dominant-baseline: middle;
+      text-anchor: middle;
+    }
+
+    .connection-path {
+      fill: none;
+    }
+
+    .lane-strip {
+      opacity: 0.8;
+    }
+
+    .lane-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      fill: var(--text-sec);
+      dominant-baseline: middle;
+    }
+
+    /* Detail panel */
+    #detail-panel {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 380px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      transform: translateX(100%);
+      transition: transform 280ms ease;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #detail-panel.open {
+      transform: translateX(0);
+    }
+
+    #panel-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    #panel-header-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #panel-node-label {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-pri);
+      margin: 0 0 8px 0;
+      word-break: break-word;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-layer-ui { background: rgba(74,111,165,0.25); color: #6A9FD5; }
+    .badge-layer-hooks { background: rgba(122,94,165,0.25); color: #A87FD5; }
+    .badge-layer-api { background: rgba(196,98,45,0.25); color: #E07848; }
+    .badge-layer-libs { background: rgba(90,158,111,0.25); color: #7ABE8F; }
+    .badge-layer-stores { background: rgba(165,94,94,0.25); color: #D58080; }
+    .badge-layer-external { background: rgba(165,122,45,0.25); color: #D5A050; }
+
+    .badge-method-get { background: rgba(90,158,111,0.2); color: #7ABE8F; border: 1px solid rgba(90,158,111,0.4); }
+    .badge-method-post { background: rgba(232,168,56,0.2); color: var(--warning); border: 1px solid rgba(232,168,56,0.4); }
+    .badge-method-delete { background: rgba(196,61,61,0.2); color: #E07070; border: 1px solid rgba(196,61,61,0.4); }
+
+    .badge-type { background: var(--card); color: var(--text-sec); border: 1px solid var(--border); }
+
+    #panel-close {
+      background: none;
+      border: none;
+      color: var(--text-sec);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px;
+      flex-shrink: 0;
+    }
+
+    #panel-close:hover { color: var(--text-pri); }
+
+    #panel-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .panel-tab {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-sec);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .panel-tab:hover { color: var(--text-pri); background: var(--card); }
+    .panel-tab.active { background: var(--accent-dim); color: var(--accent); }
+
+    #panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    #panel-body::-webkit-scrollbar { width: 4px; }
+    #panel-body::-webkit-scrollbar-track { background: transparent; }
+    #panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .panel-section { margin-bottom: 20px; }
+
+    .panel-section h4 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-sec);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 0 0 10px 0;
+    }
+
+    .panel-section p {
+      font-size: 15px;
+      color: var(--text-sec);
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .io-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .io-table th {
+      text-align: left;
+      color: var(--text-ter);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 4px 8px 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .io-table td {
+      padding: 6px 8px 6px 0;
+      border-bottom: 1px solid rgba(61,56,48,0.5);
+      color: var(--text-sec);
+      vertical-align: top;
+    }
+
+    .io-table td:first-child {
+      color: var(--text-pri);
+      font-weight: 500;
+      font-family: 'DM Sans', monospace;
+      font-size: 13px;
+    }
+
+    .io-type {
+      color: #7ABE8F;
+      font-size: 13px;
+    }
+
+    .req-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .muted { color: var(--text-ter); font-size: 14px; font-style: italic; }
+
+    .prompt-section {
+      margin-bottom: 20px;
+    }
+
+    .prompt-section h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-pri);
+      margin: 0 0 4px 0;
+    }
+
+    .prompt-route {
+      font-size: 13px;
+      color: var(--text-ter);
+      margin: 0 0 6px 0;
+    }
+
+    .prompt-purpose {
+      font-size: 14px;
+      color: var(--text-sec);
+      margin: 0 0 10px 0;
+      line-height: 1.5;
+    }
+
+    pre.prompt-text {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'DM Sans', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: var(--text-pri);
+      max-height: 50vh;
+      margin: 0;
+    }
+
+    pre.prompt-text::-webkit-scrollbar { width: 4px; height: 4px; }
+    pre.prompt-text::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .fail-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+
+    .fail-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .fail-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-pri);
+    }
+
+    .fail-desc {
+      font-size: 14px;
+      color: var(--text-sec);
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .badge-sev-critical { background: rgba(196,61,61,0.2); color: #E07070; border: 1px solid rgba(196,61,61,0.4); }
+    .badge-sev-high { background: rgba(196,98,45,0.2); color: #E07848; border: 1px solid rgba(196,98,45,0.4); }
+    .badge-sev-medium { background: rgba(232,168,56,0.2); color: var(--warning); border: 1px solid rgba(232,168,56,0.4); }
+
+    /* Flow stepper */
+    #flow-stepper {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 40;
+      max-width: calc(100% - 420px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    #flow-stepper.hidden { display: none; }
+
+    #flow-step-label {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-pri);
+      white-space: nowrap;
+    }
+
+    #flow-step-desc {
+      font-size: 14px;
+      color: var(--text-sec);
+      max-width: 360px;
+    }
+
+    #flow-step-counter {
+      font-size: 13px;
+      color: var(--text-ter);
+      white-space: nowrap;
+    }
+
+    .flow-btn {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text-pri);
+      border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .flow-btn:hover { border-color: var(--border-bright); background: var(--border); }
+    .flow-btn:disabled { opacity: 0.3; cursor: default; }
+
+    .flow-close-btn {
+      background: none;
+      border: none;
+      color: var(--text-ter);
+      cursor: pointer;
+      font-size: 16px;
+      flex-shrink: 0;
+      padding: 0;
+    }
+
+    .flow-close-btn:hover { color: var(--text-sec); }
+
+    /* Tabs content areas */
+    #tab-prompts {
+      padding: 24px;
+      overflow-y: auto;
+      height: 100%;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+      gap: 20px;
+      align-content: start;
+    }
+
+    #tab-prompts::-webkit-scrollbar { width: 6px; }
+    #tab-prompts::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .prompt-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      height: fit-content;
+    }
+
+    .prompt-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .prompt-card-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-pri);
+    }
+
+    .prompt-jump-link {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+
+    .prompt-jump-link:hover { color: #E07848; }
+
+    .prompt-card-route {
+      font-size: 11px;
+      color: var(--text-ter);
+      margin-bottom: 8px;
+    }
+
+    .prompt-card-purpose {
+      font-size: 12px;
+      color: var(--text-sec);
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    #tab-flows {
+      padding: 24px;
+      overflow-y: auto;
+      height: 100%;
+    }
+
+    #tab-flows::-webkit-scrollbar { width: 6px; }
+    #tab-flows::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .flow-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .flow-section h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-pri);
+      margin: 0 0 4px 0;
+    }
+
+    .flow-section-desc {
+      font-size: 13px;
+      color: var(--text-sec);
+      margin-bottom: 16px;
+    }
+
+    .flow-step-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 16px 0;
+    }
+
+    .flow-step-item {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .flow-step-num {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-ter);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .flow-step-content { flex: 1; }
+
+    .flow-step-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-pri);
+      margin-bottom: 2px;
+    }
+
+    .flow-step-desc {
+      font-size: 12px;
+      color: var(--text-sec);
+      line-height: 1.5;
+    }
+
+    .trace-btn {
+      background: var(--accent-dim);
+      border: 1px solid rgba(196,98,45,0.4);
+      color: var(--accent);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .trace-btn:hover {
+      background: rgba(196,98,45,0.25);
+      border-color: var(--accent);
+    }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: var(--text-pri);
+      pointer-events: none;
+      z-index: 200;
+      max-width: 240px;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+
+    .tooltip-title { font-weight: 600; margin-bottom: 2px; }
+    .tooltip-sev { font-size: 10px; color: var(--warning); }
+
+    /* Fail badge circle */
+    .fail-badge circle {
+      fill: rgba(232,168,56,0.25);
+      stroke: var(--warning);
+      stroke-width: 1.5;
+    }
+
+    .fail-badge text {
+      fill: var(--warning);
+      font-size: 11px;
+      font-weight: 700;
+      dominant-baseline: middle;
+      text-anchor: middle;
+      pointer-events: none;
+    }
+
+    /* Tab hidden */
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header id="toolbar">
+  <div class="toolbar-row">
+    <span class="app-title">Plately Architecture</span>
+    <div class="toolbar-sep"></div>
+    <div class="btn-group">
+      <button class="btn active" id="tab-btn-diagram" onclick="setTab('diagram')">Diagram</button>
+      <button class="btn" id="tab-btn-prompts" onclick="setTab('prompts')">Prompts</button>
+      <button class="btn" id="tab-btn-flows" onclick="setTab('flows')">Flows</button>
+    </div>
+  </div>
+  <div class="toolbar-row" id="diagram-controls">
+    <div class="btn-group" id="layer-btns">
+      <button class="btn btn-small active" id="layer-all" onclick="setLayer('all')">All</button>
+      <button class="btn btn-small" id="layer-ui" onclick="setLayer('ui')">UI</button>
+      <button class="btn btn-small" id="layer-hooks" onclick="setLayer('hooks')">Hooks</button>
+      <button class="btn btn-small" id="layer-api" onclick="setLayer('api')">API</button>
+      <button class="btn btn-small" id="layer-libs" onclick="setLayer('libs')">Libs</button>
+      <button class="btn btn-small" id="layer-stores" onclick="setLayer('stores')">Stores</button>
+      <button class="btn btn-small" id="layer-external" onclick="setLayer('external')">External</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="btn-group" id="flow-btns">
+      <button class="btn btn-small" id="flow-camera-scan" onclick="setFlow('camera-scan')">Camera Scan</button>
+      <button class="btn btn-small" id="flow-search-restaurant" onclick="setFlow('search-restaurant')">Search→Restaurant</button>
+      <button class="btn btn-small" id="flow-view-recipe" onclick="setFlow('view-recipe')">View Recipe</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <button class="btn btn-small" id="fail-toggle" onclick="toggleFailPoints()">⚠ Fail Points</button>
+    <button class="btn btn-small" onclick="resetZoom()">Reset Zoom</button>
+  </div>
+</header>
+
+<main id="content">
+  <section id="tab-diagram">
+    <div id="diagram-container">
+      <svg id="arch-svg" viewBox="0 0 2000 1100" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arrow-primary" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#5A8A6A" opacity="0.8"/>
+          </marker>
+          <marker id="arrow-async" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#5A7A8A" opacity="0.8"/>
+          </marker>
+          <marker id="arrow-fallback" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#6B6458" opacity="0.8"/>
+          </marker>
+          <symbol id="icon-screen" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="1" y="2" width="10" height="7" rx="1"/>
+            <line x1="1" y1="5" x2="11" y2="5"/>
+            <line x1="6" y1="9" x2="6" y2="11"/>
+            <line x1="3.5" y1="11" x2="8.5" y2="11"/>
+          </symbol>
+          <symbol id="icon-hook" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="8,1 4.5,6.5 7,6.5 4,11"/>
+          </symbol>
+          <symbol id="icon-api" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="6,1 11,6 6,11 1,6"/>
+          </symbol>
+          <symbol id="icon-lib" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="2" y1="3.5" x2="10" y2="3.5"/>
+            <line x1="2" y1="6" x2="10" y2="6"/>
+            <line x1="2" y1="8.5" x2="10" y2="8.5"/>
+          </symbol>
+          <symbol id="icon-store" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="6" cy="3" rx="4" ry="1.5"/>
+            <line x1="2" y1="3" x2="2" y2="9"/>
+            <line x1="10" y1="3" x2="10" y2="9"/>
+            <path d="M2,9 A4,1.5 0 0,0 10,9"/>
+          </symbol>
+          <symbol id="icon-ext" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="4.5"/>
+            <line x1="1.5" y1="6" x2="10.5" y2="6"/>
+            <path d="M6,1.5 Q3.5,6 6,10.5"/>
+            <path d="M6,1.5 Q8.5,6 6,10.5"/>
+          </symbol>
+        </defs>
+        <g id="zoom-root">
+          <g id="lanes-group"></g>
+          <g id="connections-group"></g>
+          <g id="nodes-group"></g>
+          <g id="fail-badges-group"></g>
+        </g>
+      </svg>
+    </div>
+
+    <div id="detail-panel">
+      <div id="panel-header">
+        <div id="panel-header-info">
+          <h3 id="panel-node-label"></h3>
+          <div class="badge-row" id="panel-badges"></div>
+        </div>
+        <button id="panel-close" onclick="closePanel()">✕</button>
+      </div>
+      <div id="panel-tabs"></div>
+      <div id="panel-body"></div>
+    </div>
+
+    <div id="flow-stepper" class="hidden">
+      <button class="flow-btn" id="flow-prev" onclick="advanceFlow(-1)">‹</button>
+      <div>
+        <div id="flow-step-label"></div>
+        <div id="flow-step-desc"></div>
+      </div>
+      <div id="flow-step-counter"></div>
+      <button class="flow-btn" id="flow-next" onclick="advanceFlow(1)">›</button>
+      <button class="flow-close-btn" onclick="setFlow(null)">✕</button>
+    </div>
+  </section>
+
+  <section id="tab-prompts" hidden></section>
+  <section id="tab-flows" hidden></section>
+</main>
+
+<div id="tooltip">
+  <div class="tooltip-title" id="tt-title"></div>
+  <div class="tooltip-sev" id="tt-sev"></div>
+</div>
+
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
+
+const FAIL_POINTS = [
+  {
+    id: 'fp-scan-cache-fuzzy',
+    nodeId: 'api-scan',
+    severity: 'medium',
+    title: 'Fuzzy name cache match',
+    description: "Name-based cache lookup uses exact string equality — but \"McDonald's\" vs \"McDonalds\" returns null and forces a full Gemini call. Conversely, partial matches on common words (e.g. \"Grill\") could theoretically serve the wrong restaurant's cached menu."
+  },
+  {
+    id: 'fp-scan-gemini-retry',
+    nodeId: 'api-scan',
+    severity: 'high',
+    title: 'Gemini 503 retry cascade',
+    description: 'On a transient 503/overload, the route waits 2s then retries once. If the retry also fails, the full error propagates. Under sustained Gemini load, both attempts time out within the Vercel 30s function limit, leaving the user with an empty result and no feedback.'
+  },
+  {
+    id: 'fp-scan-photo-timeout',
+    nodeId: 'api-scan',
+    severity: 'medium',
+    title: 'photoUrl 8s hard abort',
+    description: 'When a Places photo URL is slow to respond (CDN cold start, network hop), the 8s AbortController fires and returns PHOTO_FETCH_FAILED. The caller sees null dishes with no retry path — the user must manually re-scan.'
+  },
+  {
+    id: 'fp-enrich-silent-empty',
+    nodeId: 'api-scan-enrich',
+    severity: 'critical',
+    title: 'Silent empty ingredient inference',
+    description: 'If Gemini returns an empty ingredients array (unknown dish, network blip, or context overload), inferIngredients() returns EMPTY_INFERENCE with no error. The enrichment pipeline silently writes zero-macro recipes. The UI shows no macros with no explanation to the user.'
+  },
+  {
+    id: 'fp-enrich-usda-fallback',
+    nodeId: 'api-scan-enrich',
+    severity: 'high',
+    title: 'USDA 8s timeout → AI fallback',
+    description: "Each USDA lookup has an 8s timeout. On timeout, the route silently falls back to Gemini's estimatedCalories/Protein/Carbs/Fat fields, which are less accurate and can be off by 30-50%. The user has no way to know they're seeing AI estimates vs database-backed macros."
+  },
+  {
+    id: 'fp-enrich-fire-forget',
+    nodeId: 'api-scan-enrich',
+    severity: 'high',
+    title: 'after() write-back killed by timeout',
+    description: "Enrichment results are written to Supabase inside a Next.js after() callback (fire-and-forget). If the Vercel serverless function times out before after() completes, the enrichment data is lost. The UI may show enriched data from sessionStorage but Supabase has the old stub row — data is lost on next load."
+  },
+  {
+    id: 'fp-enrich-recipe-map',
+    nodeId: 'api-scan-enrich',
+    severity: 'high',
+    title: 'dishToRecipeMap undefined → orphan write',
+    description: 'The write-back relies on dishToRecipeMap (dishId→recipeId) to update the correct Supabase row. If this map is not passed by the caller (or passed with stale IDs from a retake), enriched data is written to the wrong recipe row or silently dropped.'
+  },
+  {
+    id: 'fp-autoscan-overlap',
+    nodeId: 'api-restaurants-auto',
+    severity: 'medium',
+    title: 'Word-overlap photo mismatch',
+    description: 'bestMatchUrl() uses a 0.4 Jaccard threshold to match menu item names to dish photos. Short dish names (e.g. "Burger", "Salad") match too broadly. Dishes with no overlap below 0.4 get photoUrl:null. A 40% word overlap is a weak signal and produces visible mismatches in the UI.'
+  },
+  {
+    id: 'fp-autoscan-nested',
+    nodeId: 'api-restaurants-auto',
+    severity: 'high',
+    title: 'Nested Gemini calls compound timeouts',
+    description: "auto-scan calls Gemini twice: once for batch classification (8-20 photos), then again for each identified menu photo (up to 3 times). Total Gemini wall time can exceed 24s. The outer route has no orchestration timeout — under load, Vercel's 30s limit hits before results return."
+  },
+  {
+    id: 'fp-places-enrich-auth',
+    nodeId: 'api-places-enrich',
+    severity: 'medium',
+    title: 'No auth/session check',
+    description: 'POST /api/places/enrich accepts any restaurantId without verifying the caller owns that restaurant. Any authenticated or unauthenticated request can trigger a billable Places API detail lookup.'
+  },
+  {
+    id: 'fp-places-enrich-idempotent',
+    nodeId: 'api-places-enrich',
+    severity: 'medium',
+    title: 'No idempotency guard',
+    description: 'Concurrent requests for the same restaurantId each independently call the Places API and write the result. Race condition: the last write wins, potentially overwriting with partial data.'
+  },
+  {
+    id: 'fp-menu-cache-stale',
+    nodeId: 'lib-menu-cache',
+    severity: 'medium',
+    title: '30-day TTL serves stale menus',
+    description: 'Menu cache entries expire after 30 days but have no invalidation path. If a restaurant updates its menu (seasonal changes, price updates), cached scans silently serve the old menu until TTL expires. No UI indicator when results come from cache.'
+  },
+  {
+    id: 'fp-session-race',
+    nodeId: 'store-sessionstorage',
+    severity: 'high',
+    title: 'Event fires before listener registers',
+    description: "The enrichment pipeline dispatches a plately:enriched CustomEvent on sessionStorage write. If the RecipePage or RestaurantScreen component hasn't mounted yet (slow navigation, React Suspense boundary), the event fires into a vacuum and enriched data is never displayed in this session."
+  },
+  {
+    id: 'fp-usda-scale',
+    nodeId: 'ext-usda',
+    severity: 'medium',
+    title: 'Unit scale defaults to 1x',
+    description: 'resolveScale() maps ingredient units (g, oz, cup, tbsp...) to gram multipliers. Unmapped units (ml, fl oz, pinch, bunch) silently default to 1x scale — treating 1 cup of olive oil as 1 gram. This produces silently wrong macro calculations with no error or warning.'
+  },
+  {
+    id: 'fp-prompt-specificity',
+    nodeId: 'ext-gemini',
+    severity: 'high',
+    title: 'Generic inference — no real menu data',
+    description: "INFER_PROMPT passes only the dish name + description. It does not pass the actual scanned menu text, other items on the menu, or restaurant-specific context. Gemini infers generically from training data rather than from the specific restaurant's actual preparation. This is why direct Gemini usage with full context produces more accurate results than the app."
+  }
+];
+
+const FAIL_BY_ID = {};
+FAIL_POINTS.forEach(f => FAIL_BY_ID[f.id] = f);
+
+const GEMINI_PROMPTS = {
+  SCAN_PROMPT: {
+    id: 'SCAN_PROMPT',
+    label: 'SCAN_PROMPT',
+    nodeId: 'api-scan',
+    route: '/api/scan',
+    purpose: 'Classify image as menu or dish; extract all visible dishes with calorie estimates.',
+    text: `You are a food identification expert. Analyse this image.
+
+Determine if it shows a MENU (text listing multiple dishes) or a PLATED DISH (a single prepared dish).
+
+Return ONLY valid JSON (no markdown, no explanation) in this exact format:
+{
+  "type": "menu" | "dish",
+  "restaurantName": "string or null — restaurant name if visible on the menu, else null",
+  "dishes": [
+    {
+      "name": "string",
+      "description": "string",
+      "calorieEstimate": number,
+      "confidence": 0.0-1.0,
+      "ingredients": [
+        { "name": "string", "quantity": "string or null", "unit": "string or null", "confidenceLevel": "high" | "medium" | "low" }
+      ]
+    }
+  ]
+}
+
+Rules:
+- For a menu: list every visible dish with name, brief description, calorie estimate. Extract restaurant name from header/logo if visible.
+- For a dish: identify the single primary dish with its ingredients
+- calorieEstimate: always provide a realistic calorie estimate for a typical restaurant serving (positive integer). Never null. If uncertain, give your best guess.
+- ingredients: for a dish photo, list what you can see or infer; for a menu item, leave as []
+- If not food, return { "type": "dish", "restaurantName": null, "dishes": [] }
+- Many menus display the same dishes in multiple languages (e.g. English and Japanese side-by-side or in separate sections). These are the SAME dish — return ONLY ONE entry per unique dish.
+- For each dish, prefer the English name and English description. If no English name is visible, use a romanised or translated name instead.
+- A MENU must contain visible printed or written text listing the names of multiple dishes. A photo of a prepared dish with no such text listing is always a PLATED DISH, not a menu.
+- Only return type: "menu" when you can identify 2 or more distinct named dishes from visible text.
+- Return valid JSON only — no prose, no markdown fences`
+  },
+  NAME_PROMPT: {
+    id: 'NAME_PROMPT',
+    label: 'NAME_PROMPT',
+    nodeId: 'api-scan-name',
+    route: '/api/scan/name',
+    purpose: 'Fast-path: extract restaurant name from menu header. Runs in parallel with SCAN_PROMPT.',
+    text: `Look at this menu image. Is there a restaurant name, logo, or header text visible that identifies the restaurant?
+
+Return ONLY valid JSON, no markdown, no explanation:
+{"restaurantName": "The exact restaurant name as shown, or null if not clearly visible"}`
+  },
+  INFER_PROMPT: {
+    id: 'INFER_PROMPT',
+    label: 'INFER_PROMPT',
+    nodeId: 'api-scan-enrich',
+    route: '/api/scan/enrich',
+    purpose: 'Infer ingredients with gram weights and estimate macros for a single restaurant serving.',
+    text: `You are a culinary expert and nutritionist. List the ingredients for a single restaurant serving of: "{dishName}".
+
+[If restaurantName provided]: This dish is served at: "{restaurantName}". Use this to calibrate portion sizes and cooking style.
+[If description provided]: The menu describes it as: "{description}"
+Use this description to identify the exact ingredients — do not substitute or add ingredients not implied by the description.
+
+Return ONLY valid JSON (no markdown, no explanation) in this exact format:
+{
+  "servings": 1,
+  "estimatedCalories": 450,
+  "estimatedProteinG": 35,
+  "estimatedCarbsG": 40,
+  "estimatedFatG": 18,
+  "ingredients": [
+    { "name": "string", "usda_name": "string", "quantity": "string", "unit": "g" }
+  ]
+}
+
+Rules:
+- servings: always 1 (a single restaurant plate)
+- List only the ingredients present in this dish (5–12 max)
+- name: the ingredient as it appears in the dish (display name)
+- usda_name: a clean USDA-friendly search term — strip restaurant adjectives, cooking styles, and origin words.
+  Rule: identify the core noun + preparation state. Remove brand names, origin words, and aesthetic descriptors.
+  Examples: "brasa roasted chicken" → "roasted chicken breast skinless"
+            "avocado blossoms" → "avocado raw"
+            "toasted Peruvian corn" → "toasted corn kernels"
+            "apple cider + lucuma dressing" → "apple cider vinaigrette"
+            "wild-caught Atlantic salmon" → "grilled salmon"
+  Use a generic name that matches USDA Foundation or SR Legacy data.
+- quantity: ALWAYS provide a realistic gram weight for a single serving — never null or zero.
+  Use the following 3-step process:
+
+  STEP 1 — Recipe archetype check:
+  If the dish name is a recognizable culinary preparation (carbonara, caesar salad, pad thai,
+  burrito bowl, risotto, bibimbap, tikka masala, club sandwich, fish and chips, etc.),
+  use the canonical recipe's ingredient ratios as your baseline. Adjust for
+  restaurant-specific ingredients within ±30% of those ratios.
+  If the dish is proprietary or invented (e.g., "Avocado Chicken Crunch", "Dragon Bowl"),
+  skip to STEP 2.
+
+  STEP 2 — Identify the dish type (salad, rice bowl, pasta, hot plate, soup):
+    - Salad: total dish weight 400–550 g; protein 120–150 g; vegetable toppings 30–50 g each
+    - Rice/grain bowl: total dish weight 450–700 g; protein 150–180 g; vegetable sides 60–100 g each
+    - Pasta: total dish weight 350–550 g; protein 100–150 g
+    - Hot main plate: total dish weight 400–700 g; protein 150–200 g; vegetable sides 80–120 g each
+
+  STEP 3 — Classify each ingredient's role and apply these gram defaults:
+    - Primary protein in a main dish (chicken, beef, fish): typically 150–180 g
+    - Primary protein in a salad/bowl: typically 120–150 g (do not exceed 150 g)
+    - Grains/starches (rice, pasta, quinoa): typically 80–150 g cooked
+    - Leafy greens (lettuce, spinach, mixed greens): typically 75–100 g
+    - Creamy fruits (avocado, mango, papaya): typically 50 g in a salad, 75–100 g as a primary topping
+      (avocado is a substantial ingredient — do NOT group with nuts/seeds)
+    - Vegetables as a PRIMARY SIDE (served alone, not in a composed dish): 80–100 g
+    - Vegetables as a TOPPING in a salad/bowl: 30–50 g each
+    - STARCH-DRIED toppings (cancha, croutons, tortilla strips, pita chips): 25–40 g
+    - Corn and legumes as a topping: 35–50 g
+    - Corn and legumes as a primary component (bowl base): 80–100 g
+    - Sauces and dressings: typically 30–50 g (restaurant pour ~2 tbsp)
+    - Cheeses: typically 20–40 g
+    - Garnishes, herbs, wedges (lemon, lime, parsley): typically 5–15 g
+    - Nuts and seeds (as a topping): typically 10–25 g
+    - Cooking oils (used in preparation, not as dressing): typically 10–20 g
+- unit: always "g" — convert everything to grams
+- estimatedCalories / estimatedProteinG / estimatedCarbsG / estimatedFatG: your best estimate for the WHOLE dish as served. Always provide realistic positive numbers — never null. These are used as a fallback when database lookups fail.
+- Return valid JSON only`
+  },
+  DISH_RATING_PROMPT: {
+    id: 'DISH_RATING_PROMPT',
+    label: 'DISH_RATING_PROMPT',
+    nodeId: 'api-scan-enrich',
+    route: '/api/scan/enrich',
+    purpose: 'Grounded rating search: uses Google Search tool to find real customer reviews for a dish.',
+    text: `Search for customer reviews and ratings of "{context}" (where context = '"dishName" dish at "restaurantName" restaurant').
+
+Based on what you find, reply with ONLY a JSON object and nothing else:
+{"rating": <number between 1.0 and 5.0, or null if insufficient data>, "snippet": "<one sentence summary of customer sentiment, or null>"}
+
+Note: Uses Gemini's googleSearch tool (grounded generation). config: { tools: [{ googleSearch: {} }], thinkingBudget: 0 }`
+  },
+  AUTO_SCAN_CLASSIFY: {
+    id: 'AUTO_SCAN_CLASSIFY',
+    label: 'AUTO_SCAN_CLASSIFY',
+    nodeId: 'api-restaurants-auto',
+    route: '/api/restaurants/auto-scan',
+    purpose: 'Classify a batch of 8 restaurant photos as menu images vs dish photos. Batched for reliability.',
+    text: `Here are {N} photos from {restaurantName}. For each photo (0-indexed):
+- If it shows a printed or digital MENU (a list of dish names, possibly with prices or descriptions), classify it as a menu.
+- If it shows a plated food dish, identify the dish name.
+Return ONLY valid JSON, no markdown:
+{
+  "menuIndices": [0-based indices of menu photos],
+  "dishPhotos": [{ "index": N, "name": "dish name" }]
+}`
+  },
+  IMPORT_PROMPT: {
+    id: 'IMPORT_PROMPT',
+    label: 'IMPORT_PROMPT',
+    nodeId: 'api-import',
+    route: '/api/import',
+    purpose: 'Extract a structured recipe from stripped HTML text of a recipe webpage.',
+    text: `Extract the recipe from this text. Return ONLY valid JSON (no markdown, no explanation):
+{
+  "name": "dish name",
+  "description": "brief description",
+  "calorieEstimate": number or null,
+  "servings": number,
+  "ingredients": [
+    { "name": "string", "quantity": "string or null", "unit": "string or null", "confidenceLevel": "high" }
+  ]
+}
+
+Rules:
+- calorieEstimate: per-serving calorie count, or null if not present
+- servings: number of servings the recipe makes (default 1 if not specified)
+- If no clear recipe is found, return { "name": "", "description": "", "calorieEstimate": null, "servings": 1, "ingredients": [] }
+- Return valid JSON only — no prose, no markdown fences`
+  }
+};
+
+const FLOWS = [
+  {
+    id: 'camera-scan',
+    label: 'Camera Scan',
+    color: '#C4622D',
+    description: 'User opens camera, scans a menu, and sees enriched dishes.',
+    steps: [
+      { index: 0, label: 'Open camera', description: 'User taps camera FAB in bottom nav. CameraModal overlay opens.', nodeIds: ['screen-camera'] },
+      { index: 1, label: 'Capture & compress', description: 'Photo captured. imageUtils compresses to JPEG base64 (max 1200px). Stored briefly in memory.', nodeIds: ['screen-camera', 'lib-image-utils'] },
+      { index: 2, label: 'Navigate to ScanScreen', description: 'Image passed to ScanScreen via state. Parallel requests fire immediately.', nodeIds: ['screen-scan'] },
+      { index: 3, label: 'Parallel scan + name', description: 'POST /api/scan (full dish extraction) and POST /api/scan/name (restaurant name fast-path) fire in parallel.', nodeIds: ['api-scan', 'api-scan-name'] },
+      { index: 4, label: 'Gemini SCAN_PROMPT', description: 'Gemini 2.5 Flash analyses the menu image. Returns typed JSON with dish list.', nodeIds: ['ext-gemini', 'api-scan'] },
+      { index: 5, label: 'Cache check & write', description: 'menuCache checked before Gemini call. If miss, result written to cache (fire-and-forget).', nodeIds: ['lib-menu-cache', 'store-supabase-db'] },
+      { index: 6, label: 'Auto-save to Supabase', description: 'supabaseAutoSave upserts restaurant + all dishes immediately. IDs returned for enrichment.', nodeIds: ['lib-autosave', 'store-supabase-db'] },
+      { index: 7, label: 'Navigate to RestaurantScreen', description: 'ScanScreen navigates to RestaurantScreen with restaurantId.', nodeIds: ['screen-restaurant'] },
+      { index: 8, label: 'Enrichment pipeline', description: 'useEnrichment fires POST /api/scan/enrich. For each dish: Gemini INFER_PROMPT → USDA → Google CSE → rating.', nodeIds: ['hook-enrichment', 'api-scan-enrich', 'ext-gemini', 'ext-usda', 'ext-google-cse'] },
+      { index: 9, label: 'Enrichment write-back', description: 'after() writes enriched macros + photos to Supabase. plately:enriched event fires to sessionStorage.', nodeIds: ['store-sessionstorage', 'lib-autosave', 'store-supabase-db'] },
+      { index: 10, label: 'UI displays results', description: 'RestaurantScreen receives enriched data. DishCards show macros, photos, ratings.', nodeIds: ['screen-restaurant'] }
+    ]
+  },
+  {
+    id: 'search-restaurant',
+    label: 'Search→Restaurant',
+    color: '#7A5EA5',
+    description: 'User searches by restaurant name. Places API finds it. Auto-scan extracts the menu.',
+    steps: [
+      { index: 0, label: 'Search input', description: 'User types restaurant name in SearchScreen. Debounced 300ms.', nodeIds: ['screen-search', 'hook-search'] },
+      { index: 1, label: 'Places text search', description: 'POST /api/places/search → Google Places (New) text search. Returns name, placeId, address, photo.', nodeIds: ['api-places-search', 'ext-places'] },
+      { index: 2, label: 'Tap result', description: 'User taps a Place result. App checks menu cache before proceeding.', nodeIds: ['screen-search', 'lib-menu-cache'] },
+      { index: 3, label: 'Auto-scan pipeline', description: 'POST /api/restaurants/auto-scan with placeId. Fetches 20 photos → Gemini batch classify → scan menu photo → match dish photos.', nodeIds: ['api-restaurants-auto', 'lib-places-photos', 'ext-gemini', 'ext-places'] },
+      { index: 4, label: 'RestaurantScreen', description: 'Dishes populated from auto-scan. Enrichment triggers as in Camera Scan flow step 8+.', nodeIds: ['screen-restaurant', 'hook-enrichment'] }
+    ]
+  },
+  {
+    id: 'view-recipe',
+    label: 'View Recipe',
+    color: '#5A9E6F',
+    description: 'User taps a saved dish to view full recipe with ingredients and macros.',
+    steps: [
+      { index: 0, label: 'Tap dish card', description: 'User taps a DishCard on HomeScreen or RestaurantScreen.', nodeIds: ['screen-home', 'screen-restaurant'] },
+      { index: 1, label: 'RecipePage loads', description: 'RecipePage fetches recipe via useRecipes hook.', nodeIds: ['screen-recipe', 'hook-recipes'] },
+      { index: 2, label: 'Fetch from Supabase', description: 'GET /api/recipes?restaurantId=... returns recipe with ingredients.', nodeIds: ['api-recipes', 'store-supabase-db'] },
+      { index: 3, label: 'Display macros', description: 'RecipePage renders ingredient list with gram weights and macro bar chart.', nodeIds: ['screen-recipe'] },
+      { index: 4, label: 'Add to grocery', description: 'User taps "Add to Grocery". Ingredients written to grocery_items table.', nodeIds: ['screen-recipe', 'hook-grocery', 'api-grocery', 'store-supabase-db'] }
+    ]
+  }
+];
+
+const FLOW_BY_ID = {};
+FLOWS.forEach(f => FLOW_BY_ID[f.id] = f);
+
+// Raw node definitions — cx/cy computed in initData()
+const RAW_NODES = [
+  // Lane 0 — UI/Screens
+  { id: 'screen-home', label: 'Home', layer: 0, type: 'screen', method: null,
+    description: 'Main entry point. Loads restaurants, recipes, and grocery list via React Query. Displays collections in horizontal scroll rows.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'screen-scan', label: 'ScanScreen', layer: 0, type: 'screen', method: null,
+    description: 'Triggered by camera button. Orchestrates the scan flow: image capture → parallel /api/scan + /api/scan/name → sessionStorage → auto-save.',
+    inputs: [], outputs: [], promptId: null, failPointIds: ['fp-session-race'] },
+  { id: 'screen-camera', label: 'CameraModal', layer: 0, type: 'screen', method: null,
+    description: 'Full-screen camera overlay (Google Lens style). Captures photo, compresses to base64, passes to ScanScreen.',
+    inputs: [], outputs: [
+      { field: 'imageBase64', type: 'string', notes: 'compressed JPEG' },
+      { field: 'mimeType', type: 'string', notes: 'always image/jpeg' }
+    ], promptId: null, failPointIds: [] },
+  { id: 'screen-restaurant', label: 'RestaurantScreen', layer: 0, type: 'screen', method: null,
+    description: 'Shows dishes for a restaurant. Triggers enrichment on mount. Displays DishCard grid with macros.',
+    inputs: [], outputs: [], promptId: null, failPointIds: ['fp-session-race'] },
+  { id: 'screen-recipe', label: 'RecipePage', layer: 0, type: 'screen', method: null,
+    description: 'Full detail view for a single recipe with ingredient breakdown and macro chart.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'screen-grocery', label: 'GroceryScreen', layer: 0, type: 'screen', method: null,
+    description: 'Grocery list aggregated from saved recipes. Supports merge and remove.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'screen-import', label: 'ImportScreen', layer: 0, type: 'screen', method: null,
+    description: 'URL recipe import screen. User pastes URL → server fetches + Gemini extracts recipe.',
+    inputs: [{ field: 'url', type: 'string', required: true, notes: 'recipe page URL' }],
+    outputs: [], promptId: null, failPointIds: [] },
+  { id: 'screen-search', label: 'SearchScreen', layer: 0, type: 'screen', method: null,
+    description: 'Restaurant search screen using Google Places text search.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'screen-settings', label: 'SettingsScreen', layer: 0, type: 'screen', method: null,
+    description: 'BYOAK key input, preferences.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+
+  // Lane 1 — Hooks
+  { id: 'hook-restaurants', label: 'useRestaurants', layer: 1, type: 'hook', method: null,
+    description: 'useRestaurants — TanStack Query hook. Fetches restaurant list + triggers auto-scan for new restaurants. Persisted to localStorage.',
+    inputs: [], outputs: [{ field: 'restaurants', type: 'Restaurant[]', notes: 'from Supabase via /api/restaurants' }],
+    promptId: null, failPointIds: [] },
+  { id: 'hook-search', label: 'useRestaurantSearch', layer: 1, type: 'hook', method: null,
+    description: 'useRestaurantSearch — debounced Places text search. Returns PlaceResult[] for the search dropdown.',
+    inputs: [{ field: 'query', type: 'string', required: true, notes: 'debounced 300ms' }],
+    outputs: [{ field: 'results', type: 'PlaceResult[]', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'hook-enrichment', label: 'useEnrichment', layer: 1, type: 'hook', method: null,
+    description: 'useEnrichment — fires POST /api/scan/enrich after restaurant loads. Reads result from sessionStorage plately:enriched event.',
+    inputs: [
+      { field: 'restaurantId', type: 'string', required: true, notes: '' },
+      { field: 'dishes', type: 'Dish[]', required: true, notes: '' }
+    ],
+    outputs: [{ field: 'enriched', type: 'EnrichedDish[]', notes: '' }], promptId: null, failPointIds: ['fp-session-race'] },
+  { id: 'hook-recipes', label: 'useRecipes', layer: 1, type: 'hook', method: null,
+    description: 'useRecipes — fetches recipe list from Supabase via /api/recipes.',
+    inputs: [], outputs: [{ field: 'recipes', type: 'Recipe[]', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'hook-grocery', label: 'useGrocery', layer: 1, type: 'hook', method: null,
+    description: 'useGrocery — fetches grocery items from Supabase via /api/grocery.',
+    inputs: [], outputs: [{ field: 'items', type: 'GroceryItem[]', notes: '' }], promptId: null, failPointIds: [] },
+
+  // Lane 2 — API Routes Row A
+  { id: 'api-scan', label: 'POST /api/scan', layer: 2, type: 'api-route', method: 'POST',
+    description: 'Core scan endpoint. Accepts a menu image (base64 or photoUrl), checks menu cache, calls Gemini SCAN_PROMPT, validates with Zod, deduplicates dishes, fires cache write. Returns dish list with UUIDs.',
+    inputs: [
+      { field: 'imageBase64', type: 'string', required: false, notes: 'mutex with photoUrl' },
+      { field: 'mimeType', type: 'string', required: false, notes: 'required if imageBase64' },
+      { field: 'photoUrl', type: 'string (HTTPS)', required: false, notes: 'mutex with imageBase64' },
+      { field: 'restaurantPlaceId', type: 'string', required: false, notes: 'for cache lookup' },
+      { field: 'restaurantName', type: 'string', required: false, notes: 'for cache lookup' }
+    ],
+    outputs: [
+      { field: 'data.type', type: '"menu"|"dish"', notes: '' },
+      { field: 'data.dishes', type: 'Dish[]', notes: 'with uuid id field' },
+      { field: 'data.restaurantName', type: 'string|null', notes: '' },
+      { field: 'data.totalDetected', type: 'number', notes: '' },
+      { field: 'cached', type: 'boolean', notes: 'present if cache hit' }
+    ], promptId: 'SCAN_PROMPT', failPointIds: ['fp-scan-cache-fuzzy', 'fp-scan-gemini-retry', 'fp-scan-photo-timeout'] },
+  { id: 'api-scan-name', label: 'POST /api/scan/name', layer: 2, type: 'api-route', method: 'POST',
+    description: 'Fast-path name extractor. Runs in parallel with /api/scan. Always returns HTTP 200 (never blocks). Extracts restaurant name from menu header/logo.',
+    inputs: [
+      { field: 'imageBase64', type: 'string', required: true, notes: '' },
+      { field: 'mimeType', type: 'string', required: true, notes: '' }
+    ],
+    outputs: [{ field: 'restaurantName', type: 'string|null', notes: '' }], promptId: 'NAME_PROMPT', failPointIds: [] },
+  { id: 'api-scan-enrich', label: 'POST /api/scan/enrich', layer: 2, type: 'api-route', method: 'POST',
+    description: 'Enrichment pipeline. For each dish: Gemini ingredient inference → USDA macro lookup (batched, 8s timeout) → Google CSE dish photo → Gemini grounded rating. Writes back to Supabase via after() (fire-and-forget).',
+    inputs: [
+      { field: 'dishes', type: 'Dish[]', required: true, notes: 'from /api/scan response' },
+      { field: 'restaurantName', type: 'string|null', required: false, notes: '' },
+      { field: 'restaurantId', type: 'string', required: false, notes: 'for write-back' },
+      { field: 'dishToRecipeMap', type: 'Record<string,string>', required: false, notes: 'dishId→recipeId for write-back' }
+    ],
+    outputs: [{ field: 'results', type: 'EnrichedDish[]', notes: 'ingredients, macros, rating, photoUrl per dish' }],
+    promptId: 'INFER_PROMPT', failPointIds: ['fp-enrich-silent-empty', 'fp-enrich-usda-fallback', 'fp-enrich-fire-forget', 'fp-enrich-recipe-map'] },
+  { id: 'api-restaurants-auto', label: 'POST /api/restaurants/auto-scan', layer: 2, type: 'api-route', method: 'POST',
+    description: 'Auto-scan pipeline. Fetches up to 20 Places photos for a restaurant, sends to Gemini in batches of 8 for classification (menu vs dish photo), scans identified menu photos, matches dish photos by word overlap.',
+    inputs: [
+      { field: 'placeId', type: 'string', required: true, notes: 'Google Place ID' },
+      { field: 'restaurantName', type: 'string', required: false, notes: '' }
+    ],
+    outputs: [
+      { field: 'data.dishes', type: 'Dish[]', notes: '' },
+      { field: 'data.menuPhotoUrl', type: 'string|null', notes: '' },
+      { field: 'data.dishPhotos', type: '{name,url}[]', notes: 'indexed dish photos' },
+      { field: 'data.fromCache', type: 'boolean', notes: 'if menu cache hit' }
+    ], promptId: 'AUTO_SCAN_CLASSIFY', failPointIds: ['fp-autoscan-overlap', 'fp-autoscan-nested'] },
+  { id: 'api-places-search', label: 'POST /api/places/search', layer: 2, type: 'api-route', method: 'POST',
+    description: 'Text search for restaurants via Google Places (New) API.',
+    inputs: [
+      { field: 'query', type: 'string', required: true, notes: '' },
+      { field: 'location', type: '{lat,lng}', required: false, notes: 'for bias' }
+    ],
+    outputs: [{ field: 'results', type: 'PlaceResult[]', notes: 'name, placeId, address, photoUrl' }],
+    promptId: null, failPointIds: [] },
+  { id: 'api-places-enrich', label: 'POST /api/places/enrich', layer: 2, type: 'api-route', method: 'POST',
+    description: 'Enriches a saved restaurant with Places details: address, rating, website, photos.',
+    inputs: [
+      { field: 'restaurantId', type: 'string', required: true, notes: 'Supabase row ID' },
+      { field: 'placeId', type: 'string', required: true, notes: 'Google Place ID' }
+    ],
+    outputs: [{ field: 'updated', type: 'Restaurant', notes: 'with enriched fields' }],
+    promptId: null, failPointIds: ['fp-places-enrich-auth', 'fp-places-enrich-idempotent'] },
+  { id: 'api-import', label: 'POST /api/import', layer: 2, type: 'api-route', method: 'POST',
+    description: "Fetches a URL server-side, strips HTML, passes text to Gemini for recipe extraction.",
+    inputs: [{ field: 'url', type: 'string', required: true, notes: 'http/https only' }],
+    outputs: [{ field: 'data', type: 'Recipe', notes: 'name, description, calorieEstimate, servings, ingredients' }],
+    promptId: 'IMPORT_PROMPT', failPointIds: [] },
+
+  // Lane 2 — API Routes Row B
+  { id: 'api-restaurants', label: 'GET /api/restaurants', layer: 2, type: 'api-route', method: 'GET',
+    description: "Fetches user's saved restaurants from Supabase. Ordered by last_visited_at desc.",
+    inputs: [], outputs: [{ field: 'data', type: 'Restaurant[]', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'api-restaurants-del', label: 'DELETE /api/restaurants/[id]', layer: 2, type: 'api-route', method: 'DELETE',
+    description: 'Soft-deletes a restaurant (sets removed_at). Also removes child recipes.',
+    inputs: [{ field: 'id', type: 'string (path)', required: true, notes: 'restaurant row ID' }],
+    outputs: [{ field: 'success', type: 'boolean', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'api-recipes', label: 'GET /api/recipes', layer: 2, type: 'api-route', method: 'GET',
+    description: 'Fetches recipes for a restaurant from Supabase.',
+    inputs: [{ field: 'restaurantId', type: 'string (query)', required: true, notes: '' }],
+    outputs: [{ field: 'data', type: 'Recipe[]', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'api-recipes-del', label: 'DELETE /api/recipes/[id]', layer: 2, type: 'api-route', method: 'DELETE',
+    description: 'Soft-deletes a recipe (sets removed_at).',
+    inputs: [{ field: 'id', type: 'string (path)', required: true, notes: '' }],
+    outputs: [{ field: 'success', type: 'boolean', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'api-grocery', label: 'GET /api/grocery', layer: 2, type: 'api-route', method: 'GET',
+    description: 'Fetches grocery items from Supabase.',
+    inputs: [], outputs: [{ field: 'data', type: 'GroceryItem[]', notes: '' }], promptId: null, failPointIds: [] },
+  { id: 'api-grocery-del', label: 'DELETE /api/grocery/[id]', layer: 2, type: 'api-route', method: 'DELETE',
+    description: 'Removes a grocery item.',
+    inputs: [{ field: 'id', type: 'string (path)', required: true, notes: '' }],
+    outputs: [{ field: 'success', type: 'boolean', notes: '' }], promptId: null, failPointIds: [] },
+
+  // Lane 3 — Libs
+  { id: 'lib-menu-cache', label: 'menuCache', layer: 3, type: 'lib', method: null,
+    description: 'getCachedMenu / cacheMenu. Looks up cached dishes by placeId OR name (30-day TTL). Returns null on miss.',
+    inputs: [
+      { field: 'placeId', type: 'string', required: false, notes: '' },
+      { field: 'name', type: 'string', required: false, notes: '' }
+    ],
+    outputs: [{ field: 'cached', type: '{dishes:[]}|null', notes: '' }], promptId: null, failPointIds: ['fp-menu-cache-stale'] },
+  { id: 'lib-places-photos', label: 'placesPhotos', layer: 3, type: 'lib', method: null,
+    description: 'getRestaurantPhotos. Calls Places (New) /photos endpoint. Validates HTTPS. Returns up to N photo URLs.',
+    inputs: [
+      { field: 'placeId', type: 'string', required: true, notes: '' },
+      { field: 'maxPhotos', type: 'number', required: false, notes: 'default 20' }
+    ],
+    outputs: [{ field: 'urls', type: 'string[]', notes: 'HTTPS only' }], promptId: null, failPointIds: [] },
+  { id: 'lib-image-utils', label: 'imageUtils', layer: 3, type: 'lib', method: null,
+    description: 'compressImage. Reads camera capture, resizes to max 1200px, converts to JPEG base64. Writes result to sessionStorage.',
+    inputs: [{ field: 'blob', type: 'Blob', required: true, notes: 'raw camera capture' }],
+    outputs: [
+      { field: 'base64', type: 'string', notes: 'JPEG base64' },
+      { field: 'mimeType', type: '"image/jpeg"', notes: '' }
+    ], promptId: null, failPointIds: [] },
+  { id: 'lib-autosave', label: 'supabaseAutoSave', layer: 3, type: 'lib', method: null,
+    description: 'autoSaveToSupabase. After scan completes, upserts restaurant + all dishes to Supabase in a single batched write. Called with after() in Next.js route context.',
+    inputs: [
+      { field: 'restaurant', type: 'Restaurant', required: true, notes: '' },
+      { field: 'dishes', type: 'Dish[]', required: true, notes: '' }
+    ],
+    outputs: [
+      { field: 'restaurantId', type: 'string', notes: 'new or existing row ID' },
+      { field: 'recipeIds', type: 'string[]', notes: 'one per dish' }
+    ], promptId: null, failPointIds: ['fp-enrich-fire-forget'] },
+  { id: 'lib-retake-merge', label: 'retakeMerge', layer: 3, type: 'lib', method: null,
+    description: 'retakeMerge. When user retakes a scan, merges new dishes into existing sessionStorage state, preserving enrichment data for matching dishes.',
+    inputs: [
+      { field: 'existing', type: 'Dish[]', required: true, notes: '' },
+      { field: 'incoming', type: 'Dish[]', required: true, notes: '' }
+    ],
+    outputs: [{ field: 'merged', type: 'Dish[]', notes: '' }], promptId: null, failPointIds: [] },
+
+  // Lane 4 — Stores
+  { id: 'store-supabase-db', label: 'Supabase DB', layer: 4, type: 'store', method: null,
+    description: 'PostgreSQL via Supabase. 5 tables: restaurants (id, name, place_id, removed_at), recipes (id, restaurant_id, name, description, calories, macros, removed_at), ingredients (id, recipe_id, name, quantity, unit), grocery_items (id, user_id, name, quantity), menu_cache (id, restaurant_id, dishes_json, cached_at).',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'store-supabase-storage', label: 'Supabase Storage', layer: 4, type: 'store', method: null,
+    description: "Supabase Storage bucket 'dish-photos'. Stores dish photo URLs after CSE lookup. Referenced by recipes.photo_url.",
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'store-localstorage', label: 'localStorage', layer: 4, type: 'store', method: null,
+    description: 'React Query cache persistence. Key: plately-query-cache. Restaurants and recipes survive page reload.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'store-sessionstorage', label: 'sessionStorage', layer: 4, type: 'store', method: null,
+    description: 'Transient scan state. Keys: plately:scan-result (raw scan), plately:enriched (enrichment output). Consumed by RecipePage / RestaurantScreen. Event-driven via CustomEvent.',
+    inputs: [], outputs: [], promptId: null, failPointIds: ['fp-session-race'] },
+  { id: 'store-rq-cache', label: 'React Query Cache', layer: 4, type: 'store', method: null,
+    description: "TanStack React Query v5 in-memory cache. Keys: ['restaurants'], ['recipes', restaurantId], ['grocery']. 5min staleTime, persisted to localStorage.",
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+
+  // Lane 5 — External
+  { id: 'ext-gemini', label: 'Gemini 2.5 Flash', layer: 5, type: 'external', method: null,
+    description: 'Google Gemini 2.5 Flash. Vision + text. Used for: menu scan, name extraction, ingredient inference, grounded rating (with Google Search tool), recipe import. thinkingBudget:0 for non-vision calls.',
+    inputs: [], outputs: [], promptId: null, failPointIds: ['fp-prompt-specificity'] },
+  { id: 'ext-places', label: 'Google Places API', layer: 5, type: 'external', method: null,
+    description: 'Google Places API (New). Used for: text search (/places:searchText), photo fetch (/photos/{name}/media), place details. Requires Places API key.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'ext-usda', label: 'USDA FoodData Central', layer: 5, type: 'external', method: null,
+    description: 'USDA FoodData Central API. /foods/search endpoint. 8s timeout per batch. Returns nutrient data (calories, protein, carbs, fat per 100g). resolveScale() converts units to grams.',
+    inputs: [], outputs: [], promptId: null, failPointIds: ['fp-usda-scale'] },
+  { id: 'ext-google-cse', label: 'Google CSE', layer: 5, type: 'external', method: null,
+    description: 'Google Custom Search Engine. Image search for dish photos. Returns first image result URL. 8s timeout.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] },
+  { id: 'ext-mealmdb', label: 'TheMealDB', layer: 5, type: 'external', method: null,
+    description: 'TheMealDB free API. Recipe lookup by name as fallback when USDA returns no results.',
+    inputs: [], outputs: [], promptId: null, failPointIds: [] }
+];
+
+const RAW_CONNECTIONS = [
+  ['screen-home', 'hook-restaurants', 'primary'],
+  ['screen-home', 'hook-recipes', 'primary'],
+  ['screen-home', 'hook-grocery', 'primary'],
+  ['screen-scan', 'api-scan', 'primary'],
+  ['screen-scan', 'api-scan-name', 'async'],
+  ['screen-camera', 'lib-image-utils', 'primary'],
+  ['screen-restaurant', 'hook-enrichment', 'async'],
+  ['screen-restaurant', 'api-restaurants', 'primary'],
+  ['screen-recipe', 'hook-recipes', 'primary'],
+  ['screen-grocery', 'hook-grocery', 'primary'],
+  ['screen-import', 'api-import', 'primary'],
+  ['screen-search', 'hook-search', 'primary'],
+  ['hook-restaurants', 'api-restaurants', 'primary'],
+  ['hook-restaurants', 'api-restaurants-auto', 'async'],
+  ['hook-search', 'api-places-search', 'primary'],
+  ['hook-enrichment', 'api-scan-enrich', 'async'],
+  ['hook-recipes', 'api-recipes', 'primary'],
+  ['hook-grocery', 'api-grocery', 'primary'],
+  ['api-scan', 'lib-menu-cache', 'primary'],
+  ['api-scan', 'ext-gemini', 'primary'],
+  ['api-scan-name', 'ext-gemini', 'primary'],
+  ['api-scan-enrich', 'ext-gemini', 'primary'],
+  ['api-scan-enrich', 'ext-usda', 'primary'],
+  ['api-scan-enrich', 'ext-google-cse', 'async'],
+  ['api-restaurants-auto', 'lib-menu-cache', 'primary'],
+  ['api-restaurants-auto', 'lib-places-photos', 'primary'],
+  ['api-restaurants-auto', 'ext-gemini', 'primary'],
+  ['api-places-search', 'ext-places', 'primary'],
+  ['api-places-enrich', 'ext-places', 'primary'],
+  ['api-import', 'ext-gemini', 'primary'],
+  ['api-restaurants', 'store-supabase-db', 'primary'],
+  ['api-restaurants-del', 'store-supabase-db', 'primary'],
+  ['api-recipes', 'store-supabase-db', 'primary'],
+  ['api-recipes-del', 'store-supabase-db', 'primary'],
+  ['api-grocery', 'store-supabase-db', 'primary'],
+  ['api-grocery-del', 'store-supabase-db', 'primary'],
+  ['lib-menu-cache', 'store-supabase-db', 'primary'],
+  ['lib-autosave', 'store-supabase-db', 'async'],
+  ['lib-autosave', 'store-supabase-storage', 'async'],
+  ['lib-image-utils', 'store-sessionstorage', 'primary'],
+  ['lib-retake-merge', 'store-sessionstorage', 'primary'],
+  ['screen-scan', 'store-sessionstorage', 'async'],
+  ['store-rq-cache', 'store-localstorage', 'primary'],
+];
+
+// Lane config
+const LANES = [
+  { id: 'ui', label: 'UI/Screens', y: 20, height: 130, color: '#4A6FA5' },
+  { id: 'hooks', label: 'Hooks', y: 160, height: 110, color: '#7A5EA5' },
+  { id: 'api', label: 'API Routes', y: 280, height: 200, color: '#C4622D' },
+  { id: 'libs', label: 'Libs', y: 490, height: 110, color: '#5A9E6F' },
+  { id: 'stores', label: 'Stores', y: 610, height: 110, color: '#A55E5E' },
+  { id: 'external', label: 'External', y: 730, height: 110, color: '#A57A2D' }
+];
+
+const NODE_W = 148, NODE_H = 50;
+
+// ─── APP STATE ───────────────────────────────────────────────────────────────
+
+const APP_STATE = {
+  selectedNodeId: null,
+  activeTab: 'diagram',
+  activeLayer: 'all',
+  activeFlowId: null,
+  activeFlowStep: 0,
+  showFailPoints: false,
+  detailTab: 'overview'
+};
+
+function setState(patch) {
+  Object.assign(APP_STATE, patch);
+  render();
+}
+
+// ─── DATA INIT ───────────────────────────────────────────────────────────────
+
+let NODES = [];
+const NODE_BY_ID = {};
+
+function initData() {
+  // Separate nodes by lane + subrow
+  const lane0 = RAW_NODES.filter(n => n.layer === 0);
+  const lane1 = RAW_NODES.filter(n => n.layer === 1);
+  const lane2a = RAW_NODES.filter(n => n.layer === 2 && n.method === 'POST');
+  const lane2b = RAW_NODES.filter(n => n.layer === 2 && n.method !== 'POST');
+  const lane3 = RAW_NODES.filter(n => n.layer === 3);
+  const lane4 = RAW_NODES.filter(n => n.layer === 4);
+  const lane5 = RAW_NODES.filter(n => n.layer === 5);
+
+  function spacedX(i, count) {
+    if (count === 1) return 1000;
+    return 80 + i * (1840 / (count - 1));
+  }
+
+  // Lane 0
+  lane0.forEach((n, i) => { n.cx = spacedX(i, lane0.length); n.cy = 86; });
+  // Lane 1
+  lane1.forEach((n, i) => { n.cx = spacedX(i, lane1.length); n.cy = 215; });
+  // Lane 2a
+  lane2a.forEach((n, i) => { n.cx = 80 + i * (1840 / 6); n.cy = 345; });
+  // Lane 2b
+  lane2b.forEach((n, i) => { n.cx = 80 + i * (1840 / 5); n.cy = 415; });
+  // Lane 3
+  lane3.forEach((n, i) => { n.cx = spacedX(i, lane3.length); n.cy = 545; });
+  // Lane 4
+  lane4.forEach((n, i) => { n.cx = spacedX(i, lane4.length); n.cy = 665; });
+  // Lane 5
+  lane5.forEach((n, i) => { n.cx = spacedX(i, lane5.length); n.cy = 785; });
+
+  NODES = RAW_NODES;
+  NODES.forEach(n => NODE_BY_ID[n.id] = n);
+}
+
+// ─── SVG BUILD ───────────────────────────────────────────────────────────────
+
+let svgZoom;
+const nodeElems = {}; // id -> {g, rect, labels}
+const connElems = []; // {path, srcId, tgtId, type}
+const failBadgeElems = {}; // failPointId -> g element
+
+function wrapLabel(text, maxChars) {
+  if (text.length <= maxChars) return [text];
+  const mid = Math.floor(text.length / 2);
+  let splitAt = text.lastIndexOf(' ', mid);
+  if (splitAt === -1) splitAt = text.indexOf(' ', mid);
+  if (splitAt === -1) return [text];
+  return [text.slice(0, splitAt), text.slice(splitAt + 1)];
+}
+
+function getTypeLabel(type) {
+  const map = { 'screen': 'UI', 'hook': 'Hook', 'api-route': 'API', 'lib': 'Lib', 'store': 'Store', 'external': 'Ext' };
+  return map[type] || type;
+}
+
+const LAYER_COLORS = ['#4A6FA5', '#7A5EA5', '#C4622D', '#5A9E6F', '#A55E5E', '#A57A2D'];
+
+function getIconSymbolId(type) {
+  const map = { 'screen': 'icon-screen', 'hook': 'icon-hook', 'api-route': 'icon-api', 'lib': 'icon-lib', 'store': 'icon-store', 'external': 'icon-ext' };
+  return map[type] || 'icon-screen';
+}
+
+function buildSVG() {
+  const lanesG = d3.select('#lanes-group');
+  const nodesG = d3.select('#nodes-group');
+  const connsG = d3.select('#connections-group');
+  const badgesG = d3.select('#fail-badges-group');
+
+  // Draw lanes
+  LANES.forEach(lane => {
+    lanesG.append('rect')
+      .attr('x', 0).attr('y', lane.y)
+      .attr('width', 2000).attr('height', lane.height)
+      .attr('fill', lane.color).attr('opacity', 0.04);
+    lanesG.append('rect')
+      .attr('class', 'lane-strip')
+      .attr('x', 0).attr('y', lane.y)
+      .attr('width', 20).attr('height', lane.height)
+      .attr('fill', lane.color).attr('opacity', 0.5);
+    lanesG.append('text')
+      .attr('class', 'lane-label')
+      .attr('x', 10).attr('y', lane.y + lane.height / 2)
+      .attr('transform', `rotate(-90, 10, ${lane.y + lane.height / 2})`)
+      .attr('text-anchor', 'middle')
+      .text(lane.label);
+  });
+
+  // Draw connections
+  RAW_CONNECTIONS.forEach(([srcId, tgtId, connType]) => {
+    const src = NODE_BY_ID[srcId];
+    const tgt = NODE_BY_ID[tgtId];
+    if (!src || !tgt) return;
+
+    const sx = src.cx, sy = src.cy;
+    const tx = tgt.cx, ty = tgt.cy;
+
+    let d;
+    if (Math.abs(sy - ty) < 10) {
+      // Same layer — bow upward
+      const midX = (sx + tx) / 2;
+      const midY = Math.min(sy, ty) - 80;
+      d = `M${sx},${sy} Q${midX},${midY} ${tx},${ty}`;
+    } else {
+      const csy = sy + 21, cty = ty - 21;
+      d = `M${sx},${csy} C${sx},${csy + 60} ${tx},${cty - 60} ${tx},${cty}`;
+    }
+
+    const strokeColor = connType === 'primary' ? '#5A8A6A' : connType === 'async' ? '#5A7A8A' : '#6B6458';
+    const dash = connType === 'primary' ? null : connType === 'async' ? '6 3' : '3 3';
+
+    const path = connsG.append('path')
+      .attr('class', 'connection-path')
+      .attr('d', d)
+      .attr('stroke', strokeColor)
+      .attr('stroke-width', connType === 'fallback' ? 1 : 1.5)
+      .attr('marker-end', `url(#arrow-${connType})`)
+      .attr('opacity', 0.6);
+
+    if (dash) path.attr('stroke-dasharray', dash);
+
+    connElems.push({ path: path.node(), srcId, tgtId, connType });
+  });
+
+  // Draw nodes
+  NODES.forEach(node => {
+    const g = nodesG.append('g')
+      .attr('class', 'node-g')
+      .attr('transform', `translate(${node.cx - NODE_W / 2}, ${node.cy - NODE_H / 2})`)
+      .attr('cursor', 'pointer')
+      .on('click', () => selectNode(node.id));
+
+    const rect = g.append('rect')
+      .attr('class', 'node-rect')
+      .attr('width', NODE_W).attr('height', NODE_H)
+      .attr('rx', 8);
+
+    const layerColor = LAYER_COLORS[node.layer] || '#7A7A7A';
+    g.append('use')
+      .attr('href', `#${getIconSymbolId(node.type)}`)
+      .attr('x', 9).attr('y', Math.round((NODE_H - 14) / 2))
+      .attr('width', 14).attr('height', 14)
+      .style('color', layerColor)
+      .attr('opacity', 0.85)
+      .attr('pointer-events', 'none');
+
+    const lines = wrapLabel(node.label, 18);
+    const hasType = true;
+    const lineH = 15;
+    const totalTextH = lines.length * lineH + (hasType ? 13 : 0);
+    const startY = NODE_H / 2 - totalTextH / 2 + 7;
+
+    lines.forEach((line, i) => {
+      g.append('text')
+        .attr('class', 'node-label')
+        .attr('x', 82)
+        .attr('y', startY + i * lineH)
+        .text(line);
+    });
+
+    g.append('text')
+      .attr('class', 'node-type-badge')
+      .attr('x', 82)
+      .attr('y', startY + lines.length * lineH + 2)
+      .text(getTypeLabel(node.type));
+
+    nodeElems[node.id] = { g: g.node(), rect: rect.node() };
+  });
+
+  // Draw fail badges
+  FAIL_POINTS.forEach(fp => {
+    const node = NODE_BY_ID[fp.nodeId];
+    if (!node) return;
+
+    const existingCount = FAIL_POINTS.filter(f => f.nodeId === fp.nodeId && FAIL_POINTS.indexOf(f) < FAIL_POINTS.indexOf(fp)).length;
+    const offsetX = existingCount * 14;
+
+    const badgeG = badgesG.append('g')
+      .attr('class', 'fail-badge')
+      .attr('transform', `translate(${node.cx + NODE_W/2 - 10 - offsetX}, ${node.cy - NODE_H/2 - 6})`)
+      .style('display', 'none')
+      .attr('cursor', 'pointer');
+
+    badgeG.append('circle').attr('r', 7).attr('cx', 0).attr('cy', 0);
+    badgeG.append('text').attr('x', 0).attr('y', 0).text('!');
+
+    badgeG.on('mouseover', function(event) {
+      const tt = document.getElementById('tooltip');
+      document.getElementById('tt-title').textContent = fp.title;
+      document.getElementById('tt-sev').textContent = fp.severity.toUpperCase();
+      tt.style.display = 'block';
+      tt.style.left = (event.clientX + 12) + 'px';
+      tt.style.top = (event.clientY - 8) + 'px';
+    }).on('mousemove', function(event) {
+      const tt = document.getElementById('tooltip');
+      tt.style.left = (event.clientX + 12) + 'px';
+      tt.style.top = (event.clientY - 8) + 'px';
+    }).on('mouseout', function() {
+      document.getElementById('tooltip').style.display = 'none';
+    }).on('click', function(event) {
+      event.stopPropagation();
+      const node = NODE_BY_ID[fp.nodeId];
+      if (node) selectNode(fp.nodeId, 'failpoints');
+    });
+
+    failBadgeElems[fp.id] = badgeG.node();
+  });
+}
+
+function initZoom() {
+  const svg = document.getElementById('arch-svg');
+  const svgEl = d3.select(svg);
+  const zoomRoot = d3.select('#zoom-root');
+
+  svgZoom = d3.zoom()
+    .scaleExtent([0.3, 3.0])
+    .on('zoom', (event) => {
+      zoomRoot.attr('transform', event.transform);
+    });
+
+  svgEl.call(svgZoom);
+
+  // Fit to window width on load
+  const vw = window.innerWidth;
+  const scale = (vw - 40) / 2000;
+  const clampedScale = Math.max(0.3, Math.min(3.0, scale));
+  const tx = (vw - 2000 * clampedScale) / 2;
+  svgEl.call(svgZoom.transform, d3.zoomIdentity.translate(tx, 20).scale(clampedScale));
+}
+
+function resetZoom() {
+  const svg = d3.select('#arch-svg');
+  const vw = window.innerWidth;
+  const scale = (vw - 40) / 2000;
+  const clampedScale = Math.max(0.3, Math.min(3.0, scale));
+  const tx = (vw - 2000 * clampedScale) / 2;
+  svg.transition().duration(400).call(svgZoom.transform, d3.zoomIdentity.translate(tx, 20).scale(clampedScale));
+}
+
+// ─── RENDER ──────────────────────────────────────────────────────────────────
+
+function render() {
+  renderTabs();
+  renderDiagramControls();
+  renderNodes();
+  renderConnections();
+  renderFailPoints();
+  renderFlowStepper();
+  renderPanel();
+}
+
+function renderTabs() {
+  ['diagram', 'prompts', 'flows'].forEach(tab => {
+    document.getElementById(`tab-btn-${tab}`).classList.toggle('active', APP_STATE.activeTab === tab);
+    const section = document.getElementById(`tab-${tab}`);
+    if (section) section.hidden = APP_STATE.activeTab !== tab;
+  });
+  document.getElementById('diagram-controls').style.display = APP_STATE.activeTab === 'diagram' ? 'flex' : 'none';
+}
+
+function renderDiagramControls() {
+  ['all','ui','hooks','api','libs','stores','external'].forEach(l => {
+    document.getElementById(`layer-${l}`).classList.toggle('active', APP_STATE.activeLayer === l);
+  });
+  ['camera-scan','search-restaurant','view-recipe'].forEach(f => {
+    document.getElementById(`flow-${f}`).classList.toggle('active', APP_STATE.activeFlowId === f);
+  });
+  const failBtn = document.getElementById('fail-toggle');
+  failBtn.classList.toggle('active-warning', APP_STATE.showFailPoints);
+}
+
+function getNodeVisibility(nodeId) {
+  const node = NODE_BY_ID[nodeId];
+  if (!node) return 'normal';
+
+  // Layer filter
+  if (APP_STATE.activeLayer !== 'all') {
+    const layerMap = { 'ui': 0, 'hooks': 1, 'api': 2, 'libs': 3, 'stores': 4, 'external': 5 };
+    if (node.layer !== layerMap[APP_STATE.activeLayer]) return 'dimmed';
+  }
+
+  // Flow filter
+  if (APP_STATE.activeFlowId) {
+    const flow = FLOW_BY_ID[APP_STATE.activeFlowId];
+    const activeStep = flow.steps[APP_STATE.activeFlowStep];
+    const visitedNodeIds = new Set();
+    for (let i = 0; i <= APP_STATE.activeFlowStep; i++) {
+      flow.steps[i].nodeIds.forEach(id => visitedNodeIds.add(id));
+    }
+
+    if (activeStep.nodeIds.includes(nodeId)) return 'flow-active';
+    if (visitedNodeIds.has(nodeId)) return 'flow-visited';
+    return 'dimmed';
+  }
+
+  return 'normal';
+}
+
+function renderNodes() {
+  const sel = APP_STATE.selectedNodeId;
+
+  // Compute neighbour degrees when a node is selected
+  const deg1Ids = new Set();
+  const deg2Ids = new Set();
+  if (sel) {
+    connElems.forEach(({ srcId, tgtId }) => {
+      if (srcId === sel) deg1Ids.add(tgtId);
+      else if (tgtId === sel) deg1Ids.add(srcId);
+    });
+    connElems.forEach(({ srcId, tgtId }) => {
+      if (deg1Ids.has(srcId) && tgtId !== sel) deg2Ids.add(tgtId);
+      if (deg1Ids.has(tgtId) && srcId !== sel) deg2Ids.add(srcId);
+    });
+    deg1Ids.forEach(id => deg2Ids.delete(id));
+    deg2Ids.delete(sel);
+  }
+
+  NODES.forEach(node => {
+    const elem = nodeElems[node.id];
+    if (!elem) return;
+    const rect = elem.rect;
+    const vis = getNodeVisibility(node.id);
+    const isSelected = sel === node.id;
+
+    rect.classList.remove('selected', 'dimmed', 'flow-active', 'flow-visited', 'has-fail', 'deg1', 'deg2');
+
+    if (isSelected) {
+      rect.classList.add('selected');
+    } else if (sel) {
+      if (deg1Ids.has(node.id)) rect.classList.add('deg1');
+      else if (deg2Ids.has(node.id)) rect.classList.add('deg2');
+      else rect.classList.add('dimmed');
+    } else {
+      if (vis === 'dimmed') rect.classList.add('dimmed');
+      if (vis === 'flow-active') rect.classList.add('flow-active');
+      if (vis === 'flow-visited') rect.classList.add('flow-visited');
+    }
+
+    const notDimmed = !rect.classList.contains('dimmed');
+    if (APP_STATE.showFailPoints && node.failPointIds && node.failPointIds.length > 0 && notDimmed) {
+      if (!isSelected && !rect.classList.contains('flow-active')) rect.classList.add('has-fail');
+    }
+  });
+}
+
+function renderConnections() {
+  const sel = APP_STATE.selectedNodeId;
+
+  if (sel) {
+    const deg1Set = new Set();
+    connElems.forEach(({ srcId, tgtId }, i) => {
+      if (srcId === sel || tgtId === sel) deg1Set.add(i);
+    });
+
+    const deg2Set = new Set();
+    connElems.forEach(({ srcId, tgtId }, i) => {
+      if (deg1Set.has(i)) return;
+      connElems.forEach(({ srcId: s2, tgtId: t2 }, j) => {
+        if (!deg1Set.has(j)) return;
+        const neighbor = s2 === sel ? t2 : t2 === sel ? s2 : null;
+        if (neighbor && (srcId === neighbor || tgtId === neighbor)) deg2Set.add(i);
+      });
+    });
+
+    connElems.forEach(({ path }, i) => {
+      if (deg1Set.has(i)) {
+        path.style.opacity = '1';
+        path.style.strokeWidth = '2.5';
+      } else if (deg2Set.has(i)) {
+        path.style.opacity = '0.4';
+        path.style.strokeWidth = '1.5';
+      } else {
+        path.style.opacity = '0.05';
+        path.style.strokeWidth = '';
+      }
+    });
+    return;
+  }
+
+  connElems.forEach(({ path, srcId, tgtId }) => {
+    const srcVis = getNodeVisibility(srcId);
+    const tgtVis = getNodeVisibility(tgtId);
+    const bothActive = srcVis !== 'dimmed' && tgtVis !== 'dimmed';
+    path.style.opacity = bothActive ? '0.5' : '0.08';
+    path.style.strokeWidth = '';
+  });
+}
+
+function renderFailPoints() {
+  FAIL_POINTS.forEach(fp => {
+    const el = failBadgeElems[fp.id];
+    if (!el) return;
+    const nodeVis = getNodeVisibility(fp.nodeId);
+    const show = APP_STATE.showFailPoints && nodeVis !== 'dimmed';
+    el.style.display = show ? '' : 'none';
+  });
+}
+
+function renderFlowStepper() {
+  const stepper = document.getElementById('flow-stepper');
+  if (!APP_STATE.activeFlowId) {
+    stepper.classList.add('hidden');
+    return;
+  }
+  stepper.classList.remove('hidden');
+
+  const flow = FLOW_BY_ID[APP_STATE.activeFlowId];
+  const step = flow.steps[APP_STATE.activeFlowStep];
+
+  document.getElementById('flow-step-label').textContent = `${APP_STATE.activeFlowStep + 1}. ${step.label}`;
+  document.getElementById('flow-step-desc').textContent = step.description;
+  document.getElementById('flow-step-counter').textContent = `${APP_STATE.activeFlowStep + 1} / ${flow.steps.length}`;
+
+  document.getElementById('flow-prev').disabled = APP_STATE.activeFlowStep === 0;
+  document.getElementById('flow-next').disabled = APP_STATE.activeFlowStep === flow.steps.length - 1;
+}
+
+function renderPanel() {
+  const panel = document.getElementById('detail-panel');
+  if (!APP_STATE.selectedNodeId) {
+    panel.classList.remove('open');
+    return;
+  }
+  panel.classList.add('open');
+
+  const node = NODE_BY_ID[APP_STATE.selectedNodeId];
+  if (!node) return;
+
+  document.getElementById('panel-node-label').textContent = node.label;
+
+  // Badges
+  const badgesDiv = document.getElementById('panel-badges');
+  const layerNames = ['UI', 'Hooks', 'API', 'Libs', 'Stores', 'External'];
+  const layerKeys = ['ui', 'hooks', 'api', 'libs', 'stores', 'external'];
+  const methodColors = { GET: 'badge-method-get', POST: 'badge-method-post', DELETE: 'badge-method-delete' };
+
+  let badgeHTML = `<span class="badge badge-layer-${layerKeys[node.layer]}">${layerNames[node.layer]}</span>`;
+  badgeHTML += `<span class="badge badge-type">${node.type}</span>`;
+  if (node.method) badgeHTML += `<span class="badge ${methodColors[node.method]}">${node.method}</span>`;
+  badgesDiv.innerHTML = badgeHTML;
+
+  // Build tab list
+  const hasTabs = {
+    overview: true,
+    io: (node.inputs && node.inputs.length > 0) || (node.outputs && node.outputs.length > 0),
+    prompt: !!node.promptId,
+    failpoints: node.failPointIds && node.failPointIds.length > 0
+  };
+
+  const tabLabels = { overview: 'Overview', io: 'I/O', prompt: 'Prompt', failpoints: 'Fail Points' };
+
+  const tabsDiv = document.getElementById('panel-tabs');
+  tabsDiv.innerHTML = Object.entries(hasTabs).filter(([,v]) => v).map(([key]) =>
+    `<button class="panel-tab ${APP_STATE.detailTab === key ? 'active' : ''}" onclick="setDetailTab('${key}')">${tabLabels[key]}</button>`
+  ).join('');
+
+  // Make sure active tab is valid
+  if (!hasTabs[APP_STATE.detailTab]) {
+    APP_STATE.detailTab = 'overview';
+  }
+
+  // Render body
+  const body = document.getElementById('panel-body');
+
+  if (APP_STATE.detailTab === 'overview') {
+    body.innerHTML = `<div class="panel-section"><p>${escHtml(node.description)}</p></div>`;
+  }
+  else if (APP_STATE.detailTab === 'io') {
+    body.innerHTML = renderIOTab(node);
+  }
+  else if (APP_STATE.detailTab === 'prompt') {
+    body.innerHTML = renderPromptTab(node);
+  }
+  else if (APP_STATE.detailTab === 'failpoints') {
+    body.innerHTML = renderFailTab(node);
+  }
+}
+
+function renderIOTab(node) {
+  let html = '';
+
+  html += `<div class="panel-section"><h4>Inputs</h4>`;
+  if (!node.inputs || node.inputs.length === 0) {
+    html += `<p class="muted">No inputs</p>`;
+  } else {
+    html += `<table class="io-table"><thead><tr><th>Field</th><th>Type</th><th>Req</th><th>Notes</th></tr></thead><tbody>`;
+    node.inputs.forEach(inp => {
+      html += `<tr>
+        <td>${escHtml(inp.field)}</td>
+        <td><span class="io-type">${escHtml(inp.type)}</span></td>
+        <td>${inp.required ? '<span class="req-dot" title="required"></span>' : ''}</td>
+        <td>${escHtml(inp.notes || '')}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="panel-section"><h4>Outputs</h4>`;
+  if (!node.outputs || node.outputs.length === 0) {
+    html += `<p class="muted">No outputs</p>`;
+  } else {
+    html += `<table class="io-table"><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody>`;
+    node.outputs.forEach(out => {
+      html += `<tr>
+        <td>${escHtml(out.field)}</td>
+        <td><span class="io-type">${escHtml(out.type)}</span></td>
+        <td>${escHtml(out.notes || '')}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+
+  return html;
+}
+
+function renderPromptTab(node) {
+  if (!node.promptId) return '<p class="muted">No prompt</p>';
+
+  let html = '';
+
+  // api-scan-enrich has two prompts
+  const promptIds = node.id === 'api-scan-enrich' ? ['INFER_PROMPT', 'DISH_RATING_PROMPT'] : [node.promptId];
+
+  promptIds.forEach(pid => {
+    const p = GEMINI_PROMPTS[pid];
+    if (!p) return;
+    html += `<div class="prompt-section">
+      <h4>${escHtml(p.label)}</h4>
+      <p class="prompt-route">${escHtml(p.route)}</p>
+      <p class="prompt-purpose">${escHtml(p.purpose)}</p>
+      <pre class="prompt-text">${escHtml(p.text)}</pre>
+    </div>`;
+  });
+
+  return html;
+}
+
+function renderFailTab(node) {
+  if (!node.failPointIds || node.failPointIds.length === 0) return '<p class="muted">No fail points</p>';
+
+  return node.failPointIds.map(fpId => {
+    const fp = FAIL_BY_ID[fpId];
+    if (!fp) return '';
+    const sevClass = `badge-sev-${fp.severity}`;
+    return `<div class="fail-card">
+      <div class="fail-card-header">
+        <span class="badge ${sevClass}">${fp.severity.toUpperCase()}</span>
+        <span class="fail-title">${escHtml(fp.title)}</span>
+      </div>
+      <p class="fail-desc">${escHtml(fp.description)}</p>
+    </div>`;
+  }).join('');
+}
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ─── PROMPTS TAB ─────────────────────────────────────────────────────────────
+
+function buildPromptsTab() {
+  const container = document.getElementById('tab-prompts');
+  container.innerHTML = Object.values(GEMINI_PROMPTS).map(p => {
+    return `<div class="prompt-card">
+      <div class="prompt-card-header">
+        <span class="prompt-card-label">${escHtml(p.label)}</span>
+        <button class="prompt-jump-link" onclick="jumpToNode('${p.nodeId}')">Jump to node →</button>
+      </div>
+      <div class="prompt-card-route">${escHtml(p.route)}</div>
+      <div class="prompt-card-purpose">${escHtml(p.purpose)}</div>
+      <pre class="prompt-text">${escHtml(p.text)}</pre>
+    </div>`;
+  }).join('');
+}
+
+// ─── FLOWS TAB ───────────────────────────────────────────────────────────────
+
+function buildFlowsTab() {
+  const container = document.getElementById('tab-flows');
+  container.innerHTML = `<div style="padding-top: 8px;">` + FLOWS.map(flow => {
+    const steps = flow.steps.map(s =>
+      `<li class="flow-step-item">
+        <div class="flow-step-num">${s.index + 1}</div>
+        <div class="flow-step-content">
+          <div class="flow-step-label">${escHtml(s.label)}</div>
+          <div class="flow-step-desc">${escHtml(s.description)}</div>
+        </div>
+      </li>`
+    ).join('');
+
+    return `<div class="flow-section">
+      <h3>${escHtml(flow.label)}</h3>
+      <div class="flow-section-desc">${escHtml(flow.description)}</div>
+      <ul class="flow-step-list">${steps}</ul>
+      <button class="trace-btn" onclick="traceFlow('${flow.id}')">Trace in diagram →</button>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+// ─── ACTIONS ─────────────────────────────────────────────────────────────────
+
+function selectNode(id, tab) {
+  setState({
+    selectedNodeId: id,
+    detailTab: tab || 'overview'
+  });
+}
+
+function closePanel() {
+  setState({ selectedNodeId: null });
+}
+
+function setTab(tab) {
+  setState({ activeTab: tab });
+}
+
+function setDetailTab(tab) {
+  APP_STATE.detailTab = tab;
+  renderPanel();
+  // Refresh tab button active states without full re-render
+  document.querySelectorAll('.panel-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase().replace(' ', '') === tab ||
+      (tab === 'failpoints' && btn.textContent === 'Fail Points') ||
+      (tab === 'io' && btn.textContent === 'I/O') ||
+      (tab === 'overview' && btn.textContent === 'Overview') ||
+      (tab === 'prompt' && btn.textContent === 'Prompt'));
+  });
+}
+
+function setLayer(layer) {
+  setState({ activeLayer: layer });
+}
+
+function setFlow(flowId) {
+  if (APP_STATE.activeFlowId === flowId) {
+    setState({ activeFlowId: null, activeFlowStep: 0 });
+  } else {
+    setState({ activeFlowId: flowId, activeFlowStep: 0 });
+  }
+}
+
+function advanceFlow(dir) {
+  if (!APP_STATE.activeFlowId) return;
+  const flow = FLOW_BY_ID[APP_STATE.activeFlowId];
+  const next = Math.max(0, Math.min(flow.steps.length - 1, APP_STATE.activeFlowStep + dir));
+  setState({ activeFlowStep: next });
+}
+
+function toggleFailPoints() {
+  setState({ showFailPoints: !APP_STATE.showFailPoints });
+}
+
+function jumpToNode(nodeId) {
+  setTab('diagram');
+  setTimeout(() => selectNode(nodeId, 'prompt'), 50);
+}
+
+function traceFlow(flowId) {
+  setTab('diagram');
+  setTimeout(() => setFlow(flowId), 50);
+}
+
+// ─── KEYBOARD ────────────────────────────────────────────────────────────────
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (APP_STATE.selectedNodeId) closePanel();
+    else if (APP_STATE.activeFlowId) setFlow(null);
+  }
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') advanceFlow(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') advanceFlow(-1);
+});
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+
+(function init() {
+  initData();
+  buildSVG();
+  initZoom();
+  buildPromptsTab();
+  buildFlowsTab();
+  render();
+})();
+</script>
+</body>
+</html>
